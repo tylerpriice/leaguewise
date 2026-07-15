@@ -1,4 +1,4 @@
-<p align="center"><img src="social-card.png" width="400" alt="Leaguewise: league analytics for ESPN Fantasy Baseball. Nothing leaves your browser."></p>
+<p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball. Nothing leaves your browser."></p>
 
 <p align="center">A browser extension. Firefox today, with Chrome and Edge on the way.</p>
 
