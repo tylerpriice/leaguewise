@@ -112,12 +112,17 @@ export function splitByTier(team, startWeek, endWeek, getWeekVal) {
     return { reg, playoff, consolation, total: reg + playoff + consolation };
 }
 
+// Escapes the five HTML-significant characters (including ' for single-quoted attributes). Team
+// and player names are set by league members, so every interpolation of them into an innerHTML
+// template must run through this. Read sites that pull an escaped value back OUT of an attribute
+// must use textContent, not innerHTML, or they re-decode and re-arm the markup (see attachDataTooltips).
 export function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 export function ensureFloatingTooltip() {
@@ -139,7 +144,13 @@ export function attachDataTooltips(container) {
     container.querySelectorAll('[data-tooltip]').forEach(el => {
         el.addEventListener('mousemove', (e) => {
             e.stopPropagation();
-            tooltipEl.innerHTML = `<strong>${el.getAttribute('data-tooltip')}</strong>`;
+            // Text-only: getAttribute decodes the entities the write sites escaped, so piping it
+            // back through innerHTML would re-arm hostile markup in team names. Build the node and
+            // set textContent instead, so attribute-sourced text is never HTML-parsed.
+            tooltipEl.textContent = '';
+            const strong = document.createElement('strong');
+            strong.textContent = el.getAttribute('data-tooltip');
+            tooltipEl.appendChild(strong);
             tooltipEl.style.display = 'block';
             tooltipEl.style.left = (e.clientX + 15) + 'px';
             tooltipEl.style.top = (e.clientY + 15) + 'px';

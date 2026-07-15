@@ -2,7 +2,7 @@ import { AppState, TEAM_COLORS } from './state.js';
 import { rebuildTimeframeOptions, buildCheckboxes, buildLegend, collapseSettingsBar } from './controls.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand } from './graphs.js';
 import { resetLeaderboardWeeklyFetchState, prefetchPlayerData } from './players.js';
-import { statValue, firstDefined } from './utils.js';
+import { statValue, firstDefined, escapeHtml } from './utils.js';
 
 // Every real caller is a genuine new league/year/sport fetch (api.js). There's no lighter "re-render without resetting" call anywhere in the project, so this always resets.
 export function processCoreData() {
@@ -172,8 +172,9 @@ export function processCoreData() {
 
             const hId = g.home.teamId;
             const aId = g.away.teamId;
-            const homeName = teamDataMap[hId]?.name || `Team ${hId}`;
-            const awayName = teamDataMap[aId]?.name || `Team ${aId}`;
+            // Escaped at the source: these go into the dropdown's innerHTML below, and team names are set by league members, so hostile markup must render as text.
+            const homeName = escapeHtml(teamDataMap[hId]?.name || `Team ${hId}`);
+            const awayName = escapeHtml(teamDataMap[aId]?.name || `Team ${aId}`);
 
             const hTeamColor = AppState.teamColorMap[hId] || '#888';
             const aTeamColor = AppState.teamColorMap[aId] || '#888';

@@ -62,7 +62,7 @@ function buildComparisonBarRowHtml({ name, val, color, minVal, maxVal, leaderVal
 
     return `
         <div class="bar-row">
-            <span class="bar-title" title="${escapeHtml(name)}">${name}</span>
+            <span class="bar-title" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
             <div class="bar-track">
                 <div class="bar-fill" style="width:${fillPct}%;">
                     ${segments}
