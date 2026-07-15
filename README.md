@@ -1,6 +1,6 @@
-<p align="center"><img src="banner.svg" width="460" alt="Leaguewise"></p>
+<p align="center"><img src="social-card.png" width="800" alt="Leaguewise: league analytics for ESPN Fantasy Baseball. Nothing leaves your browser."></p>
 
-<p align="center">League analytics for ESPN Fantasy Baseball, as a browser extension. Firefox today, with Chrome and Edge on the way.</p>
+<p align="center">A browser extension. Firefox today, with Chrome and Edge on the way.</p>
 
 Point it at your league and it turns the season into something you can actually see: standings that show how you got here, trend lines, category heatmaps, a full player leaderboard with its own ranking engine, and shareable weekly recaps for the group chat.
 
