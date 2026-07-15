@@ -24,7 +24,13 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 ## What it does
 
 - **Team Metrics**: standings with playoff-tier shading and W-L-T records, season trend lines, category rankings, a category-dominance heatmap, live weekly scoreboards, and one shared timeframe control (full season, regular season, last N matchups, playoffs).
+
+<p align="center"><img src="screenshots/team-metrics.png" width="800" alt="Team Metrics tab: season trends, team rankings, and the category heatmap"></p>
+
 - **Player Metrics**: a full-league player leaderboard driven by a custom Roto-style rank engine (percentile per category against qualified peers, playing-time adjustment, opportunity gating for saves and quality starts, role-aware relief pitcher handling, two-way player support), plus search, position, and availability filters, and a per-player drill-down with weekly trend charts.
+
+<p align="center"><img src="screenshots/player-metrics.png" width="800" alt="Player Metrics tab: the ranked player leaderboard"></p>
+
 - **Export**: CSV or clipboard export of standings, category totals, or the player leaderboard exactly as configured on screen.
 - **Recap**: a shareable image and text summary of a matchup week, sized for posting into a league group chat.
 
