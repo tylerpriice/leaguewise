@@ -33,23 +33,25 @@ export async function populateLeaguePicker(swid) {
 
     const data = await fetchEspnJson(`https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(swid)}`);
 
-    const leagues = [];
-    const seen = new Set();
+    // Keyed by sport:leagueId, not season. The fan API can list the same league once per season it knows about, so this keeps only the highest seasonId per league, which matches what the onchange handler below auto-selects in the Year dropdown.
+    const byLeague = new Map();
     (data.preferences || []).forEach(pref => {
         const entry = pref.metaData?.entry;
         const group = entry?.groups?.[0];
         const sport = FAN_API_GAME_IDS[entry?.gameId];
         if (!entry || !group?.groupId || !SUPPORTED_SPORTS.has(sport)) return;
         const leagueId = group.groupId.toString();
-        if (seen.has(`${sport}:${leagueId}:${entry.seasonId}`)) return;
-        seen.add(`${sport}:${leagueId}:${entry.seasonId}`);
-        leagues.push({
+        const key = `${sport}:${leagueId}`;
+        const existing = byLeague.get(key);
+        if (existing && (existing.seasonId || 0) >= (entry.seasonId || 0)) return;
+        byLeague.set(key, {
             leagueId,
             sport,
             seasonId: entry.seasonId,
-            label: `${group.groupName || entry.name || `League ${leagueId}`} (${sport === 'flb' ? 'MLB' : 'NHL'}${entry.seasonId ? ` ${entry.seasonId}` : ''})`
+            label: `${group.groupName || entry.name || `League ${leagueId}`} (${sport === 'flb' ? 'MLB' : 'NHL'})`
         });
     });
+    const leagues = Array.from(byLeague.values());
     if (leagues.length === 0) return;
 
     select.innerHTML = '<option value="">Choose...</option>' +
