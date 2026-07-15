@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Leaguewise",
   "version": "1.0.0",
-  "description": "Advanced analytics, trends, and category visualization for ESPN Fantasy Baseball and Hockey.",
+  "description": "Advanced analytics, trends, and category visualization for ESPN Fantasy Baseball.",
   "browser_specific_settings": {
     "gecko": {
       "id": "extension@leaguewise.net",
