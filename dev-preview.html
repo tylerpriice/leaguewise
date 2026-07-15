@@ -5,14 +5,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script>
-        (function () {
-            try {
-                var t = localStorage.getItem('efv-theme');
-                if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-            } catch (e) { }
-        })();
-    </script>
+    <script src="theme-init.js"></script>
     <link rel="stylesheet" href="dashboard.css">
 </head>
 

@@ -3,17 +3,10 @@
 
 <head>
     <meta charset="utf-8">
-    <!-- Without this, mobile browsers (incl. -->
+    <!-- Without this, mobile browsers fall back to a virtual ~980px viewport and render the desktop layout zoomed out. -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Apply the saved theme synchronously, before the stylesheet paints, so there's no light-then-dark flash. -->
-    <script>
-        (function () {
-            try {
-                var t = localStorage.getItem('efv-theme');
-                if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-            } catch (e) { }
-        })();
-    </script>
+    <!-- Pre-stylesheet theme apply. External file because extension-page CSP blocks inline scripts. -->
+    <script src="theme-init.js"></script>
     <link rel="stylesheet" href="dashboard.css">
 </head>
 
