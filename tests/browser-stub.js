@@ -5,7 +5,44 @@
     const params = new URLSearchParams(location.search);
     const payloadName = params.get('payload') || 'espn-debug-1783444818700.json';
     const payloadFile = payloadName.includes('/') ? payloadName : `JSON_debug/${payloadName}`;
-    const payloadPromise = fetch(payloadFile).then(r => r.ok ? r.json() : null).catch(() => null);
+    const anonymize = params.get('anon') === '1';
+
+    // ?anon=1 renames every team and manager before the dashboard sees the payload, so screenshots of real league data carry no real names.
+    const anonymizePayload = (data) => {
+        if (!data?.teams) return data;
+        data.teams.forEach((t, i) => {
+            const label = `Team ${i + 1}`;
+            if ('name' in t) t.name = label;
+            if ('location' in t) t.location = 'Team';
+            if ('nickname' in t) t.nickname = String(i + 1);
+            if ('abbrev' in t) t.abbrev = `T${i + 1}`;
+        });
+        (data.members || []).forEach((m, i) => {
+            if ('displayName' in m) m.displayName = `Manager ${i + 1}`;
+            if ('firstName' in m) m.firstName = 'Manager';
+            if ('lastName' in m) m.lastName = String(i + 1);
+        });
+        return data;
+    };
+
+    const payloadPromise = fetch(payloadFile)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => (data && anonymize) ? anonymizePayload(data) : data)
+        .catch(() => null);
+
+    // ?players=<file> serves a captured player-pool JSON for the pool fetch so the Player Metrics tab runs offline. Weekly-stats calls (same endpoint, scoring-period filter header) pass through and fail down their normal path.
+    const playersName = params.get('players');
+    if (playersName) {
+        const playersFile = playersName.includes('/') ? playersName : `JSON_debug/${playersName}`;
+        const realFetch = window.fetch.bind(window);
+        window.fetch = (url, options) => {
+            const isKona = typeof url === 'string' && url.includes('kona_player_info');
+            const filterHeader = options?.headers?.['X-Fantasy-Filter'] || '';
+            const isWeekly = filterHeader.includes('filterStatsForTopScoringPeriodIds');
+            if (isKona && !isWeekly) return realFetch(playersFile);
+            return realFetch(url, options);
+        };
+    }
 
     window.browser = {
         cookies: {

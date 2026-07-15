@@ -4,6 +4,8 @@
 
 Point it at your league and it turns the season into something you can actually read: standings that show how you got here, trend lines, category heatmaps, a full player leaderboard with its own ranking engine, and shareable weekly recaps for the group chat.
 
+Category leagues are fully supported today. Points leagues aren't there yet (see Work in progress).
+
 ## Built with AI, reviewed by humans
 
 AI does a lot of the typing here. Humans review and test every change before it lands. The unit tests assert hand-computed values, and all ESPN stat ids are checked against real stat lines before use.
@@ -60,6 +62,12 @@ A green header means everything held.
 ## Stack
 
 Vanilla ES modules, one CSS file, no framework, no build step, no dependencies.
+
+## Work in progress
+
+- **Points leagues.** The scoring plumbing exists, but it hasn't been validated against a real points league yet. If you run one and want it supported sooner, open an issue.
+- **Chrome and Edge builds.**
+- **Firefox for Android.**
 
 ## Contributions
 
