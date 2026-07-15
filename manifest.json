@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Leaguewise",
+  "version": "1.0.0",
+  "description": "Advanced analytics, trends, and category visualization for ESPN Fantasy Baseball and Hockey.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "extension@leaguewise.net",
+      "strict_min_version": "109.0"
+    }
+  },
+  "icons": {
+    "48": "icon.svg",
+    "96": "icon.svg"
+  },
+  "permissions": [
+    "cookies",
+    "storage",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.espn.com/*"
+  ],
+  "action": {
+    "default_title": "Open Leaguewise",
+    "default_popup": "dashboard.html"
+  }
+}

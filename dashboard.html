@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <!-- Without this, mobile browsers (incl. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Apply the saved theme synchronously, before the stylesheet paints, so there's no light-then-dark flash. -->
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('efv-theme');
+                if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+            } catch (e) { }
+        })();
+    </script>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Brand banner: the wordmark with the rising-W-sparkline mark slotted in as the word's own "w". League[W]ise. -->
+        <h2 class="brand-lockup" title="Leaguewise">
+            <a class="brand-link" aria-label="Leaguewise">
+                <span>League</span><svg class="banner-mark" viewBox="1.4 3.6 22 15.5" aria-hidden="true">
+                    <polyline points="3,8 8,17.5 12,10.5 16,17.5 21,6" fill="none" stroke="var(--brand)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="21" cy="6" r="2.4" fill="var(--accent)"/>
+                </svg><span>ise</span>
+            </a>
+        </h2>
+        <div id="auth-status" class="status-red">Checking cookies...</div>
+
+        <div class="form-row">
+            <button id="settings-toggle-btn" class="settings-toggle-btn" style="display:none;"
+                title="League settings">⚙️</button>
+            <div id="settings-bar" class="settings-bar">
+                <div id="my-leagues-wrap" style="display:none;">
+                    <label>My Leagues:</label>
+                    <select id="my-leagues"></select>
+                </div>
+                <div>
+                    <label>Sport:</label>
+                    <select id="sport">
+                        <option value="fhl">Hockey</option>
+                        <option value="flb" selected>Baseball</option>
+                    </select>
+                </div>
+                <div>
+                    <label>League ID:</label>
+                    <input type="text" id="league-id" placeholder="e.g. 12345678">
+                </div>
+                <div>
+                    <label>Year:</label>
+                    <select id="year">
+                        <option value="2026">2026</option>
+                        <option value="2025">2025</option>
+                        <option value="2024">2024</option>
+                        <option value="2023">2023</option>
+                        <option value="2022">2022</option>
+                        <option value="2021">2021</option>
+                    </select>
+                </div>
+                <div>
+                    <label>&nbsp;</label>
+                    <button id="fetch-btn">Fetch Data</button>
+                </div>
+            </div>
+            <div class="scoreboard-hover" style="margin-left: auto; padding-bottom: 8px;">
+                <span id="week-indicator"
+                    style="color: var(--accent); font-weight: bold; font-size: 12px; cursor: help;">&nbsp;</span>
+                <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
+            </div>
+            <button id="theme-toggle-btn" class="theme-toggle-btn" title="Theme">🌗</button>
+        </div>
+
+        <div id="results" style="display:none;">
+
+            <div class="tabs-container">
+                <button class="tab-button active" id="tab-btn-team">Team Metrics</button>
+                <button class="tab-button" id="tab-btn-player">Player Metrics</button>
+                <div id="timeframe-toggle" class="timeframe-toggle"></div>
+                <div class="share-toolbar">
+                    <button type="button" id="export-btn" class="share-toolbar-btn"
+                        title="Export standings, category totals, or the player leaderboard (CSV / clipboard)">⬇ Export</button>
+                    <button type="button" id="recap-btn" class="share-toolbar-btn"
+                        title="Build a shareable image + text recap of a matchup week">📣 Recap</button>
+                </div>
+            </div>
+
+            <div id="view-team" class="tab-view">
+                <div class="layout">
+                    <div class="col col-trends">
+                        <div class="header-row">
+                            <h3 style="display: flex; align-items: center;"><span id="trends-box-title">Season Trends</span>
+                                <span class="tooltip tooltip-bottom">ⓘ
+                                    <span class="tooltiptext" id="trends-box-tooltip">
+                                        Cat Wins and Match Wins using the selected timeframe. The dashed line
+                                        marks when playoffs started. Hover any point to get a breakdown.
+                                    </span>
+                                </span>
+                            </h3>
+                        </div>
+
+                        <div id="line-graph-container" class="graph-viewport"></div>
+                    </div>
+
+                    <div class="col col-rankings">
+                        <div class="header-row">
+                            <h3 class="rankings-tabs">
+                                <button type="button" id="rankings-tab-standings" class="rankings-tab active">Team Rankings</button>
+                                <button type="button" id="rankings-tab-category" class="rankings-tab">Category Rankings</button>
+                                <span class="tooltip tooltip-bottom">ⓘ
+                                    <span class="tooltiptext">
+                                        <strong>Team Rankings:</strong> H2H and Category Wins standings. Bars
+                                        shade darker for playoffs, lighter for consolation. Pie charts available
+                                        too.<br><br>
+                                        <strong>Category Rankings:</strong> teams ranked by total in the
+                                        categories picked.
+                                    </span>
+                                </span>
+                            </h3>
+                            <select id="pie-selector">
+                                <option value="rankings">Bar Charts</option>
+                                <option value="pies">Pie Charts</option>
+                            </select>
+                        </div>
+
+                        <div id="left-graph-container" class="graph-viewport"></div>
+                        <div id="cat-graph-container" class="graph-viewport" style="display:none;"></div>
+                        <div id="cat-filters" class="control-group rankings-cat-filters" style="display:none;">
+                            <div class="rankings-cat-filters-head">
+                                <span class="control-label">Categories</span>
+                                <div id="team-advanced-toggle" class="advanced-stats-toggle"></div>
+                            </div>
+                            <div id="category-checkboxes" class="checkbox-grid"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="heatmap-band">
+                    <div class="header-row">
+                        <h3 style="display: flex; align-items: center;">Category Heatmap
+                            <span class="tooltip tooltip-bottom">ⓘ
+                                <span class="tooltiptext">
+                                    Every team's total per category, shaded green (best) to red (worst).
+                                </span>
+                            </span>
+                        </h3>
+                    </div>
+                    <div id="heatmap-graph-container" class="graph-viewport"></div>
+                </div>
+
+                <div class="control-panel collapsed" id="control-panel">
+                    <button type="button" class="control-panel-toggle" id="filters-toggle" aria-expanded="false">
+                        <span class="control-panel-caret">▸</span> Data Filters
+                    </button>
+                    <div class="control-panel-body">
+                        <div id="trend-filters" class="control-group">
+                            <span class="control-label">Trend Lines</span>
+                            <div class="filter-flex">
+                                <label><input type="checkbox" id="toggle-cat" checked><span class="chip-swatch"></span>Cat Wins</label>
+                                <label><input type="checkbox" id="toggle-match" checked><span class="chip-swatch chip-dashed"></span>Match Wins</label>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <span class="control-label">Teams</span>
+                            <div id="team-legend" class="legend-container"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-player" class="tab-view" style="display:none;">
+                <div id="player-toolbar" class="player-toolbar">
+                    <div id="player-group-toggle" class="player-group-toggle"></div>
+                    <input type="text" id="player-search" placeholder="Search players...">
+                    <select id="player-availability-filter">
+                        <option value="all">All Availability</option>
+                        <option value="rostered">On Teams</option>
+                        <option value="fa">Free Agents</option>
+                    </select>
+                    <select id="player-position-filter">
+                        <option value="ALL">All Positions</option>
+                    </select>
+                    <div id="min-playing-time-toggle" class="advanced-stats-toggle"></div>
+                    <div id="advanced-stats-toggle" class="advanced-stats-toggle"></div>
+                </div>
+
+                <div id="player-leaderboard-container" class="graph-viewport player-leaderboard-viewport">
+                    <div class="player-loading">Open this tab after fetching league data to load players.</div>
+                </div>
+
+                <div id="player-detail-container" class="graph-viewport" style="display:none; flex-direction:column;"></div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <details id="debug-panel" class="debug-console" style="display:none;">
+        <summary><b>Diagnostic Data (Click to expand)</b></summary>
+        <button id="debug-download-btn" class="debug-download-btn">⬇ Download as JSON</button>
+        <pre id="debug-output"></pre>
+    </details>
+    <script type="module" src="main.js"></script>
+</body>
+
+</html>

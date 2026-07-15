@@ -1,0 +1,2356 @@
+/* =========================================================================== Design tokens. The single source of truth for color. */
+:root {
+    color-scheme: light;
+
+    /* Surfaces */
+    --bg: #f4f7f6;
+    --surface: #ffffff;
+    --surface-2: #f8f9fa;
+    --surface-3: #f1f3f5;
+    --surface-accent: #eef6ff;
+    --surface-accent-strong: #d7e6ff;
+
+    /* Borders */
+    --border: #e5e7eb;
+    --border-soft: #eef0f2;
+    --border-strong: #d5d9dd;
+    --border-muted: #cccccc;
+
+    /* Text */
+    --text: #222222;
+    --text-body: #333333;
+    --text-muted: #555555;
+    --text-subtle: #888888;
+    --text-faint: #aaaaaa;
+
+    /* Primary accent. Blue, interactive controls */
+    --accent: #007bff;
+    --accent-hover: #0b5ed7;
+    --accent-strong: #0056b3;
+    --accent-contrast: #ffffff;
+
+    /* Brand accent. Orange, used sparingly for identity/warmth */
+    --brand: #e8792e;
+    --brand-strong: #cf6a22;
+    --brand-soft: #fdf1e7;
+
+    /* Semantic */
+    --success: #1d8a3e;
+    --danger: #c62828;
+    --warning: #a8710a;
+    --warning-bg: #fdf6e8;
+    --warning-border: #f0d9a8;
+
+    /* Data / charts */
+    --chart-grid: #eeeeee;
+    --chart-axis: #888888;
+    --chart-avg: var(--brand);
+    --chart-boundary: #cccccc;
+
+    /* Tooltip (dark bubble in both themes) */
+    --tooltip-bg: rgba(34, 34, 34, 0.95);
+    --tooltip-text: #ffffff;
+
+    /* Dark scoreboard dropdown (dark in both themes) */
+    --panel-dark-bg: #222222;
+    --panel-dark-text: #ffffff;
+
+    /* Medals */
+    --medal-gold: #b8860b;
+    --medal-silver: #767676;
+    --medal-bronze: #a4581e;
+
+    /* Shadows */
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* Dark token values, shared by the auto (system) and explicit (toggle) paths. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0e131c;
+        --surface: #161c28;
+        --surface-2: #1d2533;
+        --surface-3: #273142;
+        --surface-accent: #16263c;
+        --surface-accent-strong: #1c3454;
+        --border: #2b3441;
+        --border-soft: #232b38;
+        --border-strong: #3a4453;
+        --border-muted: #3a4453;
+        --text: #e9edf4;
+        --text-body: #d7dde7;
+        --text-muted: #aeb7c5;
+        --text-subtle: #8792a3;
+        --text-faint: #6b7686;
+        --accent: #4d9bff;
+        --accent-hover: #6fb0ff;
+        --accent-strong: #93c4ff;
+        --accent-contrast: #0b1220;
+        --brand: #f7924a;
+        --brand-strong: #ffab6a;
+        --brand-soft: #2b2016;
+        --success: #4cc06a;
+        --danger: #f06a6a;
+        --warning: #e0a44a;
+        --warning-bg: #2a2213;
+        --warning-border: #463a1e;
+        --chart-grid: #29323f;
+        --chart-axis: #8792a3;
+        --chart-boundary: #3a4453;
+        --tooltip-bg: rgba(8, 12, 20, 0.96);
+        --tooltip-text: #e9edf4;
+        --panel-dark-bg: #10151e;
+        --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.55);
+        --shadow-lg: 0 12px 44px rgba(0, 0, 0, 0.6);
+    }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0e131c;
+    --surface: #161c28;
+    --surface-2: #1d2533;
+    --surface-3: #273142;
+    --surface-accent: #16263c;
+    --surface-accent-strong: #1c3454;
+    --border: #2b3441;
+    --border-soft: #232b38;
+    --border-strong: #3a4453;
+    --border-muted: #3a4453;
+    --text: #e9edf4;
+    --text-body: #d7dde7;
+    --text-muted: #aeb7c5;
+    --text-subtle: #8792a3;
+    --text-faint: #6b7686;
+    --accent: #4d9bff;
+    --accent-hover: #6fb0ff;
+    --accent-strong: #93c4ff;
+    --accent-contrast: #0b1220;
+    --brand: #f7924a;
+    --brand-strong: #ffab6a;
+    --brand-soft: #2b2016;
+    --success: #4cc06a;
+    --danger: #f06a6a;
+    --warning: #e0a44a;
+    --warning-bg: #2a2213;
+    --warning-border: #463a1e;
+    --chart-grid: #29323f;
+    --chart-axis: #8792a3;
+    --chart-boundary: #3a4453;
+    --tooltip-bg: rgba(8, 12, 20, 0.96);
+    --tooltip-text: #e9edf4;
+    --panel-dark-bg: #10151e;
+    --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 12px 44px rgba(0, 0, 0, 0.6);
+}
+
+html, body {
+    height: 100vh;
+    margin: 0;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text-body);
+    padding: 10px 30px;
+    box-sizing: border-box;
+    overflow: auto;
+}
+
+.container {
+    max-width: 1400px;
+    height: 100%;
+    margin: 0 auto;
+    background: var(--surface);
+    padding: 10px 30px;
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+h2 {
+    margin: 0 0 6px 0;
+    font-size: 18px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+/* Brand banner in the top bar: League[W]ise, the sparkline mark slotted in as the word's own "w" (see the markup comment in dashboard.html). align-items:baseline (not center) is what makes the mark sit ON the text baseline like a letter. An inline SVG's flex baseline is its bottom edge, and the banner viewBox is cropped so that edge IS the glyph's bottom. */
+.brand-lockup {
+    display: flex;
+    justify-content: center;
+}
+
+.brand-link {
+    display: inline-flex;
+    align-items: baseline;
+    color: inherit;
+    text-decoration: none;
+}
+
+/* Height ~0.74em lands the W between the lowercase x-height and the caps, with the accent dot rising above like a tittle. width:auto derives from the viewBox ratio. The 1px side margins are its letter spacing. */
+.banner-mark {
+    height: 0.74em;
+    width: auto;
+    margin: 0 1px;
+    flex: 0 0 auto;
+    align-self: baseline;
+}
+
+/* Centered to sit under the (centered) title. This line only ever shows a problem now ("missing cookies"), success renders nothing (see checkAuth in api.js). */
+.status-green {
+    color: var(--success);
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+.status-red {
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+    text-align: center;
+}
+
+/* FORM ROW ALIGNMENT. Flex-end forces everything to strictly lock to the bottom edge */
+.form-row {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 8px;
+    align-items: flex-end;
+    flex-shrink: 0;
+}
+
+.form-row>div {
+    flex: 1;
+    position: relative;
+}
+
+/* The week indicator/scoreboard block keeps its natural size at the right edge. It must not stretch like the settings fields do, or the dropdown anchor drifts. */
+.form-row>.scoreboard-hover {
+    flex: 0 0 auto;
+}
+
+/* The collapsible sport/league/year/fetch group (see collapseSettingsBar in controls.js). Its children carry the flex:1 field sizing the old flat .form-row>div layout provided. */
+.settings-bar {
+    display: flex;
+    gap: 15px;
+    align-items: flex-end;
+    flex: 1;
+    overflow: hidden;
+    max-height: 64px;
+    opacity: 1;
+    transition: max-height 0.5s ease, opacity 0.35s ease;
+}
+
+.settings-bar.collapsed {
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.settings-bar>div {
+    flex: 1;
+    position: relative;
+}
+
+/* Small gear that replaces the settings fields once data has loaded. Clicking it toggles them back open. */
+.settings-toggle-btn {
+    flex: 0 0 auto;
+    width: auto;
+    height: 34px;
+    padding: 0 12px;
+    font-size: 16px;
+    line-height: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-body);
+}
+
+.settings-toggle-btn:hover {
+    background: var(--surface-accent);
+    border-color: var(--accent);
+}
+
+/* Theme cycle button (Auto → Light → Dark), pinned to the far right of the top row. */
+.theme-toggle-btn {
+    flex: 0 0 auto;
+    width: auto;
+    height: 34px;
+    margin-left: 10px;
+    padding: 0 12px;
+    font-size: 16px;
+    line-height: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text-body);
+    cursor: pointer;
+}
+
+.theme-toggle-btn:hover {
+    background: var(--surface-accent);
+    border-color: var(--accent);
+}
+
+/* A couple of quick hops played the first time the settings collapse (see collapseSettingsBar in controls.js), so it's obvious where the fields went. */
+@keyframes settings-jump {
+
+    0%,
+    40%,
+    80%,
+    100% {
+        transform: translateY(0);
+    }
+
+    20% {
+        transform: translateY(-7px);
+    }
+
+    60% {
+        transform: translateY(-4px);
+    }
+}
+
+.settings-toggle-btn.jump {
+    animation: settings-jump 0.9s ease;
+}
+
+.form-row label {
+    display: block;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+    min-height: 15px;
+}
+
+/* Text fields and plain selects lean on color-scheme for dark adaptation, but pin an explicit surface/border so they match the themed panels around them rather than the raw UA default. */
+input,
+select {
+    background: var(--surface);
+    color: var(--text-body);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+}
+
+/* HARD-LOCKED HEIGHTS: Input, Select, and Button exactly match pixels */
+input,
+select,
+button {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 8px 10px;
+    box-sizing: border-box;
+    font-family: inherit;
+    height: 35px;
+}
+
+button {
+    background-color: var(--accent);
+    color: var(--accent-contrast);
+    border: 1px solid var(--accent);
+    font-weight: bold;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+button:hover {
+    background-color: var(--accent-hover);
+}
+
+#results {
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+}
+
+/* One single row, always. Tabs pinned left, Export/Recap pinned right, and the timeframe pills take the middle and scroll horizontally if they don't all fit (see .timeframe-toggle). nowrap is deliberate: a season with many "Last N Matchups" pills used to wrap the row and shove the share buttons onto an ugly second line. */
+.tabs-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    border-bottom: 2px solid var(--border-muted);
+    margin-bottom: 6px;
+    margin-top: 4px;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+}
+
+.tab-view {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+}
+
+/* Segmented pill row, living directly in .tabs-container (see dashboard.html) so it's always visible regardless of which tab is active. One shared control now drives Team Metrics graphs, the Player Metrics leaderboard, and the player drill-down chart all at once (AppState.timeframe, see rebuildTimeframeOptions in controls.js). */
+.timeframe-toggle {
+    display: flex;
+    gap: 5px;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    justify-content: safe flex-end;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.timeframe-toggle::-webkit-scrollbar {
+    display: none;
+}
+
+.timeframe-chip {
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 5px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-body);
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.timeframe-chip:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+}
+
+/* Solid blue, matching .tab-button.active/.group-toggle-btn.active/.rank-chip-selected. The "this one is the active mode" color used consistently elsewhere in this file. Rather than the light-tint #eef6ff .filter-flex label:has(input:checked) uses for "this one is included", which is a different, multi-select kind of selected state. */
+.timeframe-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+}
+
+.tab-button {
+    background: none;
+    border: none;
+    padding: 8px 15px;
+    font-size: 15px;
+    font-weight: bold;
+    color: var(--text-subtle);
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    width: auto;
+    margin: 0;
+    border-radius: 0;
+    transition: color 0.2s;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.tab-button:hover {
+    color: var(--text-body);
+    background: transparent;
+}
+
+.tab-button.active {
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent);
+}
+
+.scoreboard-hover {
+    position: relative;
+    display: inline-block;
+}
+
+.scoreboard-dropdown {
+    visibility: hidden;
+    position: absolute;
+    z-index: 1000;
+    right: 0;
+    top: 130%;
+    background: var(--panel-dark-bg);
+    color: var(--panel-dark-text);
+    width: 320px;
+    padding: 14px;
+    border-radius: 6px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+.scoreboard-dropdown::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    right: 15px;
+    border-width: 6px;
+    border-style: solid;
+    border-color: transparent transparent var(--panel-dark-bg) transparent;
+}
+
+.scoreboard-hover:hover .scoreboard-dropdown {
+    visibility: visible;
+    opacity: 1;
+}
+
+.layout {
+    display: flex;
+    gap: 22px;
+    margin-top: 4px;
+    align-items: stretch;
+    /* The two columns absorb ALL the space the heatmap band doesn't need. So when the heatmap fits at its natural size, the leftover goes here (bigger Season Trends / Rankings), not to empty padding under the heatmap. min-height:0 lets the columns give way to a tall heatmap without the page ever scrolling. */
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+/* Full-width Category Heatmap anchored below the two columns. Always visible at every timeframe (see renderHeatmapBand in graphs.js). flex 0-1-auto: sized to the heatmap's own content height (never grows into the columns' space), shrinking + scrolling internally only when a big league would exceed the max cap. */
+.heatmap-band {
+    display: flex;
+    flex-direction: column;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 55%;
+    margin-top: 8px;
+}
+
+.heatmap-band #heatmap-graph-container {
+    /* Override .graph-viewport's flex:1. Hug the table so any leftover height rolls up to the columns above rather than padding out the band. */
+    flex: 0 1 auto;
+    min-height: 0;
+}
+
+.col {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Top-row split: Season Trends 60% / Rankings box 40% (3:2). */
+.col-trends {
+    flex: 3;
+}
+
+.col-rankings {
+    flex: 2;
+}
+
+/* The Rankings box's header doubles as its view switcher. Two title-sized tabs (Team Rankings / Category Rankings) where the active one reads as the box's heading and the inactive one is a muted, clickable alternative. */
+.rankings-tabs {
+    gap: 2px;
+    min-width: 0;
+}
+
+.rankings-tab {
+    width: auto;
+    height: auto;
+    flex: 0 1 auto;
+    min-width: 0;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    margin: 0;
+    padding: 4px 7px 6px 7px;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-subtle);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+/* background repeated on :hover. The global button:hover (higher specificity than a lone class) would otherwise paint these with the solid accent fill. */
+.rankings-tab:hover {
+    background: none;
+    color: var(--text-body);
+}
+
+.rankings-tab.active {
+    color: var(--text-body);
+    border-bottom-color: var(--accent);
+    cursor: default;
+}
+
+/* Category picker under the Category Rankings bars (shown only in the box's category view, see renderLeftColumn). */
+/* Doubled-up selector (.control-group.rankings-cat-filters) on purpose: .control-group's own rule sits later in this file, and its align-items:center would otherwise win here. Centering a column-direction flex shrinks the checkbox grid to an indefinite width, which collapses its auto-fill columns down to one huge single-column list. */
+.control-group.rankings-cat-filters {
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    border-top: 1px solid var(--border-soft);
+    border-bottom: none;
+    margin-top: 8px;
+    padding-top: 8px;
+}
+
+.control-group.rankings-cat-filters .control-label {
+    flex: 0 0 auto;
+}
+
+/* One shared head row: "Categories" label left, the Advanced Stats toggle right. The toggle used to sit on its own full-height row above the grid, which the box can't spare. */
+.rankings-cat-filters-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.rankings-cat-filters-head #team-advanced-toggle.advanced-stats-toggle {
+    margin-bottom: 0;
+}
+
+/* Tighter grid inside the box than in the old full-width Filters bar. Smaller type and gaps keep the whole picker short enough to leave real room for the ranking bars above it. */
+.control-group.rankings-cat-filters .checkbox-grid {
+    font-size: 11px;
+    gap: 2px 6px;
+    padding: 6px 8px;
+}
+
+.control-group.rankings-cat-filters .checkbox-grid label {
+    padding: 1px 3px;
+}
+
+/* The global hard-locked input height (35px, for the settings form fields) makes every checkbox row here three times taller than its text. Natural checkbox height instead. */
+.control-group.rankings-cat-filters .checkbox-grid input,
+.rankings-cat-filters-head .advanced-stats-toggle input {
+    height: auto;
+}
+
+/* Two Category Rankings blocks sharing the box side by side (renderCategoryGraph puts them in a row when exactly 2 categories are picked, so the box never has to scroll a second stacked block into view). */
+.cat-split .bar-title {
+    width: 78px;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cat-split h4 {
+    font-size: 13px !important;
+}
+
+.cat-split .bar-value-label {
+    font-size: 10px;
+}
+
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    height: 30px;
+    flex-shrink: 0;
+}
+
+.header-row h3 {
+    margin: 0;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+}
+
+.header-row select,
+.player-detail-header select {
+    width: auto;
+    margin-top: 0;
+    height: 28px;
+    box-sizing: border-box;
+    padding: 0 28px 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-body);
+    background-color: var(--surface-2);
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3e%3cpath fill='%23888' d='M6 8 0 0h12z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 7px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.header-row select:hover,
+.player-detail-header select:hover {
+    border-color: var(--border-strong);
+    background-color: var(--surface-3);
+}
+
+.header-row select:focus,
+.player-detail-header select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
+}
+
+.header-row select optgroup,
+.player-detail-header select optgroup {
+    font-weight: 700;
+    font-style: normal;
+    color: var(--accent);
+    background: var(--surface);
+}
+
+.header-row select option,
+.player-detail-header select option {
+    font-weight: 500;
+    color: var(--text-body);
+    background: var(--surface);
+}
+
+.graph-viewport {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.tooltip {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+    color: var(--text-subtle);
+    font-size: 13px;
+    font-weight: normal;
+    margin-left: 6px;
+}
+
+.tooltip .tooltiptext {
+    visibility: hidden;
+    width: 250px;
+    background-color: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    text-align: left;
+    border-radius: 6px;
+    padding: 10px;
+    position: absolute;
+    z-index: 10;
+    bottom: 150%;
+    left: 50%;
+    margin-left: -125px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    font-weight: normal;
+    font-size: 11px;
+    pointer-events: none;
+}
+
+.tooltip .tooltiptext::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: var(--tooltip-bg) transparent transparent transparent;
+}
+
+.tooltip:hover .tooltiptext {
+    visibility: visible;
+    opacity: 1;
+}
+
+.tooltip-bottom .tooltiptext {
+    bottom: auto;
+    top: 150%;
+}
+
+.tooltip-bottom .tooltiptext::after {
+    top: auto;
+    bottom: 100%;
+    border-color: transparent transparent var(--tooltip-bg) transparent;
+}
+
+.team-block {
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border-soft);
+    padding-bottom: 12px;
+}
+
+/* ==== Single-matchup views (see buildH2HScoreboardHtml / renderDominanceHeatmap in graphs.js) ==== */
+
+/* Matchup Scoreboard grid. The col-trends box's hero content at a single-matchup timeframe (see renderRightColumn/renderScoreboardBox). auto-fit + a 300px minimum means it's already a single column on narrow/mobile widths with no extra media query needed. A row only forms once there's room for a second 300px+ card beside the first. */
+.h2h-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 10px;
+    width: 100%;
+    align-content: start;
+}
+
+/* No-scroll ladder step (b). See renderScoreboardBox: tighter padding/type on every card, tried before resorting to reflowing rows into columns (step c) or dropping rows (step d). */
+.h2h-grid.h2h-compact .h2h-card {
+    margin-bottom: 0;
+}
+
+.h2h-grid.h2h-compact .h2h-head {
+    padding: 5px 8px;
+}
+
+.h2h-grid.h2h-compact .h2h-cats {
+    padding: 2px 8px 3px 8px;
+}
+
+.h2h-grid.h2h-compact .h2h-cat-row {
+    padding: 0;
+    font-size: 11px;
+}
+
+.h2h-grid.h2h-compact .h2h-cat-name {
+    font-size: 9px;
+    min-width: 36px;
+}
+
+/* No-scroll ladder step (c). Each card's category rows split into two CSS columns instead of one long list, roughly halving card height. break-inside:avoid keeps a row from splitting across the two columns (a row cut mid-way would be unreadable at this font size). */
+.h2h-grid.h2h-two-col .h2h-cats {
+    column-count: 2;
+    column-gap: 14px;
+}
+
+.h2h-grid.h2h-two-col .h2h-cat-row {
+    break-inside: avoid;
+}
+
+/* No-scroll ladder step (d). The "+K more" line buildH2HScoreboardHtml appends to a card when maxCatRows trimmed its category list. The heatmap band below still has every category for every team, so this points there rather than just silently dropping the rest. break-inside:avoid so it doesn't get orphaned at the top of the second CSS column above. */
+.h2h-cat-more {
+    break-inside: avoid;
+    text-align: center;
+    font-size: 10px;
+    font-style: italic;
+    color: var(--text-faint);
+    padding-top: 3px;
+}
+
+/* Head-to-Head Scoreboard. One card per matchup pairing: a two-team header with the category score, then a per-category breakdown of both teams' totals. */
+.h2h-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.h2h-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.h2h-head-team {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* The away side reads right-to-left so its name hugs the score in the middle. */
+.h2h-head-away {
+    flex-direction: row-reverse;
+    text-align: right;
+}
+
+/* The side leading the matchup on categories. */
+.h2h-head-lead {
+    color: var(--text-body);
+    font-weight: 700;
+}
+
+.h2h-head-score {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text-body);
+}
+
+.h2h-head-dash {
+    color: var(--text-subtle);
+    margin: 0 4px;
+    font-weight: 400;
+}
+
+.h2h-dot {
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.h2h-name {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.h2h-cats {
+    padding: 4px 10px 6px 10px;
+}
+
+/* One category: home total | category name | away total. */
+.h2h-cat-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    font-size: 12px;
+}
+
+.h2h-cat-val {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+}
+
+.h2h-cat-home {
+    text-align: right;
+}
+
+.h2h-cat-away {
+    text-align: left;
+}
+
+/* The winning side of a category. */
+.h2h-cat-win {
+    color: var(--text-body);
+    font-weight: 700;
+}
+
+.h2h-cat-name {
+    text-align: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    min-width: 42px;
+}
+
+/* Category Heatmap. Teams x scored categories, cells shaded by rank. */
+.dh-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.dominance-heatmap {
+    border-collapse: separate;
+    border-spacing: 2px;
+    font-size: 12px;
+    width: 100%;
+}
+
+.dominance-heatmap th {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 2px 4px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.dominance-heatmap th.dh-team-head {
+    text-align: left;
+}
+
+.dh-inv {
+    color: var(--text-subtle);
+    font-weight: 400;
+}
+
+.dominance-heatmap td.dh-team {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-body);
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 6px;
+}
+
+.dh-dot {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+/* Value cells carry a light pastel rank shade (percentileColor) in both themes, so their text stays a fixed dark. Same treatment as the player stat chips. */
+.dominance-heatmap td.dh-cell {
+    text-align: center;
+    padding: 5px 5px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+    color: #1a1d21;
+    cursor: help;
+    white-space: nowrap;
+}
+
+.dominance-heatmap td.dh-empty {
+    text-align: center;
+    color: var(--text-subtle);
+    padding: 5px 5px;
+}
+
+/* One team's standings row (see buildStandingsBarRowHtml in graphs.js). */
+.bar-row-group {
+    margin-bottom: 6px;
+}
+
+.bar-row-group .bar-row {
+    margin-bottom: 0;
+    position: relative;
+    height: 20px;
+}
+
+/* Taken out of flow and vertically centered on .bar-row's own fixed height, clamped to a single ellipsized line. Rows sit at a tight fixed pitch now (no sub-bar below reserving safe space), so a wrapped multi-line name would overflow straight into its neighbors' titles. */
+.bar-row-group .bar-title {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bar-row-group .bar-track {
+    margin-left: 140px;
+}
+
+/* Stepped-down row density, applied by renderLeftColumn/renderCategoryGraph (graphs.js) only when the bars at normal density would overflow their viewport. Trades a little size for the guarantee that the Team Metrics boxes never need to scroll. */
+.bars-compact .team-block {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+}
+
+.bars-compact .bar-row-group {
+    margin-bottom: 2px;
+}
+
+.bars-compact .bar-row {
+    margin-bottom: 2px;
+}
+
+.bars-compact .bar-row-group .bar-row {
+    margin-bottom: 0;
+    height: 15px;
+}
+
+.bars-compact .bar-track {
+    height: 14px;
+}
+
+.bars-compact .bar-title {
+    font-size: 11px;
+}
+
+.bars-compact .bar-value-label {
+    font-size: 10px;
+}
+
+.bar-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.bar-title {
+    width: 140px;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--text-body);
+    font-weight: bold;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.2;
+    padding-right: 8px;
+    box-sizing: border-box;
+}
+
+.bar-track {
+    flex: 1;
+    background: var(--surface-3);
+    border-radius: 4px;
+    height: 20px;
+    position: relative;
+    /* .bar-row centers its children, so a two-line wrapped team name (taller than the 20px track, possible in the right column's rows, whose titles still wrap freely) would otherwise float the track mid-row and leave uneven gaps between consecutive rows. */
+    align-self: flex-end;
+}
+
+.bar-fill {
+    position: relative;
+    display: flex;
+    height: 100%;
+    border-radius: 4px;
+    /* NOT overflow:hidden. .bar-value-label lives inside this element, and a bar too short to fit its own record label (e.g, "15W-3T-4L" inside a near-empty bar) would otherwise get that label silently clipped instead of spilling out past the bar's own edge. */
+    box-sizing: border-box;
+    min-width: 30px;
+    transition: width 0.4s ease-in-out;
+}
+
+/* Set only on .bar-fill itself when it's too small to show its own value label inline (see isBarTooSmallForLabel in graphs.js) and carries a data-tooltip instead. The cursor is the hover affordance telling you there's a value to find, since there's no visible label prompting it anymore. */
+.bar-fill[data-tooltip] {
+    cursor: help;
+}
+
+.bar-segment {
+    height: 100%;
+    flex-shrink: 0;
+    cursor: help;
+}
+
+.bar-value-label {
+    position: absolute;
+    right: 8px;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    color: white;
+    /* A single soft drop-shadow wasn't enough contrast against light team colors (e.g, yellow) or the dashed/striped consolation pattern, whose lower opacity lightens whatever's behind it even further. */
+    text-shadow:
+        -1px -1px 1.5px rgba(0, 0, 0, 0.75),
+        1px -1px 1.5px rgba(0, 0, 0, 0.75),
+        -1px 1px 1.5px rgba(0, 0, 0, 0.75),
+        1px 1px 1.5px rgba(0, 0, 0, 0.75),
+        0 1px 3px rgba(0, 0, 0, 0.5);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Collapsible Filters box, closed by default (see #filters-toggle in main.js). */
+.control-panel {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 8px;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 45%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.control-panel-toggle {
+    flex: 0 0 auto;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 9px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.control-panel-toggle:hover {
+    color: var(--text-body);
+}
+
+.control-panel-caret {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--text-subtle);
+    transition: transform 0.15s ease;
+}
+
+.control-panel:not(.collapsed) .control-panel-caret {
+    transform: rotate(90deg);
+}
+
+.control-panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 14px 8px 14px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.control-panel.collapsed .control-panel-body {
+    display: none;
+}
+
+/* Label sits vertically centered against its row's content (pill rows are one line tall, and even the multi-row Teams legend/category grid reads cleanly with a centered label). The old top-aligned label + its own "Data Filters" panel heading read as clutter. */
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.control-group:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.control-group:first-of-type {
+    padding-top: 0;
+}
+
+.control-label {
+    flex: 0 0 90px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+}
+
+.control-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-flex {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.filter-flex input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+/* Flat checkbox rows (previously pill buttons). */
+.filter-flex label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-body);
+    transition: opacity 0.15s ease;
+}
+
+.filter-flex label:has(input:not(:checked)) {
+    opacity: 0.5;
+}
+
+.filter-flex label:hover {
+    opacity: 1;
+}
+
+.chip-swatch {
+    display: inline-block;
+    width: 18px;
+    height: 0;
+    border-top: 3px solid var(--text-muted);
+}
+
+.chip-dashed {
+    border-top-style: dashed;
+}
+
+/* Neat aligned columns instead of a ragged wrap of pill buttons. Team names line up cleanly and the panel height stays predictable regardless of how long the names are. */
+.legend-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 4px 14px;
+    flex: 1;
+}
+
+/* Flat rows (previously pills): color dot + name + checkbox, dimmed when the team is hidden. */
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-body);
+    transition: opacity 0.15s ease;
+    min-width: 0;
+}
+
+.legend-item:has(input:not(:checked)) {
+    opacity: 0.45;
+}
+
+.legend-item:hover {
+    opacity: 1;
+}
+
+.legend-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.legend-item input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+
+.legend-color {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3);
+    flex-shrink: 0;
+}
+
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    gap: 3px 8px;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 8px;
+    border-radius: 6px;
+    flex: 1;
+}
+
+.checkbox-grid label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: var(--text-body);
+    border-radius: 4px;
+    padding: 2px 4px;
+    transition: background-color 0.15s ease, opacity 0.2s ease;
+}
+
+.checkbox-grid label:hover {
+    background: var(--surface-accent);
+}
+
+.checkbox-grid input {
+    width: auto;
+    margin: 0 4px 0 0;
+    accent-color: var(--accent);
+}
+
+.debug-console {
+    max-width: 1400px;
+    margin: 15px auto 0 auto;
+    padding: 12px;
+    background: #222;
+    color: #0f0;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 11px;
+    box-sizing: border-box;
+}
+
+.debug-console summary {
+    cursor: pointer;
+    outline: none;
+    font-size: 11px;
+    color: #bbb;
+}
+
+.debug-console pre {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 10px;
+    border-top: 1px solid #444;
+    padding-top: 10px;
+}
+
+.debug-download-btn {
+    display: inline-block;
+    width: auto;
+    height: auto;
+    margin: 8px 0 0 0;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: inherit;
+    background: #333;
+    color: #0f0;
+    border: 1px solid #0f0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.debug-download-btn:hover {
+    background: #0f0;
+    color: #222;
+}
+
+.player-toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+.player-toolbar input {
+    flex: 1;
+}
+
+.player-toolbar select {
+    width: 200px;
+    flex-shrink: 0;
+}
+
+.player-group-toggle {
+    display: flex;
+    flex-shrink: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.group-toggle-btn {
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: none;
+    border-right: 1px solid var(--border-strong);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.group-toggle-btn:last-child {
+    border-right: none;
+}
+
+.advanced-stats-toggle {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.advanced-stats-toggle label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.advanced-stats-toggle input {
+    flex: none;
+    width: auto;
+    cursor: pointer;
+}
+
+.group-toggle-btn:hover {
+    background: var(--surface-3);
+}
+
+.group-toggle-btn.active {
+    background: var(--accent);
+    color: var(--accent-contrast);
+}
+
+/* padding-top:0 (overriding .graph-viewport's uniform 12px) is deliberate: the sticky <thead> below needs top:0 to mean the ACTUAL top of this scrolling box. */
+.player-leaderboard-viewport {
+    overflow: auto;
+    align-items: stretch;
+    padding-top: 0;
+}
+
+.player-loading {
+    color: var(--text-subtle);
+    text-align: center;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+/* Weekly-form arrows in the leaderboard's Rank column (see buildMatchupTrendIcons in players.js). Explicit green/red rather than the chart emoji, whose line color varies by platform and can read backwards. */
+.trend-icon {
+    font-weight: bold;
+    font-size: 13px;
+    cursor: help;
+}
+
+.trend-up {
+    color: var(--success);
+}
+
+.trend-down {
+    color: var(--danger);
+}
+
+/* Fake progress bar for the initial player-pool fetch (a single ~5-6s request with no real byte-level progress signal available). See showPlayerLoadingProgress in players.js. */
+.player-loading-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 14px;
+    color: var(--text-subtle);
+    font-size: 14px;
+}
+
+.player-loading-progress-icon {
+    font-size: 28px;
+    animation: player-loading-bounce 1.1s ease-in-out infinite;
+}
+
+@keyframes player-loading-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+}
+
+.player-loading-progress-message {
+    min-height: 18px;
+    transition: opacity 0.2s ease;
+}
+
+.player-loading-progress-message.fading {
+    opacity: 0;
+}
+
+.player-loading-progress-track {
+    width: 240px;
+    height: 8px;
+    background: var(--surface-3);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.player-loading-progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent-hover), var(--accent));
+    background-size: 200% 100%;
+    transition: width 0.3s ease-out;
+    animation: player-loading-shimmer 1.4s linear infinite;
+}
+
+@keyframes player-loading-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.player-table {
+    /* border-collapse + a sticky thead is a known rendering bug (Chrome/Firefox both affected). The collapsed border between header and body rows detaches and visibly "follows" the first body row while scrolling instead of staying put on the header. border-collapse: separate with 0 spacing avoids it. The header's own bottom line comes from a box-shadow below instead of border-bottom, since box-shadow doesn't have this same sticky bug. */
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    font-size: 12px;
+    white-space: nowrap;
+    /* Restores the 12px top inset .player-leaderboard-viewport's own padding-top gave up (see its comment). As margin on this scrollable child, it scrolls away normally instead of leaving a permanent gap above the sticky header. */
+    margin-top: 12px;
+}
+
+.player-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-2);
+    color: var(--text-body);
+    text-align: left;
+    padding: 6px 10px;
+    box-shadow: inset 0 -2px 0 var(--border);
+    z-index: 2;
+}
+
+.player-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.player-table th.sortable:hover {
+    color: var(--accent);
+}
+
+.player-table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.player-table td.player-col-name,
+.player-table th[data-sort="name"] {
+    white-space: normal;
+    min-width: 140px;
+}
+
+.player-table tbody tr.player-row {
+    cursor: pointer;
+}
+
+.player-table tbody tr.player-row:hover {
+    background: var(--surface-accent);
+}
+
+.player-table td .legend-color {
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+.player-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.player-back-btn {
+    display: inline-flex;
+    align-items: center;
+    /* The global button rule is width:100% (form fields). Without this override, a header button that wraps to its own flex line stretches across the whole panel. */
+    width: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-body);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* Prev/Next rank pager, pinned at the header's right edge across from the Leaderboard button. One joined segmented control, so it reads as a single "flip through the ranking" widget rather than two more loose buttons. */
+.player-pager {
+    display: inline-flex;
+    margin-left: auto;
+}
+
+.player-pager-btn {
+    display: inline-flex;
+    align-items: center;
+    width: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-body);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.player-pager-btn:first-child {
+    border-radius: 6px 0 0 6px;
+}
+
+.player-pager-btn:last-child {
+    border-radius: 0 6px 6px 0;
+    border-left: none;
+}
+
+.player-pager-btn:hover:not(:disabled) {
+    background: var(--surface-accent);
+    border-color: var(--accent);
+    color: var(--accent-strong);
+}
+
+.player-pager-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.player-back-btn:hover {
+    background: var(--surface-accent);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.player-detail-title {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.player-detail-title h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--text);
+}
+
+.player-detail-meta {
+    font-size: 12px;
+    color: var(--text-subtle);
+}
+
+.player-season-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    flex-shrink: 0;
+}
+
+/* Note: the chip background is painted inline by percentileColor (players.js) as a light "heat" tint and the text colors below stay fixed-dark on purpose. These cells read as a light heatmap in both light and dark themes, so their text must not follow the theme token. */
+.stat-chip {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 66px;
+    cursor: help;
+}
+
+/* Same delayed hover-reveal as .rank-chip:hover .rank-chip-dropdown, just scoped to stat chips too so they can reuse the exact same dropdown box without inheriting .rank-chip's own background/border/cursor styling (which would conflict with the stat chip's own). */
+.stat-chip:hover .rank-chip-dropdown {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.15s ease 1.2s, visibility 0s linear 1.2s;
+}
+
+.stat-chip-label {
+    font-weight: 700;
+    color: #8a94a6;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 10px;
+}
+
+.stat-chip-value {
+    font-weight: 700;
+    color: #111;
+    font-size: 14px;
+}
+
+.stat-chip-rank {
+    font-size: 10px;
+    color: #8a94a6;
+}
+
+.player-rank-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    flex-shrink: 0;
+}
+
+.rank-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    background: var(--surface-accent);
+    border: 1px solid var(--surface-accent-strong);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.rank-chip-selected {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.rank-chip-selected .rank-chip-label,
+.rank-chip-selected .rank-chip-total {
+    color: var(--accent-contrast);
+    opacity: 0.85;
+}
+
+.rank-chip-selected .rank-chip-value {
+    color: var(--accent-contrast);
+}
+
+.rank-chip-label {
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.rank-chip-value {
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.rank-chip-total {
+    color: var(--text-subtle);
+}
+
+.rank-chip-dropdown {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    top: 130%;
+    left: 0;
+    z-index: 20;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    padding: 4px;
+    /* Hides immediately (no delay) when the mouse leaves. */
+    transition: opacity 0.15s, visibility 0s linear 0.15s;
+    cursor: default;
+}
+
+/* Delayed show. A quick click-to-switch-pool shouldn't have time to trigger this, only a genuine "hover and wait" does. */
+.rank-chip:hover .rank-chip-dropdown {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.15s ease 1.2s, visibility 0s linear 1.2s;
+}
+
+.rank-chip-dropdown table {
+    border-collapse: collapse;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.rank-chip-dropdown td {
+    padding: 3px 8px;
+    color: var(--text-body);
+}
+
+.rank-chip-row-current td {
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--surface-accent);
+}
+
+.rank-breakdown {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    flex-shrink: 0;
+}
+
+.rank-breakdown summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.rank-breakdown-explain {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 8px 0;
+    padding-left: 18px;
+}
+
+.rank-breakdown-explain li {
+    margin-bottom: 4px;
+}
+
+.rank-breakdown-explain li:last-child {
+    margin-bottom: 0;
+}
+
+.rank-breakdown-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12px;
+}
+
+.rank-breakdown-table th {
+    text-align: left;
+    color: var(--text-subtle);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.rank-breakdown-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-body);
+}
+
+.rank-breakdown-table tfoot td {
+    font-weight: 700;
+    border-top: 2px solid var(--border);
+    border-bottom: none;
+    color: var(--accent);
+}
+
+.rank-breakdown-excluded {
+    font-size: 11px;
+    color: var(--warning);
+    margin-top: 6px;
+    font-style: italic;
+}
+
+#team-advanced-toggle.advanced-stats-toggle {
+    margin-bottom: 8px;
+}
+
+.rank-th-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.rank-explainer-trigger {
+    background: none;
+    border: none;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--accent);
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.rank-explainer-trigger:hover {
+    text-decoration: underline;
+}
+
+.rank-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+
+.rank-modal-overlay.open {
+    display: flex;
+}
+
+.rank-modal-content {
+    background: var(--surface);
+    border-radius: 10px;
+    max-width: 580px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 24px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    box-sizing: border-box;
+}
+
+.rank-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    width: auto;
+    height: auto;
+    padding: 4px 8px;
+    margin: 0;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-subtle);
+    cursor: pointer;
+}
+
+.rank-modal-close:hover {
+    color: var(--text-body);
+}
+
+.rank-modal-content h3 {
+    margin: 0 0 4px 0;
+    font-size: 17px;
+    color: var(--text);
+}
+
+.rank-modal-content .rank-modal-subtitle {
+    font-size: 12px;
+    color: var(--text-subtle);
+    margin-bottom: 16px;
+}
+
+.rank-modal-step {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-top: 1px solid var(--border-soft);
+}
+
+.rank-modal-step:first-of-type {
+    border-top: none;
+}
+
+.rank-modal-step-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rank-modal-step-body h4 {
+    margin: 0 0 4px 0;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.rank-modal-step-body p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.rank-modal-category-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.rank-modal-category-chip {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-body);
+}
+
+.rank-modal-category-chip.inverse {
+    color: var(--warning);
+    border-color: var(--warning-border);
+    background: var(--warning-bg);
+}
+/* === Export / Recap (see export.js and recap.js) === */
+
+/* Sits at the right end of the tab bar, after the timeframe pills (which already carry margin-left:auto). Visually separated from the pills by a hairline divider so "pick a timeframe" and "take data out" read as different kinds of controls. */
+.share-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-left: 12px;
+    padding-left: 12px;
+    border-left: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.share-toolbar-btn {
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 6px 14px;
+    border: 1px solid var(--surface-accent-strong);
+    border-radius: 999px;
+    background: var(--surface-accent);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    white-space: nowrap;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.share-toolbar-btn:hover {
+    background: var(--surface-accent-strong);
+    border-color: var(--accent);
+}
+
+.export-modal-content {
+    max-width: 520px;
+}
+
+.export-option-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.export-dataset-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+    align-items: baseline;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.export-dataset-option:hover {
+    background: var(--surface-2);
+}
+
+.export-dataset-option.disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.export-dataset-option input {
+    width: auto;
+    margin: 0;
+}
+
+.export-dataset-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.export-dataset-note {
+    grid-column: 2;
+    font-size: 11px;
+    color: var(--text-subtle);
+    line-height: 1.4;
+}
+
+.export-advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-body);
+    margin-bottom: 14px;
+    cursor: pointer;
+}
+
+.export-advanced-toggle input {
+    width: auto;
+    margin: 0;
+}
+
+.export-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.export-action-btn {
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 8px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-body);
+    white-space: nowrap;
+}
+
+.export-action-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+}
+
+.export-action-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+}
+
+.export-action-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.export-status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.export-status-ok {
+    color: var(--success);
+}
+
+.export-status-error {
+    color: var(--danger);
+}
+
+.recap-modal-content {
+    max-width: 720px;
+}
+
+.recap-week-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.recap-week-row select {
+    width: auto;
+    font-size: 12px;
+    padding: 4px 6px;
+}
+
+#recap-inprogress-note {
+    font-size: 11px;
+    color: var(--warning);
+    font-weight: 600;
+}
+
+.recap-preview {
+    margin: 4px 0 14px 0;
+    max-height: 46vh;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    padding: 8px;
+    text-align: center;
+}
+
+.recap-canvas {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.recap-text-details {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.recap-text-details summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.recap-text-block {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    resize: vertical;
+    background: var(--surface);
+    color: var(--text-body);
+}
+
+/* =========================================================================== Mobile (Firefox for Android). */
+@media (max-width: 700px) {
+    #view-team {
+        overflow-y: auto;
+    }
+
+    .layout {
+        flex-direction: column;
+        flex: 0 0 auto;
+        min-height: 0;
+    }
+
+    .col {
+        flex: 0 0 auto;
+        height: auto;
+        width: 100%;
+    }
+
+    /* Charts need an explicit floor once their column no longer has a fixed height to take a flex share OF. Without one, a flex:1 child of an auto-height column can end up hugging to an unreadably short natural size instead of a sensible chart height. */
+    .col-trends .graph-viewport,
+    .col-rankings .graph-viewport {
+        flex: 0 0 auto;
+        min-height: 280px;
+    }
+
+    /* max-height:55% (desktop) is meaningless once the ancestor chain has no definite height to be a percentage OF. State the intent explicitly (uncapped, content-sized) instead of relying on that edge case resolving the way it happens to today. */
+    .heatmap-band {
+        flex: 0 0 auto;
+        max-height: none;
+    }
+
+    .heatmap-band #heatmap-graph-container {
+        flex: 0 0 auto;
+        max-height: 360px;
+    }
+
+    .control-panel {
+        flex: 0 0 auto;
+        max-height: none;
+    }
+
+    .control-panel-body {
+        max-height: 320px;
+    }
+}

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 110" role="img" aria-label="Leaguewise">
+  <!-- The League[W]ise wordmark: the rising-W sparkline sits in the word as its "w". Text anchors grow away from the fixed mark position, so the gap survives any viewer font. -->
+  <style>
+    text {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 52px;
+      font-weight: 700;
+      fill: #1b2b4b;
+    }
+    .w-stroke { stroke: #e8792e; }
+    .w-dot { fill: #007bff; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #e8e6e3; }
+      .w-stroke { stroke: #f7924a; }
+      .w-dot { fill: #4d9bff; }
+    }
+  </style>
+  <text x="291" y="72" text-anchor="end">League</text>
+  <g transform="translate(296,33.1) scale(2.51) translate(-1.4,-3.6)">
+    <polyline points="3,8 8,17.5 12,10.5 16,17.5 21,6" fill="none" class="w-stroke" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="21" cy="6" r="2.4" class="w-dot"/>
+  </g>
+  <text x="356" y="72" text-anchor="start">ise</text>
+</svg>

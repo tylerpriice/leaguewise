@@ -1,0 +1,7 @@
+# Real captured league payloads (contain real league/team/owner data). Needed locally to run
+# dev-preview.html (see tests/browser-stub.js), but never committed.
+JSON_debug/
+
+# Packaged extension builds
+*.xpi
+*.zip
