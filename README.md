@@ -46,15 +46,15 @@ Temporary add-ons are removed when Firefox restarts. There's no packaged build s
 
 ## Running the dev preview (no ESPN account needed)
 
-`dev-preview.html` runs the full dashboard on a plain static file server, with `tests/browser-stub.js` faking the WebExtension APIs and loading a captured league payload instead of making real ESPN calls.
+`dev-preview.html` runs the full dashboard on a plain static file server, with `tests/browser-stub.js` faking the WebExtension APIs and loading a league payload instead of making real ESPN calls. An anonymized sample league is bundled, so this works on a fresh clone with no ESPN account at all:
 
-1. Capture a payload: load the real extension against a real league, then use the Diagnostic Data panel at the bottom of the page to download a JSON dump. Put it in a `JSON_debug/` folder at the repository root. That folder is gitignored because it holds real league data. Don't commit it.
-2. Serve the repository root with any static file server:
-   ```
-   python -m http.server 8123
-   ```
-   ES module imports won't load over `file://`, so it has to be served over `http://`.
-3. Open `http://localhost:8123/dev-preview.html`. Switch payloads with `?payload=<filename>`.
+```
+python -m http.server 8123
+```
+
+Then open `http://localhost:8123/dev-preview.html`. ES module imports won't load over `file://`, so it has to be served over `http://`.
+
+To use your own league's data instead: load the real extension against your league, download a JSON dump from the Diagnostic Data panel at the bottom of the page, put it in a `JSON_debug/` folder at the repository root, and pick it with `?payload=<filename>`. That folder is gitignored because it holds real league data. Don't commit it.
 
 ## Running the tests
 

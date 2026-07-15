@@ -25,10 +25,12 @@
         return data;
     };
 
-    const payloadPromise = fetch(payloadFile)
-        .then(r => r.ok ? r.json() : null)
-        .then(data => (data && anonymize) ? anonymizePayload(data) : data)
-        .catch(() => null);
+    // Falls back to the bundled anonymized sample league when no captured payload exists, so a fresh clone runs the full dashboard with zero setup.
+    const SAMPLE_FILE = 'tests/sample-league.json';
+    const fetchJson = (file) => fetch(file).then(r => r.ok ? r.json() : null).catch(() => null);
+    const payloadPromise = fetchJson(payloadFile)
+        .then(data => data || fetchJson(SAMPLE_FILE))
+        .then(data => (data && anonymize) ? anonymizePayload(data) : data);
 
     // ?players=<file> serves a captured player-pool JSON for the pool fetch so the Player Metrics tab runs offline. Weekly-stats calls (same endpoint, scoring-period filter header) pass through and fail down their normal path.
     const playersName = params.get('players');
