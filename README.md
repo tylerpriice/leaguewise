@@ -2,9 +2,7 @@
 
 <p align="center">A browser extension. Firefox today, with Chrome and Edge on the way.</p>
 
-Point it at your league and it turns the season into something you can actually see: standings that show how you got here, trend lines, category heatmaps, a full player leaderboard with its own ranking engine, and shareable weekly recaps for the group chat.
-
-Baseball category leagues are fully supported today. Hockey and points leagues aren't there yet (see Work in progress).
+Standings, trend lines, category heatmaps, a ranked player leaderboard, and shareable weekly recaps for your ESPN Fantasy Baseball league. Category leagues are fully supported today. Hockey and points leagues are in progress.
 
 ## Built with AI, reviewed by humans
 
@@ -14,27 +12,25 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 
 ## Your data stays in your browser
 
-- No backend. The extension runs entirely in your browser. This project operates no servers.
-- It talks to exactly one place: ESPN's fantasy API, authenticated by the ESPN login already in your browser. The manifest's host permission is espn.com and nothing else.
-- No analytics, telemetry, tracking, or crash reporting. There is nowhere to phone home to.
-- Three permissions, each with one job: `cookies` (your ESPN session, so the API calls work), `storage` (your settings), `clipboardWrite` (the export button).
-- Zero dependencies and no build step. The code in this repository is byte for byte the code that runs, and the supply chain is just this repository.
-- League data captured during development is gitignored and never committed.
+- No backend, no servers. The extension runs entirely in your browser.
+- It talks to exactly one place: ESPN's fantasy API, using the ESPN login already in your browser.
+- No analytics, telemetry, or tracking.
+- Three permissions: `cookies` (your ESPN session), `storage` (your settings), `clipboardWrite` (the export button).
+- No dependencies, no build step. The code in this repository is the code that runs.
 
 ## What it does
 
-- **Team Metrics**: standings with playoff-tier shading and W-L-T records, season trend lines, category rankings, a category-dominance heatmap, live weekly scoreboards, and one shared timeframe control (full season, regular season, last N matchups, playoffs).
+- **Team Metrics**: standings with playoff shading, season trend lines, category rankings, a category heatmap, live weekly scoreboards, and a shared timeframe control (full season, regular season, last N matchups, playoffs).
 
 <p align="center"><img src="screenshots/team-metrics.png" width="800" alt="Team Metrics tab: season trends, team rankings, and the category heatmap"></p>
 
-- **Player Metrics**: a full-league player leaderboard driven by a custom Roto-style rank engine (percentile per category against qualified peers, playing-time adjustment, opportunity gating for saves and quality starts, role-aware relief pitcher handling, two-way player support), plus search, position, and availability filters, and a per-player drill-down with weekly trend charts.
+- **Player Metrics**: every player in your league ranked by percentile in your league's own categories, adjusted for playing time, with search and position filters and per-player weekly trend charts.
 
 <p align="center"><img src="screenshots/player-metrics.png" width="800" alt="Player Metrics tab: the ranked player leaderboard"></p>
 
-- **Export**: CSV or clipboard export of standings, category totals, or the player leaderboard exactly as configured on screen.
-- **Recap**: a shareable image and text summary of a matchup week, sized for posting into a league group chat.
+- **Export and Recap**: CSV or clipboard export of any view, and a shareable image recap of a matchup week for the league group chat.
 
-## Install (for development and testing)
+## Install
 
 Chrome and Edge builds are in progress. These steps cover Firefox for now.
 
@@ -42,23 +38,23 @@ Chrome and Edge builds are in progress. These steps cover Firefox for now.
 2. In Firefox, go to `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, and select `manifest.json` from the clone.
 3. Click the extension icon, enter your league's sport, ID, and year, and hit **Fetch Data**.
 
-Temporary add-ons are removed when Firefox restarts. There's no packaged build step. The extension runs straight from these source files.
+Temporary add-ons are removed when Firefox restarts.
 
-## Running the dev preview (no ESPN account needed)
+## Dev preview (no ESPN account needed)
 
-`dev-preview.html` runs the full dashboard on a plain static file server, with `tests/browser-stub.js` faking the WebExtension APIs and loading a league payload instead of making real ESPN calls. An anonymized sample league is bundled, so this works on a fresh clone with no ESPN account at all:
+`dev-preview.html` runs the full dashboard against a bundled anonymized sample league, with the WebExtension APIs stubbed:
 
 ```
 python -m http.server 8123
 ```
 
-Then open `http://localhost:8123/dev-preview.html`. ES module imports won't load over `file://`, so it has to be served over `http://`.
+Then open `http://localhost:8123/dev-preview.html`. It has to be served over `http://` because ES module imports won't load from `file://`.
 
-To use your own league's data instead: load the real extension against your league, download a JSON dump from the Diagnostic Data panel at the bottom of the page, put it in a `JSON_debug/` folder at the repository root, and pick it with `?payload=<filename>`. That folder is gitignored because it holds real league data. Don't commit it.
+To use your own league's data: load the real extension, download a JSON dump from the Diagnostic Data panel, put it in a `JSON_debug/` folder at the repository root, and pick it with `?payload=<filename>`. That folder is gitignored because it holds real league data. Don't commit it.
 
-## Running the tests
+## Tests
 
-The pure functions (the rank engine, and the CSV and recap builders) have in-browser unit tests with no test runner. Open them through the same static server:
+In-browser unit tests, no test runner. Open them through the same server:
 
 - `http://localhost:8123/tests/rank-engine.test.html`
 - `http://localhost:8123/tests/features.test.html`
@@ -71,8 +67,8 @@ Vanilla ES modules, one CSS file, no framework, no build step, no dependencies.
 
 ## Work in progress
 
-- **Hockey.** The stat maps and sport plumbing exist, but they haven't been validated against a live hockey season yet.
-- **Points leagues.** Same story: the scoring plumbing exists, but it hasn't been validated against a real points league. If you run one and want it supported sooner, open an issue.
+- **Hockey.** The plumbing exists but hasn't been validated against a live season.
+- **Points leagues.** Same story. If you run one and want it sooner, open an issue.
 - **Chrome and Edge builds.**
 - **Firefox for Android.**
 
