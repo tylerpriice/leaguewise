@@ -196,6 +196,8 @@
         <button id="debug-download-btn" class="debug-download-btn">⬇ Download as JSON</button>
         <pre id="debug-output"></pre>
     </details>
+    <!-- Chrome/Edge compat shim, must load before the module script below. -->
+    <script src="compat.js"></script>
     <script type="module" src="main.js"></script>
 </body>
 

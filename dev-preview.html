@@ -196,6 +196,8 @@
         <pre id="debug-output"></pre>
     </details>
     <script src="tests/browser-stub.js"></script>
+    <!-- Loaded after browser-stub.js, which already defines window.browser, so this no-ops here. -->
+    <script src="compat.js"></script>
     <script type="module" src="main.js"></script>
 </body>
 
