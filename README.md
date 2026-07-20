@@ -32,13 +32,11 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 
 ## Install
 
-Chrome and Edge builds are in progress. These steps cover Firefox for now.
+**[Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/leaguewise/)**. Chrome and Edge are in review.
 
-1. Clone this repository.
-2. In Firefox, go to `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, and select `manifest.json` from the clone.
-3. Click the extension icon, enter your league's sport, ID, and year, and hit **Fetch Data**.
+Click the extension icon, enter your league's sport, ID, and year, and hit **Fetch Data**.
 
-Temporary add-ons are removed when Firefox restarts.
+For development, load it temporarily instead: in Firefox, go to `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, and select `manifest.json` from a clone. Temporary add-ons are removed when Firefox restarts.
 
 ## Dev preview (no ESPN account needed)
 
