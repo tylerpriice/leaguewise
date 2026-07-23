@@ -32,7 +32,7 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 
 ## Install
 
-**[Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/leaguewise/)**. Chrome and Edge are in review.
+**[Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/leaguewise/)** or **[Add to Chrome](https://chromewebstore.google.com/detail/leaguewise/emnepcdlpnnphjgfiajhkciijciifdoj)**. Edge is on the way.
 
 Click the extension icon, enter your league's sport, ID, and year, and hit **Fetch Data**.
 
