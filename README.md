@@ -1,8 +1,8 @@
-<p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball. Nothing leaves your browser."></p>
+<p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball and Hockey. Nothing leaves your browser."></p>
 
 <p align="center">A browser extension. Firefox today, with Chrome and Edge on the way.</p>
 
-Standings, trend lines, category heatmaps, a ranked player leaderboard, and shareable weekly recaps for your ESPN Fantasy Baseball league. Category leagues are fully supported today. Hockey and points leagues are in progress.
+Standings, trend lines, category heatmaps, a ranked player leaderboard, and shareable weekly recaps for your ESPN Fantasy Baseball and Hockey leagues. Weekly head to head, points, and season-long roto formats are all supported.
 
 ## Built with AI, reviewed by humans
 
@@ -65,9 +65,7 @@ Vanilla ES modules, one CSS file, no framework, no build step, no dependencies.
 
 ## Work in progress
 
-- **Hockey.** The plumbing exists but hasn't been validated against a live season.
-- **Points leagues.** Same story. If you run one and want it sooner, open an issue.
-- **Chrome and Edge builds.**
+- **Microsoft Edge.**
 - **Firefox for Android.**
 
 ## Contributions
