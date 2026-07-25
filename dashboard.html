@@ -3,16 +3,16 @@
 
 <head>
     <meta charset="utf-8">
-    <!-- Without this, mobile browsers fall back to a virtual ~980px viewport and render the desktop layout zoomed out. -->
+    <!-- Without this, mobile browsers fall back to a virtual 980px layout viewport and render the desktop layout shrunk down instead of at the device's real width. -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Pre-stylesheet theme apply. External file because extension-page CSP blocks inline scripts. -->
+    <!-- Pre-stylesheet theme apply. An external file rather than inline, because extension-page CSP blocks inline scripts. -->
     <script src="theme-init.js"></script>
     <link rel="stylesheet" href="dashboard.css">
 </head>
 
 <body>
     <div class="container">
-        <!-- Brand banner: the wordmark with the rising-W-sparkline mark slotted in as the word's own "w". League[W]ise. -->
+        <!-- Brand banner: the wordmark with the rising-W sparkline slotted in as the word's own "w". The same mark is the standalone logo, drawn from the same 24-unit geometry. The link gets an href once a product website exists. -->
         <h2 class="brand-lockup" title="Leaguewise">
             <a class="brand-link" aria-label="Leaguewise">
                 <span>League</span><svg class="banner-mark" viewBox="1.4 3.6 22 15.5" aria-hidden="true">
@@ -33,8 +33,8 @@
                 </div>
                 <div>
                     <label>Sport:</label>
-                    <!-- Hockey is hidden until its stat maps are validated against a live season. The fhl plumbing stays in the JS. -->
                     <select id="sport">
+                        <option value="fhl">Hockey</option>
                         <option value="flb" selected>Baseball</option>
                     </select>
                 </div>
@@ -73,6 +73,16 @@
                 <button class="tab-button" id="tab-btn-player">Player Metrics</button>
                 <div id="timeframe-toggle" class="timeframe-toggle"></div>
                 <div class="share-toolbar">
+                    <div class="legend-menu">
+                        <button type="button" id="legend-btn" class="share-toolbar-btn" aria-haspopup="true"
+                            aria-expanded="false" title="What the crown, medals, and trend arrows mean">🔑 Legend</button>
+                        <div id="legend-popover" class="legend-popover" role="menu" aria-label="Icon legend" hidden>
+                            <div class="legend-item"><span class="legend-item-icon">👑</span><span>League champion</span></div>
+                            <div class="legend-item"><span class="legend-item-icon">🥇🥈🥉</span><span>Top three by Rank</span></div>
+                            <div class="legend-item"><span class="legend-item-icon trend-up">↗</span><span>Last matchup above average</span></div>
+                            <div class="legend-item"><span class="legend-item-icon trend-down">↘</span><span>Last matchup below average</span></div>
+                        </div>
+                    </div>
                     <button type="button" id="export-btn" class="share-toolbar-btn"
                         title="Export standings, category totals, or the player leaderboard (CSV / clipboard)">⬇ Export</button>
                     <button type="button" id="recap-btn" class="share-toolbar-btn"
@@ -92,6 +102,8 @@
                                     </span>
                                 </span>
                             </h3>
+                            <button type="button" id="trends-popout-btn" class="trends-popout-btn" aria-expanded="false"
+                                title="Pop out the trends chart" aria-label="Pop out the trends chart">⛶</button>
                         </div>
 
                         <div id="line-graph-container" class="graph-viewport"></div>
@@ -105,28 +117,20 @@
                                 <span class="tooltip tooltip-bottom">ⓘ
                                     <span class="tooltiptext">
                                         <strong>Team Rankings:</strong> H2H and Category Wins standings. Bars
-                                        shade darker for playoffs, lighter for consolation. Pie charts available
-                                        too.<br><br>
-                                        <strong>Category Rankings:</strong> teams ranked by total in the
-                                        categories picked.
+                                        shade darker for playoffs, lighter for consolation. Each section's
+                                        arrow swaps its bars for a pie.<br><br>
+                                        <strong>Category Rankings:</strong> teams ranked by their total in one
+                                        category. The arrows cycle every category the league scores. Advanced
+                                        Stats adds the ones it does not.
                                     </span>
                                 </span>
                             </h3>
-                            <select id="pie-selector">
-                                <option value="rankings">Bar Charts</option>
-                                <option value="pies">Pie Charts</option>
-                            </select>
+                            <!-- Category Rankings shows one category at a time and the arrows cycle the list, so this toggle is all that survives of the old picker: it extends the cycle to the categories the league does not score. -->
+                            <div id="cat-advanced-toggle" class="advanced-stats-toggle" style="display:none;"></div>
                         </div>
 
                         <div id="left-graph-container" class="graph-viewport"></div>
                         <div id="cat-graph-container" class="graph-viewport" style="display:none;"></div>
-                        <div id="cat-filters" class="control-group rankings-cat-filters" style="display:none;">
-                            <div class="rankings-cat-filters-head">
-                                <span class="control-label">Categories</span>
-                                <div id="team-advanced-toggle" class="advanced-stats-toggle"></div>
-                            </div>
-                            <div id="category-checkboxes" class="checkbox-grid"></div>
-                        </div>
                     </div>
                 </div>
 
@@ -136,9 +140,12 @@
                             <span class="tooltip tooltip-bottom">ⓘ
                                 <span class="tooltiptext">
                                     Every team's total per category, shaded green (best) to red (worst).
+                                    Click a category to sort by it.
                                 </span>
                             </span>
                         </h3>
+                        <button type="button" id="heatmap-popout-btn" class="trends-popout-btn" aria-expanded="false"
+                            title="Pop out the category heatmap" aria-label="Pop out the category heatmap">⛶</button>
                     </div>
                     <div id="heatmap-graph-container" class="graph-viewport"></div>
                 </div>
@@ -156,9 +163,57 @@
                             </div>
                         </div>
 
-                        <div class="control-group">
+                        <div class="control-group" id="team-filters">
                             <span class="control-label">Teams</span>
                             <div id="team-legend" class="legend-container"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="trends-overlay" class="trends-overlay" hidden>
+                    <div class="trends-overlay-header">
+                        <h3 class="trends-overlay-title">Season Trends</h3>
+                        <button type="button" id="trends-popout-close" class="trends-popout-btn"
+                            title="Minimize (Esc)" aria-label="Minimize the trends chart">✕</button>
+                    </div>
+                    <div class="trends-overlay-body">
+                        <div id="trends-overlay-chart" class="trends-overlay-chart"></div>
+                        <!-- The same collapsible box the heatmap pop-out docks its filters in, so the two overlays present one control rather than two look-alikes. Collapsing hands the height to the chart. -->
+                        <div id="trends-overlay-filters-panel" class="control-panel overlay-filters-panel">
+                            <button type="button" id="trends-filters-toggle" class="control-panel-toggle" aria-expanded="true">
+                                <span class="control-panel-caret">▸</span> Data Filters
+                            </button>
+                            <div id="trends-overlay-filters" class="control-panel-body"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Per-card pop-out: drills into one matchup's visual at full size with a hover readout. Deliberately generic rather than race-specific, so whatever visual a card registered is what this overlay renders. -->
+                <div id="card-overlay" class="trends-overlay" hidden>
+                    <div class="trends-overlay-header">
+                        <h3 class="trends-overlay-title" id="card-overlay-title">Matchup</h3>
+                        <button type="button" id="card-popout-close" class="trends-popout-btn"
+                            title="Minimize (Esc)" aria-label="Minimize the matchup chart">✕</button>
+                    </div>
+                    <div class="trends-overlay-body">
+                        <div id="card-overlay-chart" class="trends-overlay-chart"></div>
+                    </div>
+                </div>
+
+                <div id="heatmap-overlay" class="trends-overlay" hidden>
+                    <div class="trends-overlay-header">
+                        <h3 class="trends-overlay-title">Category Heatmap</h3>
+                        <button type="button" id="heatmap-popout-close" class="trends-popout-btn"
+                            title="Minimize (Esc)" aria-label="Minimize the category heatmap">✕</button>
+                    </div>
+                    <div class="trends-overlay-body">
+                        <div id="heatmap-overlay-chart" class="trends-overlay-chart"></div>
+                        <!-- The docked Teams strip gets the same disclosure, so collapsing it hands its height to the heatmap. The toggle lives in the overlay's own markup, so the moved node is relocated untouched. -->
+                        <div id="heatmap-overlay-filters-panel" class="control-panel overlay-filters-panel">
+                            <button type="button" id="heatmap-filters-toggle" class="control-panel-toggle" aria-expanded="true">
+                                <span class="control-panel-caret">▸</span> Teams
+                            </button>
+                            <div id="heatmap-overlay-filters" class="control-panel-body"></div>
                         </div>
                     </div>
                 </div>
@@ -196,7 +251,7 @@
         <button id="debug-download-btn" class="debug-download-btn">⬇ Download as JSON</button>
         <pre id="debug-output"></pre>
     </details>
-    <!-- Chrome/Edge compat shim, must load before the module script below. -->
+    <!-- Chrome and Edge compat shim: a classic script, loaded before the module script so the browser alias exists before any module code reaches for it. -->
     <script src="compat.js"></script>
     <script type="module" src="main.js"></script>
 </body>

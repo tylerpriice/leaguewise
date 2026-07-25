@@ -1,11 +1,17 @@
-// Unit tests for the pure rank engine.
+// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static
+// server (file:// will not work, because browsers block ES module imports without a real origin.
+// .claude/serve.ps1 is a zero-dependency option). Green means every assertion held. Every
+// expected value here is hand-computed from the documented formulas, so a failure means the
+// ENGINE changed behavior, not that a snapshot went stale.
 import {
     MIN_PLAYING_TIME_FRACTION, MIN_OPPORTUNITY_FRACTION,
     countLessThan, countGreaterThan, percentileFor,
     inningsPitchedOf, statValueForRanking, opportunityGateFor,
     computeRotoRanks, computeCategoryBreakdown, computeStatRankInPool,
-    buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis
+    buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis,
+    rotoPointsForCategory, scoreRotoWeek
 } from '../rank-engine.js';
+import { buildRosterTimeline, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from '../roster-timeline.js';
 
 const results = [];
 function test(name, fn) {
@@ -19,13 +25,17 @@ function assertClose(actual, expected, msg, tol = 1e-9) {
     }
 }
 
-// Player factory. The engine only ever needs id + seasonTotals.
+// Player factory: the engine only ever needs id + seasonTotals.
 const P = (id, totals) => ({ id, seasonTotals: totals });
 
-// Baseline ctx for batter-style pools: one workload measure for both shrinkage and threshold (games played, id '81'), no inverse stats unless a test says so.
+// Baseline ctx for batter-style pools: one workload measure for both shrinkage and threshold
+// (games played, id '81'), no inverse stats unless a test says so.
 const ctx = (over = {}) => ({
     relevantStatIds: ['5'],
     inverseStatIds: new Set(),
+    // Empty by default: every scored cat is treated as counting, so a missing value zero-fills.
+    // Rate tests opt in a stat (e.g. rateStatIds: new Set(['47'])) to keep the undefined-skip.
+    rateStatIds: new Set(),
     isRpPool: false,
     requireMinPlayingTime: true,
     workloadOf: p => p.seasonTotals['81'] || 0,
@@ -45,15 +55,24 @@ test('countLessThan / countGreaterThan handle ties and bounds', () => {
     assertClose(countLessThan(arr, 10), 4, 'less than above-max');
 });
 
-test('percentileFor: basic, ties share, inverse, clamp at 100', () => {
+test('percentileFor: basic, midrank ties, inverse, clamp at 100', () => {
     const basis = [10, 20, 30, 40];
-    assertClose(percentileFor(basis, 25, false), (2 / 3) * 100, 'mid value');
-    assertClose(percentileFor(basis, 10, false), 0, 'worst basis member');
-    assertClose(percentileFor(basis, 40, false), 100, 'best basis member');
+    assertClose(percentileFor(basis, 25, false), (2 / 3) * 100, 'mid value: beats 10,20 of the other 3');
+    assertClose(percentileFor(basis, 10, false), 0, 'unique worst basis member');
+    assertClose(percentileFor(basis, 40, false), 100, 'unique best basis member');
     assertClose(percentileFor(basis, 50, false), 100, 'outsider beating all clamps to 100 (raw 133)');
     assertClose(percentileFor(basis, 25, true), (2 / 3) * 100, 'inverse mid (beats 30,40)');
+    // Midrank: the two 20s occupy worse-positions 1 and 2 (below=1, equal=2), mean 1.5 of 3 = 50,
+    // not the block's worse edge (33.3). They split the block's percentile instead of both sinking
+    // to the bottom of it.
     const tied = [10, 20, 20, 40];
-    assertClose(percentileFor(tied, 20, false), (1 / 3) * 100, 'tied values share the same percentile');
+    assertClose(percentileFor(tied, 20, false), 50, 'tied values take the block average (midrank)');
+    // The min value in a big bottom tie is the case that motivated midrank: four 0s and one 5,
+    // a zero is tied with the whole 0-cohort. below=0, equal=4, mean position (4-1)/2=1.5 of 4 = 37.5,
+    // NOT 0th percentile. The lone 5 beats all four zeros -> 4/4 = 100.
+    const bottomTie = [0, 0, 0, 0, 5];
+    assertClose(percentileFor(bottomTie, 0, false), 37.5, 'bottom-tied zero sits mid-cohort, not at 0');
+    assertClose(percentileFor(bottomTie, 5, false), 100, 'the one value above the whole zero-cohort tops out');
     assertClose(percentileFor([7], 7, false), 100, 'single-member basis');
 });
 
@@ -78,7 +97,7 @@ test('opportunityGateFor: SV ungated only in RP pools, QS gated everywhere', () 
     assert(!!opportunityGateFor('63', false), 'QS gated outside RP');
 });
 
-// ==== Single-stat ranking (stat chips) ====
+// ==== Single-stat ranking ====
 
 test('computeStatRankInPool: competition ranking 1-2-2-4', () => {
     const pool = [P(1, { '5': 40 }), P(2, { '5': 30 }), P(3, { '5': 30 }), P(4, { '5': 25 })];
@@ -117,7 +136,7 @@ test('computeRotoRanks: shrinkage pulls a half-workload player exactly halfway t
     assertClose(r.scores.get(1), 100, 'full-workload leader untouched');
 });
 
-test('computeRotoRanks: min-games toggle - exclusion when on, stable basis when off', () => {
+test('computeRotoRanks: min-games toggle: exclusion when on, stable basis when off', () => {
     const A = P(1, { '5': 30, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const callup = P(3, { '5': 40, '81': 10 }); // 10 games < 20% of 100
@@ -133,25 +152,71 @@ test('computeRotoRanks: min-games toggle - exclusion when on, stable basis when 
     assertClose(off.ranks.get(3), 2, 'call-up slots between A and B');
 });
 
+test('computeRotoRanks: a 0-GP player is never ranked with the toggle OFF', () => {
+    // Shrinkage pulls a percentile toward 50 by workload share, so a never-played player would
+    // score EXACTLY 50 in every category (shrink 0) and land above every real player having a
+    // below-average season. Zero games means zero evidence: unranked in both toggle states.
+    const A = P(1, { '5': 30, '81': 100 });
+    const B = P(2, { '5': 10, '81': 100 });
+    const zero = P(3, { '5': 0 }); // no '81' key at all -> 0 games
+    const r = computeRotoRanks([A, B, zero], ctx({ requireMinPlayingTime: false }));
+    // Basis is the qualified pool [A, B] (zero is under the 20-game threshold either way).
+    // '5' basis [10, 30], both at full shrink (100 of 100 games): A 100, B 0.
+    assertClose(r.total, 2, 'only the two who played are ranked');
+    assert(!r.ranks.has(3), 'the 0-GP player is unranked with the toggle off');
+    assert(!r.scores.has(3), 'and carries no score at all, not a 50');
+    assertClose(r.scores.get(1), 100, 'A unchanged');
+    assertClose(r.scores.get(2), 0, 'B unchanged');
+    // The regression this pins: unfixed, zero scores 50 and takes this slot, pushing B to 3rd.
+    assertClose(r.ranks.get(2), 2, 'B stays second, nothing floats in above it');
+});
+
+test('computeRotoRanks: the 0-GP exclusion also holds with the toggle ON', () => {
+    const A = P(1, { '5': 30, '81': 100 });
+    const B = P(2, { '5': 10, '81': 100 });
+    const zero = P(3, { '5': 0 });
+    const r = computeRotoRanks([A, B, zero], ctx({ requireMinPlayingTime: true }));
+    // Identical outcome to the toggle-off case above: with the toggle on the min-games threshold
+    // already excluded the zero, so the floor is a no-op here and this state is unchanged.
+    assertClose(r.total, 2, 'same two ranked');
+    assert(!r.ranks.has(3), 'the 0-GP player is unranked with the toggle on too');
+    assertClose(r.scores.get(1), 100, 'A unchanged');
+    assertClose(r.scores.get(2), 0, 'B unchanged');
+});
+
+test('computeRotoRanks: the zero floor does not empty a pool where nobody has played', () => {
+    // Preseason / brand-new league: every thresholdWorkload is 0, so there is no real cohort for
+    // the floor to protect and blanking the board would be worse than ranking on what's there.
+    const A = P(1, { '5': 30 });
+    const B = P(2, { '5': 10 });
+    const r = computeRotoRanks([A, B], ctx({ requireMinPlayingTime: false }));
+    // maxWorkload is 0 too, so shrinkFactor falls back to 1: '5' basis [10, 30] -> A 100, B 0.
+    assertClose(r.total, 2, 'both still ranked');
+    assertClose(r.scores.get(1), 100, 'A tops the board');
+    assertClose(r.scores.get(2), 0, 'B below it');
+});
+
 test('computeRotoRanks: SV opportunity gate protects zero-chance players outside RP', () => {
     const closer = P(1, { '5': 10, '57': 30, '58': 5, '81': 60 });   // 35 chances
     const setup = P(2, { '5': 20, '57': 2, '58': 3, '81': 60 });     // 5 chances < 15% of 35
     const starter = P(3, { '5': 30, '57': 0, '58': 0, '81': 60 });   // 0 chances
     const r = computeRotoRanks([closer, setup, starter], ctx({ relevantStatIds: ['5', '57'] }));
-    // HR percentiles: 0 / 50 / 100.
+    // HR percentiles: 0 / 50 / 100. SV: only the closer has real opportunity -> single-member
+    // basis -> 100 for him. Setup and starter skip the category instead of eating a zero.
     assertClose(r.scores.get(1), 50, 'closer averages HR 0 + SV 100');
     assertClose(r.scores.get(2), 50, 'setup scored on HR only');
     assertClose(r.scores.get(3), 100, 'starter scored on HR only, tops the pool');
     assertClose(r.ranks.get(3), 1, 'starter #1');
 });
 
-test('computeRotoRanks: RP pool - no shrinkage, K as K/9, SV ungated', () => {
+test('computeRotoRanks: RP pool: no shrinkage, K as K/9, SV ungated', () => {
     // K/9: R1 = 80K/60IP = 12.0, R2 = 90K/100IP = 8.1 -> raw K would rank R2 first, K/9 ranks R1 first
     const R1 = P(1, { '48': 80, '34': 180, '57': 0, '58': 0, '81': 60 });
     const R2 = P(2, { '48': 90, '34': 300, '57': 30, '58': 4, '81': 40 });
     const rpCtx = ctx({ relevantStatIds: ['48', '57'], isRpPool: true, workloadOf: p => (p.seasonTotals['34'] || 0) / 3 });
     const r = computeRotoRanks([R1, R2], rpCtx);
-    // K/9: R1 100, R2 0.
+    // K/9: R1 100, R2 0. SV ungated in RP: R1 (0 saves) 0, R2 100. Both average 50, and
+    // crucially NO shrinkage applied despite very different workloads (60 vs 100 IP).
     assertClose(r.scores.get(1), 50, 'R1: K/9 win + SV loss, unshrunk');
     assertClose(r.scores.get(2), 50, 'R2: K/9 loss + SV win, unshrunk');
 });
@@ -172,16 +237,93 @@ test('computeRotoRanks: inverse stat ranks the LOWER value first', () => {
     assertClose(r.ranks.get(1), 1, 'lower ERA ranks #1');
 });
 
-test('computeRotoRanks: a player missing a stat skips that category, not the whole rank', () => {
-    // A two-way/partial-data shape: B has no stat '20' at all (undefined, not zero), so B is scored on '5' only while A averages both. And B never enters the '20' basis.
+test('computeRotoRanks: hockey goalie pool: inverse GAA, games-played workload, backup shrinkage', () => {
+    // Validates a hockey-shaped ctx end to end: W counting, GAA inverse and lower-is-better, and games played as BOTH the shrinkage and the threshold workload.
+    const A = P(1, { '1': 30, '10': 2.00, '30': 60 }); // starter, best record
+    const B = P(2, { '1': 20, '10': 2.50, '30': 60 }); // starter, worst rate
+    const C = P(3, { '1': 5, '10': 1.00, '30': 12 });  // backup: elite rate, 12 games = 20% of 60
+    const hCtx = {
+        relevantStatIds: ['1', '10'],
+        inverseStatIds: new Set(['10']),
+        isRpPool: false,
+        requireMinPlayingTime: true,
+        workloadOf: p => p.seasonTotals['30'] || 0,
+        thresholdWorkloadOf: p => p.seasonTotals['30'] || 0,
+        statMap: { '1': 'W', '10': 'GAA' }
+    };
+    const r = computeRotoRanks([A, B, C], hCtx);
+    // W basis [5,20,30]: A 100, B 50, C 0. GAA basis [1,2,2.5] inverse: A 50, B 0, C 100.
+    // Shrink 1.0 for A/B (60 of 60 games), 0.2 for C (12 of 60). Per-category pull to 50 then avg:
+    // A (100,50)->75. B (50,0)->25. C W 50+(0-50)*0.2=40, GAA 50+(100-50)*0.2=60 -> 50.
+    assertClose(r.scores.get(1), 75, 'starter A: best record, mid rate');
+    assertClose(r.scores.get(2), 25, 'starter B: mid record, worst rate');
+    assertClose(r.scores.get(3), 50, 'backup C: elite GAA shrunk toward 50 by a 12-game sample');
+    assertClose(r.ranks.get(1), 1, 'A ranks first');
+    assertClose(r.ranks.get(3), 2, 'C ranks second, ahead of B despite far fewer games');
+    assertClose(r.ranks.get(2), 3, 'B ranks third');
+});
+
+test('computeRotoRanks: a missing COUNTING stat is a real 0, ranked not skipped', () => {
+    // ESPN omits a zero-valued sparse counting stat entirely: B has no '20' key. Under the
+    // zero-fill rule B is ranked in '20' at 0 (not skipped) and enters the '20' basis at 0, so
+    // having zero costs a real bottom percentile instead of nothing.
     const A = P(1, { '5': 10, '20': 5, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const r = computeRotoRanks([A, B], ctx({ relevantStatIds: ['5', '20'] }));
-    // '5': A 0, B 100. '20': single-member basis -> A 100.
-    assertClose(r.scores.get(1), 50, 'A averages both categories');
-    assertClose(r.scores.get(2), 100, 'B averaged over its one real category');
-    assertClose(r.ranks.get(2), 1, 'B ranks first');
-    assertClose(r.categoryCount, 2, 'categoryCount reports the pool-wide category count');
+    // '5' basis [10,20]: A 0, B 100. '20' basis [0(B),5(A)]: A 100, B 0. Equal workloads, no shrink.
+    assertClose(r.scores.get(1), 50, 'A: worst HR (0) + best on stat 20 (100)');
+    assertClose(r.scores.get(2), 50, 'B: best HR (100) + zero-filled stat 20 (0)');
+    assertClose(r.categoryCount, 2, 'both categories count for both players');
+});
+
+test('computeRotoRanks: sparse stats: counting zero-fills, rate stays absent', () => {
+    // '5' counting, '47' a rate (inverse). C has neither key: its missing '5' becomes 0 and is
+    // ranked. Its missing '47' is genuinely absent (a rate never posted is not a 0.00 ERA) and
+    // is skipped, so C is scored on the one counting cat only.
+    const A = P(1, { '5': 10, '47': 3.00, '81': 100 });
+    const B = P(2, { '5': 20, '47': 4.00, '81': 100 });
+    const C = P(3, { '81': 100 });
+    const r = computeRotoRanks([A, B, C], ctx({
+        relevantStatIds: ['5', '47'], inverseStatIds: new Set(['47']), rateStatIds: new Set(['47'])
+    }));
+    // '5' basis [0(C),10(A),20(B)] (n=3): A 50, B 100, C 0.
+    // '47' basis [3,4] (A and B only, C absent), inverse: A 100, B 0. C skipped.
+    assertClose(r.scores.get(1), 75, 'A: HR 50, ERA 100');
+    assertClose(r.scores.get(2), 50, 'B: HR 100, ERA 0');
+    assertClose(r.scores.get(3), 0, 'C: HR zero-filled to 0; ERA skipped as a rate never posted');
+    assertClose(r.ranks.get(3), 3, 'C last, ranked only on the counting cat it zero-filled into');
+});
+
+test('computeRotoRanks: a zero cohort scores the midrank block average, not 0', () => {
+    // The real-league case in miniature: one player has the counting stat, three don't (no key).
+    // The three zeros form a tie block, and midrank puts each at the block's mean, not rock bottom.
+    const A = P(1, { '5': 20, '81': 100 });
+    const B = P(2, { '81': 100 }); // no '5' -> 0
+    const C = P(3, { '81': 100 }); // no '5' -> 0
+    const D = P(4, { '81': 100 }); // no '5' -> 0
+    const r = computeRotoRanks([A, B, C, D], ctx({ relevantStatIds: ['5'] }));
+    // '5' basis [0,0,0,20] (n=4). The three zeros: below=0, equal=3, worse=(3-1)/2=1 -> 1/3*100 = 33.33.
+    // A(20): below=3, equal=1, worse=3 -> 3/3*100 = 100.
+    assertClose(r.scores.get(1), 100, 'the lone producer beats the whole zero cohort');
+    assertClose(r.scores.get(2), 100 / 3, 'a zero sits at the middle of the 3-zero block (33.33), not 0');
+    assertClose(r.scores.get(3), 100 / 3, 'every zero-cohort member gets the same block average');
+    assertClose(r.scores.get(4), 100 / 3, 'and the third');
+    assertClose(r.ranks.get(1), 1, 'producer ranks first');
+});
+
+test('computeRotoRanks: a dense mid-pool tie splits the block percentile (midrank)', () => {
+    // Two players tied at 20 in a non-sparse category both take the block average, not the worse
+    // edge, the same midrank rule, nothing to do with zero-fill.
+    const A = P(1, { '5': 30, '81': 100 });
+    const B = P(2, { '5': 20, '81': 100 });
+    const C = P(3, { '5': 20, '81': 100 });
+    const D = P(4, { '5': 10, '81': 100 });
+    const r = computeRotoRanks([A, B, C, D], ctx({ relevantStatIds: ['5'] }));
+    // basis [10,20,20,30] (n=4). B,C at 20: below=1, equal=2, worse=1+(2-1)/2=1.5 -> 1.5/3*100 = 50.
+    assertClose(r.scores.get(1), 100, 'A (30) unique top');
+    assertClose(r.scores.get(2), 50, 'B: tied at 20 takes the block average (50), not 33.3');
+    assertClose(r.scores.get(3), 50, 'C: same block average as its tie partner');
+    assertClose(r.scores.get(4), 0, 'D (10) unique bottom');
 });
 
 test('computeRotoRanks: empty pool returns an empty, well-formed result', () => {
@@ -211,8 +353,28 @@ test('computeCategoryBreakdown: avg reproduces the roto score exactly', () => {
     assertClose(bd.rows[0].adjPct, 25, 'adjusted percentile');
 });
 
+test('computeCategoryBreakdown: zero-fills a missing counting cat and reports the qualified pool size', () => {
+    // B lacks '20'. D is unqualified (10 games < 20% of 100), so the qualified basis is {A, B}.
+    // B's breakdown must include a '20' row (zero-filled) ranked against that basis, and report
+    // the qualified size (2), not the full 3-player group the score is NOT computed against.
+    const A = P(1, { '5': 10, '20': 5, '81': 100 });
+    const B = P(2, { '5': 20, '81': 100 });
+    const D = P(3, { '5': 40, '20': 9, '81': 10 });
+    const c = ctx({ relevantStatIds: ['5', '20'] });
+    const bd = computeCategoryBreakdown(B, [A, B, D], c);
+    const row20 = bd.rows.find(r => r.id === '20');
+    assert(row20 !== undefined, 'stat 20 is a scored row for B even though B has no key for it');
+    assertClose(row20.value, 0, 'the missing counting value shows as a real 0');
+    assertClose(row20.rawPct, 0, 'zero is the shared bottom of the {A=5, B=0} basis');
+    assertClose(bd.qualifiedCount, 2, 'qualified pool size is A and B, not the 3-player group');
+    // avg still reconstructs the leaderboard score for a zero-filled player.
+    const roto = computeRotoRanks([A, B, D], c);
+    assertClose(bd.avg, roto.scores.get(2), 'breakdown avg === leaderboard score with a zero-fill row');
+});
+
 test('computeCategoryBreakdown: unqualified player reproduces the toggle-off roto score', () => {
-    // The drill-down must show the same number the leaderboard shows when Minimum Games Played is off: the call-up scored against the FIXED qualified basis, never inserted into it.
+    // The drill-down must show the same number the leaderboard shows when Minimum Games Played
+    // is off: the call-up scored against the FIXED qualified basis, never inserted into it.
     const A = P(1, { '5': 30, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const callup = P(3, { '5': 40, '81': 10 });
@@ -242,7 +404,22 @@ test('computeCategoryBreakdown: RP K row is labeled "(as K/9)" and valued as a r
     assertClose(bd.rows[0].value, 12, 'row value is the K/9 rate, not raw K');
 });
 
-// ==== Weekly Matchup Score basis + scoring ====
+test('computeCategoryBreakdown: a true full-precision rate tie yields equal percentiles', () => {
+    // Display decimals on rate rows, so two save percentages that round to the same figure stop looking like an engine bug.
+    const A = P(1, { '47': 0.9200, '81': 100 });
+    const B = P(2, { '47': 0.9100, '81': 100 }); // identical full-precision rate...
+    const C = P(3, { '47': 0.9100, '81': 100 }); // ...as B
+    const D = P(4, { '47': 0.9000, '81': 100 });
+    const c = ctx({ relevantStatIds: ['47'], rateStatIds: new Set(['47']) });
+    const rowB = computeCategoryBreakdown(B, [A, B, C, D], c).rows.find(r => r.id === '47');
+    const rowC = computeCategoryBreakdown(C, [A, B, C, D], c).rows.find(r => r.id === '47');
+    // basis [0.90, 0.91, 0.91, 0.92] (n=4). The two at 0.91: below=1, equal=2, worse=1.5 -> 50.
+    assertClose(rowB.value, rowC.value, 'the two tied values are genuinely equal');
+    assertClose(rowB.rawPct, rowC.rawPct, 'and midrank gives them the same percentile');
+    assertClose(rowB.rawPct, 50, 'the shared block average, not one edge above the other');
+});
+
+// ==== Weekly matchup score: basis and scoring ====
 
 test('buildCategoryRateBasis: counting stats divide by weeks, rate stats never do', () => {
     const pool = [P(1, { '5': 20, '2': 0.300 }), P(2, { '5': 10, '2': 0.250 })];
@@ -256,7 +433,7 @@ test('buildCategoryRateBasis: counting stats divide by weeks, rate stats never d
 });
 
 test('buildCategoryRateBasis: opportunity gate filters the rate pool', () => {
-    const pool = [P(1, { '57': 30, '58': 5 }), P(2, { '57': 1, '58': 0 })]; // chances 35 vs 1. Min = 5.25
+    const pool = [P(1, { '57': 30, '58': 5 }), P(2, { '57': 1, '58': 0 })]; // chances 35 vs 1; min = 5.25
     const basis = buildCategoryRateBasis(pool, {
         relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: 10
     });
@@ -272,7 +449,7 @@ test('buildCategoryRateBasis: categories with no data in the pool are dropped en
     assert(basis[0].id === '2', 'the populated category survives');
 });
 
-test('scoreWeekAgainstBasis: inverse rate stat - lower weekly value scores higher', () => {
+test('scoreWeekAgainstBasis: inverse rate stat: a lower weekly value scores higher', () => {
     const pool = [P(1, { '47': 3.0 }), P(2, { '47': 4.0 })];
     const basis = buildCategoryRateBasis(pool, {
         relevantStatIds: ['47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['47']), weeksElapsed: 10
@@ -313,9 +490,11 @@ test('scoreWeekAgainstBasis: opportunity-gated player skips the category', () =>
     assert(scoreWeekAgainstBasis(closer, { '57': 2 }, basis) !== null, 'gated basis still scores the closer');
 });
 
-// ==== Real-weekly-value basis (buildWeeklyValueBasis) ====
+// ==== Real weekly-value basis, the preferred one: see rank-engine.js for why the season-average basis reads flat for everyday players ====
 
-// Weekly-pool player factory. Id + seasonTotals (read only for opportunity gating) + a list of real per-matchup-week entries ({ stats, games }), matching what players.js's buildWeeklyRateBasis assembles from AppState.playerWeeklyCache.
+// Weekly-pool player factory: id plus seasonTotals (read only for opportunity gating) + a list of
+// real per-matchup-week entries ({ stats, games }), matching what players.js's buildWeeklyRateBasis
+// assembles from AppState.playerWeeklyCache.
 const WP = (id, seasonTotals, weeks) => ({ id, seasonTotals, weeks });
 
 test('buildWeeklyValueBasis: counting stats collect raw per-week totals, rate stats collect real per-week rates (no division)', () => {
@@ -336,7 +515,7 @@ test('buildWeeklyValueBasis: a zero-games week is excluded from the distribution
     assert(JSON.stringify(basis[0].rates) === '[2]', `zero-games week excluded: ${JSON.stringify(basis[0].rates)}`);
 });
 
-test('buildWeeklyValueBasis: inverse category - a lower real week scores higher via scoreWeekAgainstBasis', () => {
+test('buildWeeklyValueBasis: inverse category: a lower real week scores higher via scoreWeekAgainstBasis', () => {
     const pool = [WP(1, {}, [{ stats: { '47': 5.00 }, games: 4 }]), WP(2, {}, [{ stats: { '47': 2.00 }, games: 4 }])];
     const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['47']) });
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 1.00 }, basis), 100, 'ERA better than both real weeks scores 100');
@@ -357,50 +536,51 @@ test('buildWeeklyValueBasis: a category nobody has any real week for is dropped 
     assert(basis[0].id === '2', 'the populated category survives');
 });
 
-// End-to-end proof: a synthetic pool with a full-time slugger who has a genuine cold week and a genuine hot week, sitting alongside a pool that also has a bunch of part-time bench bats who only have a game log for a week or two each. The other weeks have 0 games and are absent, matching how the real pipeline never creates an entry for a week nobody played any part of.
-const demoWeeksElapsed = 4;
+// End-to-end proof on a synthetic pool shaped like the real report: a full-time bat with a genuine cold week and hot week, in a pool that also holds part-timers with a game log for only a week or two each.
+const b14WeeksElapsed = 4;
 // Subject: 1 HR in the cold week, 6 HR in the hot week.
-const demoSubject = WP('R1', {}, [
+const b14Subject = WP('R1', {}, [
     { stats: { '5': 1 }, games: 6 }, { stats: { '5': 3 }, games: 6 },
     { stats: { '5': 3 }, games: 6 }, { stats: { '5': 6 }, games: 6 }
 ]);
-// Another full-time peer. Plays every week, real values spread across the season (season total 14).
-const demoRegularPeer = WP('R2', {}, [
+// Another full-time peer that plays every week, real values spread across the season (season total 14).
+const b14RegularPeer = WP('R2', {}, [
     { stats: { '5': 2 }, games: 6 }, { stats: { '5': 3 }, games: 6 },
     { stats: { '5': 4 }, games: 6 }, { stats: { '5': 5 }, games: 6 }
 ]);
 // 8 part-timers, each with exactly ONE real week (2 games that week) and 3 absent weeks.
-const demoPartTimers = [
+const b14PartTimers = [
     WP('PT1', {}, [{ stats: { '5': 0 }, games: 2 }]), WP('PT2', {}, [{ stats: { '5': 1 }, games: 2 }]),
     WP('PT3', {}, [{ stats: { '5': 0 }, games: 2 }]), WP('PT4', {}, [{ stats: { '5': 1 }, games: 2 }]),
     WP('PT5', {}, [{ stats: { '5': 1 }, games: 2 }]), WP('PT6', {}, [{ stats: { '5': 0 }, games: 2 }]),
     WP('PT7', {}, [{ stats: { '5': 1 }, games: 2 }]), WP('PT8', {}, [{ stats: { '5': 0 }, games: 2 }])
 ];
 
-test('regression: the OLD season-average basis saturates - a real bad week still scores ~89 against smoothed part-timer averages', () => {
-    // Season totals implied by the weekly data above (the OLD basis never sees the real weeks, only each peer's season sum): R2 = 14, PT1..PT8 = 0,1,0,1,1,0,1,0.
+test('the old season-average basis saturates: a real bad week still scores ~89 against smoothed part-timer averages', () => {
+    // Season totals implied by the weekly data above (the OLD basis never sees the real weeks,
+    // only each peer's season sum): R2 = 14, PT1..PT8 = 0,1,0,1,1,0,1,0.
     const oldPool = [
         P('R2', { '5': 14 }),
         P('PT1', { '5': 0 }), P('PT2', { '5': 1 }), P('PT3', { '5': 0 }), P('PT4', { '5': 1 }),
         P('PT5', { '5': 1 }), P('PT6', { '5': 0 }), P('PT7', { '5': 1 }), P('PT8', { '5': 0 })
     ];
     const oldBasis = buildCategoryRateBasis(oldPool, {
-        relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: demoWeeksElapsed
+        relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: b14WeeksElapsed
     });
     // Typical weeks sorted: [0,0,0,0, 0.25,0.25,0.25,0.25, 3.5] (9 members).
-    const coldScore = scoreWeekAgainstBasis(demoSubject, { '5': 1 }, oldBasis);
-    const hotScore = scoreWeekAgainstBasis(demoSubject, { '5': 6 }, oldBasis);
+    const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, oldBasis);
+    const hotScore = scoreWeekAgainstBasis(b14Subject, { '5': 6 }, oldBasis);
     assertClose(coldScore, (8 / 9) * 100, 'a genuinely bad 1-HR week still beats 8 of 9 smoothed peer averages');
-    assertClose(hotScore, 100, 'the hot week also caps at 100 - indistinguishable from the "bad" week at a glance');
-    assert(coldScore >= 80, `saturation: cold week caps near the ceiling instead of reading low (got ${coldScore})`);
+    assertClose(hotScore, 100, 'the hot week also caps at 100, indistinguishable from the "bad" week at a glance');
+    assert(coldScore >= 80, `THE BUG: cold week saturates near the ceiling instead of reading low (got ${coldScore})`);
 });
 
-test('fix verified: the NEW real-weekly-value basis scores the same cold week meaningfully lower than the hot week', () => {
-    const pool = [demoRegularPeer, ...demoPartTimers];
+test('the real-weekly-value basis scores the same cold week meaningfully lower than the hot week', () => {
+    const pool = [b14RegularPeer, ...b14PartTimers];
     const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
     // Real weekly pool sorted: [0,0,0,0, 1,1,1,1, 2,3,4,5] (12 real weeks).
-    const coldScore = scoreWeekAgainstBasis(demoSubject, { '5': 1 }, basis);
-    const hotScore = scoreWeekAgainstBasis(demoSubject, { '5': 6 }, basis);
+    const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, basis);
+    const hotScore = scoreWeekAgainstBasis(b14Subject, { '5': 6 }, basis);
     assertClose(coldScore, (4 / 12) * 100, 'cold week beats only the four real 0-HR weeks in the pool');
     assertClose(hotScore, 100, 'hot week still beats every real peer week');
     assert(coldScore < 50, `cold week now reads as genuinely below average (got ${coldScore})`);
@@ -408,12 +588,247 @@ test('fix verified: the NEW real-weekly-value basis scores the same cold week me
 });
 
 test('min-games decision: excluding part-timers from the weekly-value basis sharpens the cold-week score further', () => {
-    // Same subject and cold week, but the basis pool is restricted to just the full-time peer. Simulating players.js filtering to MIN_PLAYING_TIME_FRACTION of games played (same threshold/measure computeRotoRanks already uses for its own qualified-pool basis) before handing the pool to buildWeeklyValueBasis.
-    const basis = buildWeeklyValueBasis([demoRegularPeer], { relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
+    // Same subject and cold week, but the basis pool is restricted to just the full-time peer -
+    // simulating players.js filtering to MIN_PLAYING_TIME_FRACTION of games played (same
+    // threshold/measure computeRotoRanks already uses for its own qualified-pool basis) before
+    // handing the pool to buildWeeklyValueBasis.
+    const basis = buildWeeklyValueBasis([b14RegularPeer], { relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
     // Real weekly pool: [2,3,4,5] (the full-time peer's real weeks only).
-    const coldScore = scoreWeekAgainstBasis(demoSubject, { '5': 1 }, basis);
+    const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, basis);
     assertClose(coldScore, 0, 'a 1-HR week beats none of a true regular peer\'s real weeks');
-    // DECISION (see buildWeeklyRateBasis in players.js): exclude part-timers.
+    // DECISION (see buildWeeklyRateBasis in players.js): exclude part-timers. Comparing a
+    // regular's week to OTHER REGULARS' real weeks is the more diagnostic peer group, the
+    // previous test (part-timers included) still let the same bad week read 33% instead of this
+    // sharper 0%, because the part-timers' real-but-weak weeks acted as a soft floor under the
+    // whole distribution, a milder version of the exact problem this basis exists to fix.
+});
+
+// ==== Roto standings scoring ====
+
+test('rotoPointsForCategory: position points, best gets n and worst gets 1', () => {
+    // 4 teams, higher is better. Values 40 > 30 > 20 > 10 -> 4, 3, 2, 1 points.
+    const pts = rotoPointsForCategory([
+        { id: 'a', value: 20 }, { id: 'b', value: 40 }, { id: 'c', value: 10 }, { id: 'd', value: 30 }
+    ], false);
+    assertClose(pts.get('b'), 4, 'top value gets n');
+    assertClose(pts.get('d'), 3, 'second');
+    assertClose(pts.get('a'), 2, 'third');
+    assertClose(pts.get('c'), 1, 'worst gets 1');
+});
+
+test('rotoPointsForCategory: a two-way tie splits the block average, mirroring ESPN halves', () => {
+    // The exact shape validated against a real payload: 5 teams with values 13, 10, 10, 8 and 4, where positions are worth 5, 4, 3, 2 and 1.
+    const pts = rotoPointsForCategory([
+        { id: 'a', value: 13 }, { id: 'b', value: 10 }, { id: 'c', value: 10 },
+        { id: 'd', value: 8 }, { id: 'e', value: 4 }
+    ], false);
+    assertClose(pts.get('a'), 5, 'unique top');
+    assertClose(pts.get('b'), 3.5, 'tied pair shares the block average');
+    assertClose(pts.get('c'), 3.5, 'and its partner');
+    assertClose(pts.get('d'), 2, 'below the tie');
+    assertClose(pts.get('e'), 1, 'worst');
+});
+
+test('rotoPointsForCategory: an inverse category ranks the LOWEST value best', () => {
+    // GAA-style: lower is better. 2.35 < 2.40 < 2.84 -> 3, 2, 1 points.
+    const pts = rotoPointsForCategory([
+        { id: 'a', value: 2.84 }, { id: 'b', value: 2.35 }, { id: 'c', value: 2.40 }
+    ], true);
+    assertClose(pts.get('b'), 3, 'lowest GAA is best');
+    assertClose(pts.get('c'), 2, 'middle');
+    assertClose(pts.get('a'), 1, 'highest GAA is worst');
+});
+
+test('rotoPointsForCategory: a team with no value parks below every real value', () => {
+    // 3 teams, one blank. The two real values rank among the full field of 3 (best 3, next 2), and
+    // the blank takes the leftover bottom position (1), never beating a real last-place number.
+    const pts = rotoPointsForCategory([
+        { id: 'a', value: 5 }, { id: 'b', value: undefined }, { id: 'c', value: 2 }
+    ], false);
+    assertClose(pts.get('a'), 3, 'best real value');
+    assertClose(pts.get('c'), 2, 'the other real value still beats the blank');
+    assertClose(pts.get('b'), 1, 'blank is last');
+});
+
+test('scoreRotoWeek: sums per-category points, with a tie and an inverse category', () => {
+    // Two categories over three teams. HR (higher better): 30, 20, 10 -> 3, 2, 1. ERA (inverse,
+    // lower better) with a tie: 3.0, 3.0, 4.0 -> the two 3.0s tie for the top pair (3+2)/2 = 2.5,
+    // the 4.0 is worst at 1. Totals: A 3+2.5=5.5, B 2+2.5=4.5, C 1+1=2.
+    const teams = [
+        { id: 'A', values: { hr: 30, era: 3.0 } },
+        { id: 'B', values: { hr: 20, era: 3.0 } },
+        { id: 'C', values: { hr: 10, era: 4.0 } }
+    ];
+    const totals = scoreRotoWeek(teams, [{ id: 'hr', inverse: false }, { id: 'era', inverse: true }]);
+    assertClose(totals.get('A'), 5.5, 'A: best HR (3) + tied-best ERA (2.5)');
+    assertClose(totals.get('B'), 4.5, 'B: second HR (2) + tied-best ERA (2.5)');
+    assertClose(totals.get('C'), 2, 'C: worst in both (1 + 1)');
+});
+
+// ==== Roster timeline: transaction-accurate rosters ====
+
+// Item factory (only the fields buildRosterTimeline reads).
+const IT = (playerId, type, toTeamId) => ({ playerId, type, toTeamId });
+// Transaction factory. proposedDate defaults to the scoring period so tests that don't care about
+// ordering read naturally. The out-of-order test sets it explicitly.
+const TX = (scoringPeriodId, items, status = 'EXECUTED', proposedDate = scoringPeriodId) =>
+    ({ scoringPeriodId, items, status, proposedDate });
+
+test('buildRosterTimeline: draft-only seeds day-one rosters for the whole season', () => {
+    const tl = buildRosterTimeline({ picks: [{ playerId: 10, teamId: 1 }, { playerId: 20, teamId: 2 }] });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 1), 1, 'drafted to team 1 from day one');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 180), 1, 'still team 1 late in the season');
+    assertClose(teamForPlayerAtPeriod(tl, 20, 50), 2, 'the other pick');
+    assertClose(teamForPlayerAtPeriod(tl, 999, 50), 0, 'an undrafted, untransacted player is nobody');
+});
+
+test('buildRosterTimeline: an ADD credits the picking-up team from its period on', () => {
+    const tl = buildRosterTimeline({ transactions: [TX(5, [IT(10, 'ADD', 3)])] });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 4), 0, 'unrostered before the add');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 5), 3, 'team 3 from the add period');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 40), 3, 'and onward');
+});
+
+test('buildRosterTimeline: a DROP returns a drafted player to nobody', () => {
+    const tl = buildRosterTimeline({
+        picks: [{ playerId: 10, teamId: 1 }],
+        transactions: [TX(10, [IT(10, 'DROP', 0)])]
+    });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 9), 1, 'on team 1 before the drop');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 10), 0, 'unrostered from the drop period');
+});
+
+test('buildRosterTimeline: add -> drop -> re-add tracks every stint', () => {
+    const tl = buildRosterTimeline({
+        transactions: [
+            TX(5, [IT(10, 'ADD', 2)]),
+            TX(10, [IT(10, 'DROP', 0)]),
+            TX(15, [IT(10, 'ADD', 2)])
+        ]
+    });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 3), 0, 'before the first add');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 7), 2, 'first stint on team 2');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 12), 0, 'dropped in between');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 20), 2, 're-added to team 2');
+});
+
+test('buildRosterTimeline: a TRADE moves a player from one team to the other', () => {
+    const tl = buildRosterTimeline({
+        picks: [{ playerId: 10, teamId: 1 }],
+        transactions: [TX(8, [IT(10, 'TRADE', 2)])]
+    });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 7), 1, 'on the drafting team before the trade');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 8), 2, 'on the receiving team after');
+});
+
+test('buildRosterTimeline: transactions replay in proposedDate order, not array order', () => {
+    // Two changes to the SAME player in the SAME period, supplied newest-first in the array. Sorted
+    // by proposedDate the ADD (earlier) happens then the DROP (later), so the period ends unrostered.
+    // Without the sort the array order would leave the player wrongly on team 4.
+    const drop = TX(8, [IT(10, 'DROP', 0)], 'EXECUTED', 200);
+    const add = TX(8, [IT(10, 'ADD', 4)], 'EXECUTED', 100);
+    const tl = buildRosterTimeline({ transactions: [drop, add] });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 8), 0, 'later DROP wins the period despite array order');
+});
+
+test('buildRosterTimeline: non-EXECUTED transactions never change a roster', () => {
+    // PENDING, CANCELED and FAILED entries all carry real-looking items but never happened, so a
+    // player who was only ever the subject of these is unrostered. The lone status-less TRADE_ACCEPT
+    // (empty items) is excluded the same way and would be a no-op regardless.
+    const tl = buildRosterTimeline({
+        transactions: [
+            TX(5, [IT(10, 'ADD', 1)], 'PENDING'),
+            TX(6, [IT(10, 'ADD', 2)], 'CANCELED'),
+            TX(7, [IT(10, 'ADD', 3)], 'FAILED_INVALIDPLAYERSOURCE'),
+            { scoringPeriodId: 8, items: [], proposedDate: 8, type: 'TRADE_ACCEPT' } // no status field
+        ]
+    });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 50), 0, 'no executed transaction ever put this player on a team');
+});
+
+test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () => {
+    // A LINEUP item is a bench or start slot move and is skipped, while a DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
+    const tl = buildRosterTimeline({
+        picks: [{ playerId: 10, teamId: 1 }],
+        transactions: [
+            TX(3, [IT(10, 'LINEUP', 0)]),
+            TX(20, [IT(10, 'DROP', 0)]),
+            TX(25, [IT(10, 'DRAFT', 1)]) // stray DRAFT-typed item after a drop must be ignored
+        ]
+    });
+    assertClose(teamForPlayerAtPeriod(tl, 10, 10), 1, 'LINEUP did not change the drafted ownership');
+    assertClose(teamForPlayerAtPeriod(tl, 10, 30), 0, 'stays dropped, since the DRAFT item is skipped');
+});
+
+// ==== Started-day crediting from the daily roster snapshots ====
+
+// Entry + snapshot-day factories (only the fields buildStartedTimeline reads).
+const E = (p, slot) => ({ p, slot });
+const STARTERS = new Set([3, 4, 5, 6]);
+
+test('buildStartedTimeline: a started day credits the team, a benched day credits nobody', () => {
+    // Same two players, slots swapped between two days: whoever is in a starting slot that day counts.
+    const tl = buildStartedTimeline({
+        rosterDays: {
+            1: [{ id: 1, entries: [E(10, 3), E(11, 7)] }], // p10 starting (F), p11 benched
+            2: [{ id: 1, entries: [E(10, 7), E(11, 3)] }]  // swapped
+        },
+        startingSlots: STARTERS
+    });
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 1), 1, 'p10 started day 1');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 2), 0, 'p10 benched day 2, nobody');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 11, 1), 0, 'p11 benched day 1, nobody');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 11, 2), 1, 'p11 started day 2');
+});
+
+test('buildStartedTimeline: a mid-week benching only drops the benched day', () => {
+    // Periods 8,9,10 all fall in week 1 (floor(p/7)=1). Started 8 and 9, benched 10, so the race sums
+    // only the two started days into that week, not the benched one.
+    const tl = buildStartedTimeline({
+        rosterDays: {
+            8: [{ id: 2, entries: [E(10, 4)] }],
+            9: [{ id: 2, entries: [E(10, 4)] }],
+            10: [{ id: 2, entries: [E(10, 7)] }]
+        },
+        startingSlots: STARTERS
+    });
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 8), 2, 'started day 8');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 9), 2, 'started day 9');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 10), 0, 'benched day 10, nobody');
+});
+
+test('buildStartedTimeline: an IR-slotted player credits nobody that day', () => {
+    // Slot 8 (IR) is not a starting slot, so an injured player rostered but on IR does not count -
+    // exactly what ESPN's standings do.
+    const tl = buildStartedTimeline({
+        rosterDays: { 5: [{ id: 3, entries: [E(10, 8)] }] },
+        startingSlots: STARTERS
+    });
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 5), 0, 'IR slot 8 credits nobody');
+});
+
+test('buildStartedTimeline: benched, IR, unrostered, and never-seen all fall through to nobody', () => {
+    // The per-day fallback: any day a player is not in a starting slot on some team credits nobody, so
+    // the race skips it (whichever fallback tier is active never invents a crediting team).
+    const tl = buildStartedTimeline({
+        rosterDays: { 5: [{ id: 3, entries: [E(10, 7), E(11, 8)] }] }, // p10 bench, p11 IR
+        startingSlots: STARTERS
+    });
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 5), 0, 'benched');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 11, 5), 0, 'on IR');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 10, 99), 0, 'no snapshot for that period');
+    assertClose(startedTeamForPlayerAtPeriod(tl, 555, 5), 0, 'a player never in any snapshot');
+});
+
+test('buildStartedTimeline: crediting follows the passed startingSlots set, not any hardcoded ids', () => {
+    // The pure module knows nothing about which slot is a starter: the league resolves that from its
+    // own rosterSettings and passes the set in. With only slot 3 starting, a slot-4 player is benched.
+    const days = { 1: [{ id: 1, entries: [E(10, 3), E(20, 4)] }] };
+    const onlyThree = buildStartedTimeline({ rosterDays: days, startingSlots: new Set([3]) });
+    assertClose(startedTeamForPlayerAtPeriod(onlyThree, 10, 1), 1, 'slot 3 starts');
+    assertClose(startedTeamForPlayerAtPeriod(onlyThree, 20, 1), 0, 'slot 4 not a starter under this set');
+    const both = buildStartedTimeline({ rosterDays: days, startingSlots: new Set([3, 4]) });
+    assertClose(startedTeamForPlayerAtPeriod(both, 20, 1), 1, 'slot 4 starts once the set includes it');
 });
 
 // ==== Report ====

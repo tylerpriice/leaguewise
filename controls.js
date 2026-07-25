@@ -1,9 +1,9 @@
-import { AppState, ESPN_STAT_MAPS, PITCHING_IDS, GOALIE_IDS } from './state.js';
-import { splitScoredAdvanced } from './utils.js';
+import { AppState } from './state.js';
+import { advancedCategoryCount } from './utils.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand } from './graphs.js';
-import { renderPlayerLeaderboard, refreshOpenPlayerDetail } from './players.js';
+import { renderPlayerLeaderboard, refreshOpenPlayerDetail, rotoWindowsAvailable, rotoWindowMaxWeek } from './players.js';
 
-// AppState.timeframe is now the ONE shared selection driving Team Metrics graphs, the Player Metrics leaderboard, the player drill-down chart, and its rank chips/breakdown all at once. Refresh whichever of those currently have data loaded/open, regardless of which tab is active, so switching tabs never shows stale data for the newly-selected timeframe.
+// One timeframe drives both tabs, so refresh whichever views have data loaded regardless of which tab is active.
 export function handleTimeframeChange() {
     if (AppState.apiData) {
         renderLeftColumn();
@@ -17,13 +17,13 @@ export function handleTimeframeChange() {
 }
 
 
-// Collapses the sport/league/year/fetch fields behind the small gear button once data has loaded (see processCoreData in data.js). They're one-time setup, not worth permanent header space.
+// Collapses the one-time setup fields behind the gear button once data has loaded. The gear replays a short jump while they are collapsed so it stays obvious where they went.
 const GEAR_REMINDER_HOP_MS = 60000;
 let settingsJumpPlayed = false;
 let gearReminderTimer = null;
 
 function playGearJump(btn) {
-    // Remove + reflow so the animation restarts even if the class is already present.
+    // Remove and reflow so the animation restarts even if the class is already present.
     btn.classList.remove('jump');
     void btn.offsetWidth;
     btn.classList.add('jump');
@@ -51,22 +51,34 @@ export function collapseSettingsBar() {
     }
 }
 
-// Replaced simple label update with dynamic option reconstruction for Playoffs forceDefault is set on a genuine new-season fetch (see processCoreData). Otherwise a selection made on a playoff-less season (which falls back to "reg", see below) would silently carry over and stay stuck on "reg" for the NEXT season fetched too, even one that does have playoffs, hiding its postseason bars for no visible reason.
+// forceDefault only on a genuine new-season fetch. Otherwise a selection made on a playoff-less season stays stuck for the next season fetched, hiding its postseason bars.
 export function rebuildTimeframeOptions(forceDefault = false) {
+    // Roto has no matchup periods and ESPN serves one cumulative standing, so windows are only possible once the started-day harvest lands. Start hidden and season-only on every fetch.
+    const toggleEl = document.getElementById('timeframe-toggle');
+    if (AppState.isRotoLeague) {
+        AppState.timeframe = 'all';
+        rotoPillsShown = false;
+        if (toggleEl) {
+            toggleEl.innerHTML = '';
+            toggleEl.style.display = 'none';
+        }
+        return;
+    }
+    if (toggleEl) toggleEl.style.display = '';
+
     const maxWk = AppState.maxCompletedWeek;
     const regWks = AppState.regSeasonWeeks;
     const hasPlayoffs = maxWk > regWks;
 
-    // "Full Season"/"Regular Season" are kept short (dropping "+ Playoffs" / "Only") so the pill row has room for the "Matchups" word on every lookback window below, which is worth calling out explicitly: every window in this app is in MATCHUP units, not real calendar weeks (a playoff matchup can span 2-3 real weeks, since ESPN folds multi-week championship rounds into one matchup). Dropping "Matchups" read as ambiguous, so it stays in the visible label rather than being demoted to a hover-only tooltip.
+    // Every window here is in MATCHUP units, not calendar weeks: ESPN folds a multi-week championship round into one matchup.
     const options = [];
-    // "Full Season" only means something DIFFERENT from "Regular Season" once playoffs have actually started. Before that they'd be identical, so skip it entirely.
+    // Full Season only means something different from Regular Season once playoffs have started.
     if (hasPlayoffs) options.push({ value: 'all', text: 'Full Season', title: 'Regular Season + Playoffs' });
     options.push({ value: 'reg', text: 'Regular Season' });
 
-    // Playoffs sits directly after Regular Season (before the recent-window options), so the pill row reads Full Season -> Regular Season -> Playoffs -> This Matchup -> Last N.
     if (hasPlayoffs) options.push({ value: 'p_all', text: 'Playoffs' });
 
-    // Fixed lookback windows instead of a percentage of the season. Simpler to read, and doesn't depend on knowing the real season length.
+    // Fixed lookback windows, offered only when more season sits outside the window than inside it. n=1 is the live matchup, since maxCompletedWeek counts one in progress.
     [1, 4, 8, 12].forEach(n => {
         if (maxWk > n) options.push({ value: `last${n}`, text: n === 1 ? 'This Matchup' : `Last ${n} Matchups` });
     });
@@ -78,7 +90,7 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     renderTimeframeToggle(options);
 }
 
-// A row of always-visible pill buttons (same visual language as .filter-flex/.legend-item elsewhere in this file). Lives directly in .tabs-container (dashboard.html) so it's visible regardless of which tab is active.
+// The pill row lives in the tab bar so it stays visible on both tabs. AppState.timeframe is the source of truth, there is no backing select.
 function renderTimeframeToggle(options) {
     const toggle = document.getElementById('timeframe-toggle');
     toggle.innerHTML = '';
@@ -88,7 +100,7 @@ function renderTimeframeToggle(options) {
         btn.type = 'button';
         btn.className = 'timeframe-chip' + (opt.value === AppState.timeframe ? ' active' : '');
         btn.textContent = opt.text;
-        // The full, unabbreviated wording (e.g, "Last 4 matchups") on hover. See the label shortening comment above rebuildTimeframeOptions' options array.
+        // The unabbreviated wording on hover.
         btn.title = opt.title || opt.text;
         btn.dataset.value = opt.value;
         btn.addEventListener('click', () => {
@@ -101,16 +113,42 @@ function renderTimeframeToggle(options) {
     });
 }
 
-// Moves the .active class to whichever chip matches the newly-selected value. A click only ever changes which ONE button is highlighted, so there's no need to tear down and recreate every button (and re-attach every listener) in the row the way a real option-set rebuild (rebuildTimeframeOptions, e.g, after a new league/season fetch) legitimately does.
+// Roto pills are decided once, when the started-day harvest lands. The guard keeps the row from flickering as chunks stream in, and from resetting a window the user has already picked.
+let rotoPillsShown = false;
+export function syncRotoTimeframePills() {
+    if (!AppState.isRotoLeague || rotoPillsShown) return;
+    const sport = document.getElementById('sport').value;
+    if (!rotoWindowsAvailable(sport)) return; // still on a fallback tier, or harvest not done, stay hidden
+
+    const toggleEl = document.getElementById('timeframe-toggle');
+    if (!toggleEl) return;
+
+    // Full Season shows ESPN's official standings verbatim. The lookback pills re-score the categories over that window's started-day components, bucketed to weeks.
+    const maxWeek = rotoWindowMaxWeek(sport);
+    const options = [{ value: 'all', text: 'Full Season', title: "ESPN's official season standings" }];
+    [4, 8, 12].forEach(n => {
+        if (maxWeek > n) options.push({ value: `last${n}`, text: `Last ${n} Weeks` });
+    });
+    if (options.length === 1) return; // season too short for any honest window, keep the row hidden
+
+    toggleEl.style.display = '';
+    renderTimeframeToggle(options); // AppState.timeframe is still 'all', so Full Season starts active
+    rotoPillsShown = true;
+}
+
+// Only the active class moves, so a click does not tear down and re-attach every button in the row.
 function setActiveTimeframeChip(toggle, value) {
     toggle.querySelectorAll('.timeframe-chip').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.value === value);
     });
 }
 
-function renderTeamAdvancedToggle(advancedCount) {
-    const container = document.getElementById('team-advanced-toggle');
+// Category Rankings cycles one category per screen, so this only decides whether the cycle covers the league's scored categories or everything ESPN tracks for the sport. It stays visible because the Player Metrics tab writes the same state.
+export function renderCategoryAdvancedToggle() {
+    const container = document.getElementById('cat-advanced-toggle');
     if (!container) return;
+    const sport = document.getElementById('sport').value;
+    const advancedCount = advancedCategoryCount(sport);
 
     if (advancedCount === 0) {
         container.innerHTML = '';
@@ -118,119 +156,13 @@ function renderTeamAdvancedToggle(advancedCount) {
     }
 
     container.innerHTML = `
-        <label><input type="checkbox" id="team-advanced-checkbox"${AppState.showAdvancedStats ? ' checked' : ''}> Advanced Stats (${advancedCount})</label>
+        <label><input type="checkbox" id="cat-advanced-checkbox"${AppState.showAdvancedStats ? ' checked' : ''}> Advanced Stats (${advancedCount})</label>
     `;
-    container.querySelector('#team-advanced-checkbox').addEventListener('change', (e) => {
+    container.querySelector('#cat-advanced-checkbox').addEventListener('change', (e) => {
         AppState.showAdvancedStats = e.target.checked;
-        buildCheckboxes();
+        // renderCategoryBlocks re-resolves the viewed category by stat id, so the box holds its place when the list gets longer or shorter.
+        renderLeftColumn();
     });
-}
-
-export function buildCheckboxes() {
-    const sport = document.getElementById('sport').value;
-    const container = document.getElementById('category-checkboxes');
-    if (AppState.isPointsLeague || AppState.availableStatsSet.size === 0) return;
-
-    const statMap = ESPN_STAT_MAPS[sport] || {};
-    const checkedStats = new Set(Array.from(document.querySelectorAll('.cat-check:checked')).map(cb => cb.value));
-    container.innerHTML = '';
-
-    const allStats = [];
-    const seen = new Set();
-
-    Array.from(AppState.availableStatsSet).forEach((statId) => {
-        const statName = statMap[statId] || `Stat [${statId}]`;
-        if (seen.has(statName)) return;
-        seen.add(statName);
-        allStats.push({ id: statId, name: statName });
-    });
-
-    // Only show the categories this league's own settings actually score by default. The rest is tucked behind the Advanced Stats toggle, same as the Player Metrics tab.
-    const { scored, advanced } = splitScoredAdvanced(allStats.map(s => s.id));
-    // Category Rankings is its own always-visible column now. Default to the first scored category on a fresh build (nothing previously checked) so that panel isn't empty.
-    if (checkedStats.size === 0 && scored.length > 0) checkedStats.add(scored[0].toString());
-    const visibleIds = new Set(AppState.showAdvancedStats ? [...scored, ...advanced] : scored);
-    renderTeamAdvancedToggle(advanced.length);
-
-    const group1 = [];
-    const group2 = [];
-    allStats.filter(s => visibleIds.has(s.id)).forEach((obj) => {
-        if ((sport === 'flb' && PITCHING_IDS.has(obj.id.toString())) ||
-            (sport === 'fhl' && GOALIE_IDS.has(obj.id.toString()))) {
-            group2.push(obj);
-        } else {
-            group1.push(obj);
-        }
-    });
-
-    const catFiltersContent = container.parentElement;
-    let warningEl = document.getElementById('cat-limit-warning');
-    if (!warningEl) {
-        warningEl = document.createElement('div');
-        warningEl.id = 'cat-limit-warning';
-        warningEl.style.cssText = 'color: var(--danger); font-size: 11px; margin-bottom: 8px; font-weight: bold; display: none;';
-        warningEl.textContent = '🔒 Limit reached: Maximum of 2 categories can be compared at once.';
-        catFiltersContent.insertBefore(warningEl, container);
-    }
-
-    let currentChecked = 0;
-
-    const updateCheckboxStates = () => {
-        const activeCount = document.querySelectorAll('.cat-check:checked').length;
-        warningEl.style.display = activeCount >= 2 ? 'block' : 'none';
-
-        document.querySelectorAll('.cat-check').forEach(cb => {
-            if (!cb.checked) {
-                cb.disabled = activeCount >= 2;
-                cb.parentElement.style.opacity = activeCount >= 2 ? '0.4' : '1';
-            } else {
-                cb.disabled = false;
-                cb.parentElement.style.opacity = '1';
-            }
-        });
-    };
-
-    const renderCbs = (arr, labelText) => {
-        if (arr.length === 0) return;
-        const hdr = document.createElement('div');
-        hdr.textContent = labelText;
-        hdr.style.cssText = "grid-column: 1 / -1; font-weight: bold; color: var(--text-body); margin: 4px 0 2px 0;";
-        container.appendChild(hdr);
-
-        arr.forEach(stat => {
-            const label = document.createElement('label');
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.className = 'cat-check';
-            cb.value = stat.id;
-            cb.dataset.name = stat.name;
-
-            if (checkedStats.has(stat.id.toString()) && currentChecked < 2) {
-                cb.checked = true;
-                currentChecked++;
-            }
-
-            cb.addEventListener('change', () => {
-                updateCheckboxStates();
-                // Category Rankings moved into the Rankings box (left column's category view).
-                renderLeftColumn();
-            });
-
-            label.appendChild(cb);
-            label.appendChild(document.createTextNode(stat.name));
-            container.appendChild(label);
-        });
-    };
-
-    renderCbs(group1, sport === 'flb' ? '🏏 Batting' : '🏒 Skaters');
-    if (group2.length > 0) {
-        const hr = document.createElement('div');
-        hr.style.cssText = "grid-column: 1 / -1; border-top: 1px solid var(--border-strong); margin: 6px 0;";
-        container.appendChild(hr);
-        renderCbs(group2, sport === 'flb' ? '⚾ Pitching' : '🥅 Goalies');
-    }
-
-    updateCheckboxStates();
 }
 
 export function buildLegend() {
@@ -258,7 +190,7 @@ export function buildLegend() {
         colorBox.className = 'legend-color';
         colorBox.style.backgroundColor = color;
 
-        // Name in its own span (not a bare text node) so a long team name ellipsis-truncates within its grid column instead of overflowing into the next one. Title shows it in full.
+        // The name sits in its own span so a long team name truncates inside its grid column instead of overflowing.
         const name = document.createElement('span');
         name.className = 'legend-name';
         name.textContent = t.name;

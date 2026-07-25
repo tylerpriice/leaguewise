@@ -1,12 +1,12 @@
-// CSV/clipboard export of the dashboard's core tables.
+// CSV and clipboard export of the standings, category totals and player leaderboard, each written as currently configured rather than as a fixed dump.
 
 import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS } from './state.js';
-import { getTimeframeBounds, splitScoredAdvanced, escapeHtml } from './utils.js';
+import { getTimeframeBounds, splitScoredAdvanced, escapeHtml, orderStatIdsByRole, axisUnit } from './utils.js';
 import { buildLeaderboardExportModel } from './players.js';
 
 // ==== Pure text builders ====
 
-// RFC-4180-style quoting, generalized to any delimiter: a cell is quoted only when it contains the delimiter, a quote, or a line break. Embedded quotes double. undefined/null become empty cells rather than the strings "undefined"/"null".
+// RFC 4180 quoting generalized to any delimiter: a cell is quoted only when it contains the delimiter, a quote or a line break, and embedded quotes double. Null becomes an empty cell.
 export function delimitedCell(value, delimiter) {
     const s = (value === undefined || value === null) ? '' : String(value);
     return (s.includes(delimiter) || s.includes('"') || s.includes('\n') || s.includes('\r'))
@@ -14,23 +14,24 @@ export function delimitedCell(value, delimiter) {
         : s;
 }
 
-// CRLF line endings. The one line-break convention every spreadsheet app on every platform accepts for CSV, and what RFC 4180 specifies.
+// CRLF, the line ending RFC 4180 specifies and every spreadsheet app accepts.
 export function buildDelimitedText(headers, rows, delimiter = ',') {
     return [headers, ...rows]
         .map(row => row.map(cell => delimitedCell(cell, delimiter)).join(delimiter))
         .join('\r\n');
 }
 
-// Human-readable name for the current shared timeframe selection, with the resolved matchup range. Goes in the export modal's subtitle and the downloaded file's name.
+// Human-readable timeframe label with its resolved range. The unit follows the league type, so a roto export covers weeks rather than matchups.
 export function timeframeLabel() {
     const tf = AppState.timeframe;
     const { start, end } = getTimeframeBounds(tf, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const unit = axisUnit();
     const names = { all: 'Regular Season + Playoffs', reg: 'Regular Season', p_all: 'Playoffs' };
-    const base = names[tf] || (tf.startsWith('last') ? `Last ${tf.slice(4)} Matchups` : tf);
-    return `${base} (Matchups ${start}-${end})`;
+    const base = names[tf] || (tf.startsWith('last') ? `Last ${tf.slice(4)} ${unit.plural}` : tf);
+    return `${base} (${unit.plural} ${start}-${end})`;
 }
 
-// Same display convention the dashboard's tables use: whole numbers stay whole, anything fractional shows 3 decimals.
+// Whole numbers stay whole and fractions show 3 decimals. Numbers stay numbers so spreadsheets treat them as values.
 function exportNumber(val) {
     if (val === undefined || val === null) return '';
     const num = Number(val);
@@ -38,47 +39,90 @@ function exportNumber(val) {
     return (num % 1 !== 0) ? +num.toFixed(3) : num;
 }
 
-// ==== Dataset builders ====
+// ==== Dataset builders, each returning { title, headers, rows } ====
 
-// Sums a team's weekly values over the current timeframe, plus a W-L-T record for category leagues (weeklyMatchWins holds 1/0.5/0 there, points leagues store raw points instead, same distinction the standings bars make in graphs.js).
+// weeklyMatchWins holds the 1/0.5/0 result in a category league but raw points in a points one, whose real per-week result lives in weeklyMatchResult, so both league types get a genuine record here.
 function summarizeTeam(t, start, end) {
-    let mWins = 0, cWins = 0, w = 0, l = 0, ties = 0;
+    const isPoints = AppState.isPointsLeague;
+    let matchWins = 0, points = 0, cWins = 0, w = 0, l = 0, ties = 0;
     for (let wk = start; wk <= end; wk++) {
-        const val = t.weeklyMatchWins[wk];
-        if (val === undefined) continue;
-        mWins += val;
+        const mw = t.weeklyMatchWins[wk];
+        if (mw === undefined) continue;
+        const result = isPoints ? (t.weeklyMatchResult[wk] || 0) : mw;
+        if (isPoints) points += mw;
+        matchWins += result;
         cWins += t.weeklyCatWins[wk] || 0;
-        if (val === 1) w++; else if (val === 0.5) ties++; else l++;
+        if (result === 1) w++; else if (result === 0.5) ties++; else l++;
     }
-    return { mWins, cWins, w, l, ties };
+    return { matchWins, points, cWins, w, l, ties };
 }
 
-// Teams sorted the same way the Rankings standings sort them (match wins, then cat wins as a tiebreaker so equal-record teams don't order arbitrarily).
+// Sorted the way the Rankings standings sort them: match wins, then the secondary section's total as a tiebreaker.
 function sortedTeamSummaries(start, end) {
+    // Roto has no matchups to summarize, so every weekly total is 0 and the order would collapse to alphabetical. Rank by ESPN's own season roto points instead.
+    if (AppState.isRotoLeague) {
+        return AppState.teamStats
+            .map(t => ({ team: t, matchWins: 0, points: 0, cWins: 0, w: 0, l: 0, ties: 0 }))
+            .sort((a, b) => (b.team.rotoPoints - a.team.rotoPoints) || a.team.name.localeCompare(b.team.name));
+    }
     return AppState.teamStats
         .map(t => ({ team: t, ...summarizeTeam(t, start, end) }))
-        .sort((a, b) => (b.mWins - a.mWins) || (b.cWins - a.cWins) || a.team.name.localeCompare(b.team.name));
+        .sort((a, b) => (b.matchWins - a.matchWins)
+            || ((AppState.isPointsLeague ? b.points - a.points : b.cWins - a.cWins))
+            || a.team.name.localeCompare(b.team.name));
 }
 
 export function buildStandingsExport() {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+
+    // Two columns per category, because the season value alone does not say what it earned and the points alone do not say what produced them.
+    if (AppState.isRotoLeague) {
+        const sport = document.getElementById('sport').value;
+        const statMap = ESPN_STAT_MAPS[sport] || {};
+        const catIds = orderStatIdsByRole(sport, Object.keys(statMap).filter(id => AppState.scoredStatIds.has(id)));
+        const ranked = [...AppState.teamStats].sort((a, b) =>
+            (b.rotoPoints - a.rotoPoints) || a.name.localeCompare(b.name));
+        return {
+            title: 'Standings',
+            headers: ['Rank', 'Team', 'Roto Points', ...catIds.flatMap(id => [statMap[id], `${statMap[id]} Pts`])],
+            rows: ranked.map((t, i) => [
+                i + 1, t.name, exportNumber(t.rotoPoints),
+                ...catIds.flatMap(id => [exportNumber(t.seasonCats[id]), exportNumber(t.rotoPointsByStat[id])])
+            ])
+        };
+    }
+
+    // A single-matchup window cannot make a record, since one game is 1-0 or 0-1 for everyone. Rank by the one number that is real for a single week.
+    if (start === end) {
+        const week = start;
+        const isPoints = AppState.isPointsLeague;
+        const ranked = AppState.teamStats
+            .map(t => ({ name: t.name, val: (isPoints ? t.weeklyMatchWins[week] : t.weeklyCatWins[week]) || 0 }))
+            .sort((a, b) => (b.val - a.val) || a.name.localeCompare(b.name));
+        return {
+            title: 'Standings',
+            headers: ['Rank', 'Team', isPoints ? 'Points' : 'Categories Won'],
+            rows: ranked.map((r, i) => [i + 1, r.name, exportNumber(r.val)])
+        };
+    }
+
     const summaries = sortedTeamSummaries(start, end);
 
     if (AppState.isPointsLeague) {
         return {
             title: 'Standings',
-            headers: ['Rank', 'Team', 'Points'],
-            rows: summaries.map((s, i) => [i + 1, s.team.name, exportNumber(s.mWins)])
+            headers: ['Rank', 'Team', 'W', 'L', 'T', 'Match Wins', 'Points For'],
+            rows: summaries.map((s, i) => [i + 1, s.team.name, s.w, s.l, s.ties, exportNumber(s.matchWins), exportNumber(s.points)])
         };
     }
     return {
         title: 'Standings',
         headers: ['Rank', 'Team', 'W', 'L', 'T', 'Match Wins', 'Cat Wins'],
-        rows: summaries.map((s, i) => [i + 1, s.team.name, s.w, s.l, s.ties, exportNumber(s.mWins), exportNumber(s.cWins)])
+        rows: summaries.map((s, i) => [i + 1, s.team.name, s.w, s.l, s.ties, exportNumber(s.matchWins), exportNumber(s.cWins)])
     };
 }
 
-// One column per category, one row per team. The same values Category Rankings plots: sums over the timeframe, except rate stats (AVERAGE_STATS) which average across weeks played.
+// One column per category, one row per team: sums over the timeframe, except rate stats which average across weeks played. Names are deduped as the category checkboxes are.
 export function buildCategoryTotalsExport(sport, includeAdvanced) {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
     const statMap = ESPN_STAT_MAPS[sport] || {};
@@ -94,12 +138,20 @@ export function buildCategoryTotalsExport(sport, includeAdvanced) {
     });
     const { scored, advanced } = splitScoredAdvanced(allStats.map(s => s.id));
     const visibleIds = new Set(includeAdvanced ? [...scored, ...advanced] : scored);
-    const stats = allStats.filter(s => visibleIds.has(s.id));
+    // Role-grouped columns, batters and skaters before pitchers and goalies, matching the heatmap. availableStatsSet's own order interleaves the two.
+    const visibleStats = allStats.filter(s => visibleIds.has(s.id));
+    const statById = new Map(visibleStats.map(s => [String(s.id), s]));
+    const stats = orderStatIdsByRole(sport, visibleStats.map(s => s.id)).map(id => statById.get(String(id)));
 
     const summaries = sortedTeamSummaries(start, end);
     const rows = summaries.map(({ team }) => {
         const cells = [team.name];
         stats.forEach(stat => {
+            // A roto total is already season-long, with no weeks to sum and no rate stats to average across.
+            if (AppState.isRotoLeague) {
+                cells.push(exportNumber(team.seasonCats[stat.id]));
+                return;
+            }
             let sum = 0, weeksPlayed = 0;
             for (let wk = start; wk <= end; wk++) {
                 if (team.weeklyCats[wk] && team.weeklyCats[wk][stat.id] !== undefined) {
@@ -121,14 +173,14 @@ export function buildLeaderboardExport(includeAdvanced) {
     return { title: 'Player Leaderboard', headers: model.headers, rows: model.rows };
 }
 
-// ==== Delivery ====
+// ==== Delivery: file download and clipboard ====
 
 function slugify(s) {
     return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
 }
 
 function downloadCsv(text, filenameBase) {
-    // BOM so Excel opens the file as UTF-8 (team/player names carry accents and emoji).
+    // BOM so Excel opens the file as UTF-8, since names carry accents and emoji.
     const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -142,7 +194,7 @@ function downloadCsv(text, filenameBase) {
 
 // ==== Modal UI ====
 
-// Same overlay pattern as the rank explainer (players.js): built once, appended to <body> so no column's overflow can clip it, shown via the shared .rank-modal-overlay classes.
+// Appended to the body so no column's overflow can clip it.
 function ensureExportModal() {
     let overlay = document.getElementById('export-modal-overlay');
     if (overlay) return overlay;
@@ -190,7 +242,7 @@ export function openExportModal() {
     overlay.querySelector('#export-modal-subtitle').textContent =
         `${leagueName} • ${year} • ${timeframeLabel()}`;
 
-    // Leaderboard availability is re-checked on every open. The pool loads in the background (prefetchPlayerData), so it's usually ready even if the Player tab was never clicked.
+    // Leaderboard availability is re-checked on every open, because the pool loads in the background even if the Player tab was never clicked.
     const leaderboardReady = !!buildLeaderboardExportModel();
     const datasets = [
         { key: 'standings', label: 'League Standings', note: 'Records and match/category wins over the selected timeframe.', enabled: true },
@@ -199,7 +251,7 @@ export function openExportModal() {
             key: 'leaderboard', label: 'Player Leaderboard',
             note: leaderboardReady
                 ? 'Exactly as currently shown: group tab, search, position filter, sort, and timeframe all apply.'
-                : 'Player data is still loading (or unavailable) - open the Player Metrics tab first.',
+                : 'Player data is still loading (or unavailable). Open the Player Metrics tab first.',
             enabled: leaderboardReady
         }
     ];
@@ -232,7 +284,7 @@ export function openExportModal() {
         }
     };
 
-    // Re-wired on every open via onclick (not addEventListener) so reopening the modal never stacks duplicate handlers on the same buttons.
+    // Re-wired on every open with onclick, so reopening never stacks duplicate handlers on the same buttons.
     overlay.querySelector('#export-download-btn').onclick = () => {
         const data = buildSelected();
         if (!data) return setExportStatus('That dataset isn\'t available yet.', true);
@@ -240,11 +292,11 @@ export function openExportModal() {
             `${slugify(leagueName)}-${slugify(data.title)}-${year}-${slugify(AppState.timeframe)}`);
         setExportStatus(`Downloaded ${data.rows.length} rows ✓`);
     };
-    // One Copy button (was two: "Copy CSV" + "Copy for Excel/Sheets").
+    // Copies TAB-separated text, the one clipboard format that pastes as real columns into Excel, Sheets and chat apps alike. Download still produces a proper .csv.
     overlay.querySelector('#export-copy-btn').onclick = () => {
         const data = buildSelected();
         if (!data) return setExportStatus('That dataset isn\'t available yet.', true);
-        copyText(buildDelimitedText(data.headers, data.rows, '\t'), `Copied ${data.rows.length} rows - paste into Excel, Sheets, or chat ✓`);
+        copyText(buildDelimitedText(data.headers, data.rows, '\t'), `Copied ${data.rows.length} rows. Paste into Excel, Sheets, or chat ✓`);
     };
 
     overlay.classList.add('open');

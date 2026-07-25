@@ -1,6 +1,25 @@
-import { AppState } from './state.js';
+import { AppState, PITCHING_IDS, GOALIE_IDS, ESPN_STAT_MAPS, ESPN_STAT_FULL_NAMES } from './state.js';
 
-// ESPN occasionally reports a stat value as {value: X} instead of a raw number (seen in both the team-level valuesByStat payload and player stat lines). Most often for players/seasons with no actual games played yet (e.g, drilling into a future/preseason year).
+// Role-grouped ordering for any list of stat ids: batting before pitching, skaters before goalies. A stable partition, so the caller's own order survives inside each group, which matters because Object.keys returns integer-like keys in ascending numeric order and interleaves the roles.
+const ROLE_ID_SETS = { flb: PITCHING_IDS, fhl: GOALIE_IDS };
+
+export function splitStatIdsByRole(sport, statIds) {
+    const secondaryIds = ROLE_ID_SETS[sport];
+    const primary = [], secondary = [];
+    statIds.forEach(id => {
+        // Callers hand ids over as strings or as numbers, while the role sets are string-keyed.
+        if (secondaryIds && secondaryIds.has(String(id))) secondary.push(id);
+        else primary.push(id);
+    });
+    return { primary, secondary };
+}
+
+export function orderStatIdsByRole(sport, statIds) {
+    const { primary, secondary } = splitStatIdsByRole(sport, statIds);
+    return [...primary, ...secondary];
+}
+
+// ESPN sometimes reports a stat as { value: X } rather than a raw number, most often when no games have been played yet. The truthiness check is deliberate, since typeof null is also 'object' and ESPN does send null.
 export function statValue(v) {
     return (v && typeof v === 'object') ? v.value : v;
 }
@@ -11,21 +30,69 @@ export function unwrapStats(rawStats) {
     return result;
 }
 
-// Returns the first argument that isn't undefined. For the handful of ESPN payload shapes that use different field names for "the real value" depending on context (boxscore stats prefer appliedTotal over value, cumulativeScore stats prefer score over value).
+// Returns the first argument that is not undefined, for the payload shapes that name the real value differently depending on context.
 export function firstDefined(...values) {
     return values.find(v => v !== undefined);
 }
 
-// Splits a list of stat ids into "scored" (this league's settings actually use them) and "advanced" (everything else ESPN happens to track), shared between the Team Metrics category filter and every Player Metrics view so the same league config drives what's visible everywhere. forceScored lets a caller pin specific ids (e.g.
+// Splits stat ids into this league's scored set and everything else ESPN tracks, so one league config drives what is visible on both tabs. forceScored pins specific ids into the visible set.
 export function splitScoredAdvanced(ids, forceScored = new Set()) {
     if (AppState.scoredStatIds.size === 0) return { scored: ids, advanced: [] };
 
     const scored = ids.filter(id => AppState.scoredStatIds.has(id.toString()) || forceScored.has(id));
-    // None of this group's ids match scoredStatIds at all. The league's scoringItems ids aren't lining up with our stat map (or there was nothing to match against).
+    // None of this group's ids match scoredStatIds, so show everything rather than presenting what looks like an empty list.
     if (scored.length === 0) return { scored: ids, advanced: [] };
 
     const scoredSet = new Set(scored);
     return { scored, advanced: ids.filter(id => !scoredSet.has(id)) };
+}
+
+// The ordered list of categories the Category Rankings pager cycles, plus the count it is leaving out. Role-grouped, and deduplicated by name because ESPN's stat map carries aliases that would otherwise read as two identical categories.
+export function categoryCycleList(sport) {
+    const statMap = ESPN_STAT_MAPS[sport] || {};
+    const all = [];
+    const seenNames = new Set();
+    Array.from(AppState.availableStatsSet).forEach(statId => {
+        const name = statMap[statId] || `Stat [${statId}]`;
+        if (seenNames.has(name)) return;
+        seenNames.add(name);
+        all.push({ id: statId, name });
+    });
+    if (all.length === 0) return [];
+
+    const { scored, advanced } = splitScoredAdvanced(all.map(s => s.id));
+    const visible = new Set(AppState.showAdvancedStats ? [...scored, ...advanced] : scored);
+    const byId = new Map(all.map(s => [String(s.id), s]));
+    const shown = all.filter(s => visible.has(s.id));
+    const { primary, secondary } = splitStatIdsByRole(sport, shown.map(s => s.id));
+    return [...primary, ...secondary].map(id => byId.get(String(id))).filter(Boolean);
+}
+
+// One x-axis vocabulary per league type, so a screen can never mix tokens. H2H graphs index matchups and a playoff matchup can span two or three real weeks, roto has no matchup periods and reads in weeks, and the race cards plot real scoring days and keep their own Day N.
+export function axisUnit() {
+    return AppState.isRotoLeague
+        ? { short: 'WK', long: 'Week', plural: 'Weeks' }
+        : { short: 'M', long: 'Matchup', plural: 'Matchups' };
+}
+
+// A category header label puts the abbreviation first, since that is what every other surface shows, with the spelled-out name after it. Falls back to the abbreviation alone when there is no documented expansion.
+export function categoryHeaderLabel(sport, statId, shortName) {
+    const full = (ESPN_STAT_FULL_NAMES[sport] || {})[statId];
+    return (!full || full === shortName) ? shortName : `${shortName} (${full})`;
+}
+
+// How many categories the Advanced Stats toggle would add. Zero means the league scores everything ESPN tracks for it, so the toggle hides itself.
+export function advancedCategoryCount(sport) {
+    const statMap = ESPN_STAT_MAPS[sport] || {};
+    const ids = [];
+    const seenNames = new Set();
+    Array.from(AppState.availableStatsSet).forEach(statId => {
+        const name = statMap[statId] || `Stat [${statId}]`;
+        if (seenNames.has(name)) return;
+        seenNames.add(name);
+        ids.push(statId);
+    });
+    return splitScoredAdvanced(ids).advanced.length;
 }
 
 export function getZoomedFillPct(val, min, max) {
@@ -38,13 +105,13 @@ export function getZoomedFillPct(val, min, max) {
     return Math.max(0, ((val - baseline) / adjustedMax) * 100);
 }
 
-// Resolves the one shared AppState.timeframe value (see rebuildTimeframeOptions in controls.js, the only place that ever produces a value here) into a [start, end] week range. Used by Team Metrics graphs, the Player Metrics leaderboard, and the player drill-down chart alike.
+// Resolves the one shared timeframe value into a [start, end] week range, used by the Team Metrics graphs, the leaderboard and the drill-down chart alike.
 export function getTimeframeBounds(tfVal, maxWk, regWks) {
     if (tfVal === 'all') return { start: 1, end: maxWk };
     if (tfVal === 'reg') return { start: 1, end: Math.min(maxWk, regWks) };
     if (tfVal === 'p_all') return { start: regWks + 1, end: maxWk };
 
-    // Fixed "last N weeks" lookback. Unlike a percentage-of-season lookback, this doesn't need to know the total season length, which turned out to be unreliable for leagues whose own matchup schedule doesn't span the real season.
+    // A fixed lookback does not need the total season length, which is unreliable for leagues whose matchup schedule does not span the real season.
     const n = parseInt(tfVal.slice(4), 10);
     return { start: Math.max(1, maxWk - n + 1), end: maxWk };
 }
@@ -56,7 +123,7 @@ export function getNiceMax(val) {
         if (step > 10) step = Math.ceil(step / 5) * 5;
         return step * 4;
     }
-    // Rate-style stats (a weekly AVG, ERA, etc.) are usually well under 4, but the formula above floors every val < 4 up to a fixed max of 4 regardless of how much smaller the real max is. Squashing a chart whose highest point is, say, 1.000 into a quarter of the available height.
+    // Rate stats sit well under 4, so flooring every max up to 4 squashes a chart whose highest point is 1.000 into a quarter of its height. Scale the quarter-step rounding by powers of 10 instead.
     let unit = 1;
     while (val < unit) unit /= 10;
     const step = Math.ceil(val / (unit / 4) + 0.5);
@@ -73,7 +140,7 @@ export function shadeColor(hex, percent) {
     return `#${toHex(R)}${toHex(G)}${toHex(B)}`;
 }
 
-// Background tint for a stat percentile (0-100). White at 50 (average), fading toward a pastel green above average and a pastel red below, capped short of full saturation so dark text stays legible at every point on the scale.
+// Background tint for a percentile: white at 50, fading to pastel green above and pastel red below, capped short of full saturation so dark text stays legible.
 export function percentileColor(pct) {
     const clamp = Math.max(0, Math.min(100, pct));
     const lerp = (a, b, t) => Math.round(a + (b - a) * t);
@@ -88,7 +155,7 @@ export function percentileColor(pct) {
     return `rgb(${r}, ${g}, ${b})`;
 }
 
-// Every played week is tagged with a bracket tier when the schedule is processed (see data.js). 'reg', 'playoff' (real championship bracket), or 'consolation'.
+// Every played week carries a bracket tier when the schedule is processed: 'reg', 'playoff' or 'consolation'.
 export function getWeekTier(team, week) {
     return team.weeklyTier?.[week] || 'reg';
 }
@@ -99,7 +166,7 @@ export function tierColor(tier, baseColor) {
     return baseColor;
 }
 
-// Splits a per-week value series into how much came from regular season vs. each playoff tier, so bar charts can show the breakdown as a single gradient fill.
+// Splits a weekly series into regular season and each playoff tier, so a bar can show the breakdown as one gradient fill.
 export function splitByTier(team, startWeek, endWeek, getWeekVal) {
     let reg = 0, playoff = 0, consolation = 0;
     for (let w = startWeek; w <= endWeek; w++) {
@@ -112,10 +179,7 @@ export function splitByTier(team, startWeek, endWeek, getWeekVal) {
     return { reg, playoff, consolation, total: reg + playoff + consolation };
 }
 
-// Escapes the five HTML-significant characters (including ' for single-quoted attributes). Team
-// and player names are set by league members, so every interpolation of them into an innerHTML
-// template must run through this. Read sites that pull an escaped value back OUT of an attribute
-// must use textContent, not innerHTML, or they re-decode and re-arm the markup (see attachDataTooltips).
+// Escapes the five HTML-significant characters, single quotes included so a value is safe in a single-quoted attribute. Read sites that pull an escaped value back out of an attribute must use textContent, or they re-decode and re-arm the markup.
 export function escapeHtml(str) {
     return String(str)
         .replace(/&/g, '&amp;')
@@ -136,7 +200,47 @@ export function ensureFloatingTooltip() {
     return el;
 }
 
-// Wires up a floating tooltip for every [data-tooltip] element inside container.
+// Lays out and positions a chart hover tooltip against the VIEWPORT, so a deep league's readout is not clamped inside a short chart box. When even the viewport cannot fit one column the rows reflow column-major, which keeps the best-first sort reading as a mini-standings, and the list is never truncated.
+export function layoutHoverTooltip(tooltipEl, clientX, clientY) {
+    const rowsEl = tooltipEl.querySelector('.tt-rows');
+    // Start every measurement from the natural single column, since a previous mousemove may have left a grid reflow on the shared element.
+    if (rowsEl) {
+        rowsEl.style.display = '';
+        rowsEl.style.gridAutoFlow = '';
+        rowsEl.style.gridTemplateRows = '';
+        rowsEl.style.columnGap = '';
+    }
+
+    const margin = 12;
+    const availH = window.innerHeight - margin * 2;
+
+    if (rowsEl && rowsEl.children.length > 1) {
+        // Average the stacked column's height across its rows so the per-row figure includes each row's margin, or the columns pack too tightly and the tooltip still overflows.
+        const rowH = (rowsEl.scrollHeight / rowsEl.children.length) || 18;
+        const headerH = tooltipEl.querySelector('.tt-header')?.offsetHeight || 0;
+        // Height the rows may fill: the viewport minus the header, the tooltip's own padding, and a small safety gap. Column-major, so rows per column is the lever.
+        const usableH = availH - headerH - 34;
+        const rowsPerCol = Math.max(1, Math.floor(usableH / rowH));
+        if (rowsEl.children.length > rowsPerCol) {
+            rowsEl.style.display = 'grid';
+            rowsEl.style.gridAutoFlow = 'column';
+            rowsEl.style.gridTemplateRows = `repeat(${rowsPerCol}, auto)`;
+            rowsEl.style.columnGap = '16px';
+        }
+    }
+
+    // Place near the cursor, flipping side or clamping so the whole tooltip stays inside the viewport.
+    const w = tooltipEl.offsetWidth, h = tooltipEl.offsetHeight;
+    let x = clientX + 16, y = clientY + 16;
+    if (x + w > window.innerWidth - margin) x = clientX - w - 16;
+    if (x < margin) x = margin;
+    if (y + h > window.innerHeight - margin) y = window.innerHeight - margin - h;
+    if (y < margin) y = margin;
+    tooltipEl.style.left = x + 'px';
+    tooltipEl.style.top = y + 'px';
+}
+
+// Wires a floating tooltip for every [data-tooltip] element inside container. Stopping propagation means a segment's tooltip wins over an ancestor's rather than both firing.
 export function attachDataTooltips(container) {
     if (!container) return;
     const tooltipEl = ensureFloatingTooltip();
@@ -144,9 +248,7 @@ export function attachDataTooltips(container) {
     container.querySelectorAll('[data-tooltip]').forEach(el => {
         el.addEventListener('mousemove', (e) => {
             e.stopPropagation();
-            // Text-only: getAttribute decodes the entities the write sites escaped, so piping it
-            // back through innerHTML would re-arm hostile markup in team names. Build the node and
-            // set textContent instead, so attribute-sourced text is never HTML-parsed.
+            // Text-only on purpose: getAttribute DECODES the entities the write sites escaped, so piping it back through innerHTML re-arms hostile markup in a team name.
             tooltipEl.textContent = '';
             const strong = document.createElement('strong');
             strong.textContent = el.getAttribute('data-tooltip');
@@ -162,30 +264,44 @@ export function attachDataTooltips(container) {
     });
 }
 
-// The Diagnostic Data panel shows exactly ONE of three contexts at a time. Team schema (Team Metrics tab), the player pool (Player Metrics leaderboard, not drilled into a player), or one player's own detail (an open drill-down). Matching whatever the user is actually looking at.
+// The diagnostic panel shows exactly one of three contexts at a time (team schema, player pool, one player's detail). Each kind's payload is tracked independently, so a background prefetch cannot clobber the context on screen.
 const DEBUG_LABELS = {
     team: 'Team Schema',
     'player-pool': 'Player Pool Schema',
     'player-detail': 'Player Detail Schema'
 };
 const debugContexts = { team: null, 'player-pool': null, 'player-detail': null };
+// Set while an on-demand diagnostic fetch is in flight, so the panel shows a loading line instead of the nothing-captured placeholder.
+const debugLoading = { team: false, 'player-pool': false, 'player-detail': false };
 let activeDebugKind = 'team';
-// The payload actually on screen right now (not the "Label:\n"-prefixed display text) so the download button can save clean, directly-parseable JSON. A full season's worth of per-game stat lines is too big to reliably round-trip through a clipboard paste.
+// The payload on screen right now, without the label prefix, so the download button saves directly parseable JSON.
 let lastDebugPayload = null;
 
-// Called wherever a fetch useful for diagnostics completes (fetchEspnData in api.js, the player-pool fetch, the leaderboard's bulk weekly fetch, and a single player's weekly fetch in players.js).
+// Storing a payload is cheap: the stringify happens only when this kind is the active one.
 export function setDebugContext(kind, payload) {
     debugContexts[kind] = payload;
+    debugLoading[kind] = false;
     if (kind === activeDebugKind) renderActiveDebugContext();
 }
 
-// Called on every view transition (tab switch, drill-down open/close) so the panel always matches what's on screen even when nothing new was fetched. e.g. backing out of a drill-down re-shows the pool context that's already cached, no re-fetch needed.
+// Whether a kind already has a captured payload, so the lazy drill-down capture can decide whether it needs to fetch at all.
+export function hasDebugContext(kind) {
+    return !!debugContexts[kind];
+}
+
+// Marks a kind as fetching its diagnostic. setDebugContext clears it when the payload lands, so callers only need this for the failure path.
+export function setDebugLoading(kind, isLoading) {
+    debugLoading[kind] = isLoading;
+    if (kind === activeDebugKind) renderActiveDebugContext();
+}
+
+// Called on every view transition, so the panel matches the screen even when nothing new was fetched.
 export function setActiveDebugKind(kind) {
     activeDebugKind = kind;
     renderActiveDebugContext();
 }
 
-// Re-renders the currently active context. Called after every context/kind change, and again when the panel's <details> is toggled open (see main.js) so a kind that changed while collapsed still catches up once expanded, instead of showing whatever was on screen when it was last open.
+// Re-renders the active context, including when the panel is expanded, so a kind that changed while collapsed catches up.
 export function refreshDebugPanel() {
     renderActiveDebugContext();
 }
@@ -197,18 +313,22 @@ function renderActiveDebugContext() {
     const payload = debugContexts[activeDebugKind];
     const label = DEBUG_LABELS[activeDebugKind] || 'Schema';
     if (!payload) {
-        // Nothing fetched for this context yet. e.g. a drill-down opened for a player whose weekly data the leaderboard's own bulk fetch already cached, so no per-player fetch ran to populate one.
-        if (debugPanel.style.display === 'block') output.textContent = `${label}: no diagnostic payload captured for this view yet.`;
+        // Nothing has been fetched for this context yet, so show an explicit placeholder under the right label rather than a stale payload from whichever kind was active before.
+        if (debugPanel.style.display === 'block') {
+            output.textContent = debugLoading[activeDebugKind]
+                ? `${label}: loading...`
+                : `${label}: no diagnostic payload captured for this view yet.`;
+        }
         return;
     }
     debugPanel.style.display = 'block';
-    // Keep the full raw payload in the downloadable copy even though the preview below only shows one entry. status/settings/schedule (team schema) and a traded/waiver-claimed player's extra entries (player schema) both live outside what the preview slices out.
+    // The downloadable copy keeps the full raw payload, since the preview below slices out only one entry.
     lastDebugPayload = payload;
     if (!debugPanel.open) return; // lazy: don't stringify a large payload while collapsed
     const preview = activeDebugKind === 'team'
         ? (payload.teams?.[0] || {})
         : ((payload.players || [])[0] || payload);
-    output.textContent = `${label} (preview only - download for full response):\n` + JSON.stringify(preview, null, 2);
+    output.textContent = `${label} (preview only, download for the full response):\n` + JSON.stringify(preview, null, 2);
 }
 
 export function downloadDebugData() {

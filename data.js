@@ -1,32 +1,31 @@
 import { AppState, TEAM_COLORS } from './state.js';
-import { rebuildTimeframeOptions, buildCheckboxes, buildLegend, collapseSettingsBar } from './controls.js';
-import { renderLeftColumn, renderRightColumn, renderHeatmapBand } from './graphs.js';
-import { resetLeaderboardWeeklyFetchState, prefetchPlayerData } from './players.js';
-import { statValue, firstDefined, escapeHtml } from './utils.js';
+import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, collapseSettingsBar } from './controls.js';
+import { renderLeftColumn, renderRightColumn, renderHeatmapBand, resetRankingsViewState } from './graphs.js';
+import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData } from './players.js';
+import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit } from './utils.js';
 
-// Every real caller is a genuine new league/year/sport fetch (api.js). There's no lighter "re-render without resetting" call anywhere in the project, so this always resets.
+// Every caller is a genuine new league, year or sport fetch, so this always resets.
 export function processCoreData() {
     if (!AppState.apiData) return;
     document.getElementById('results').style.display = 'flex';
-    // Data's in. Tuck the one-time setup fields away behind the gear button.
     collapseSettingsBar();
 
-    // A fresh league/year/sport fetch invalidates any previously loaded player pool. It'll be lazily re-fetched next time the Player Metrics tab is opened.
+    // A fresh fetch invalidates the loaded player pool, which is re-fetched lazily when the Player Metrics tab opens.
     AppState.playerData = [];
     AppState.playerDataLoaded = false;
     AppState.playerWeeklyCache = {};
     AppState.selectedPlayerId = null;
-    // A failed bulk weekly-stats fetch (see ensureLeaderboardWeeklyDataLoaded in players.js) from a previous league/season shouldn't permanently block this new one from trying.
+    // A failed bulk weekly-stats fetch from a previous season must not permanently block this one from trying.
     resetLeaderboardWeeklyFetchState();
-    // A stale AppState.timeframe selection from a previous season (e.g, "reg", forced by a playoff-less season) would otherwise silently carry over and hide postseason data on this fetch. Handled by rebuildTimeframeOptions(true) below, which forces the correct default once this season's own hasPlayoffs is known.
-    const pieSelector = document.getElementById('pie-selector');
-    if (pieSelector) pieSelector.value = 'rankings';
+    // The viewed category and any sections flipped to a pie belong to the league that was on screen, so a new league starts from its own first category with every section back on bars.
+    resetRankingsViewState();
+    // A stale timeframe from a playoff-less season would hide postseason data here, so rebuildTimeframeOptions forces the right default once this season's own hasPlayoffs is known.
 
     const data = AppState.apiData;
     const teams = data.teams || [];
     const schedule = data.schedule || [];
 
-    // Determine the regular season boundary, the playoff champion, and the last completed week together in a single schedule scan (each is a running min/max/candidate computation with no dependency on the others), rather than three separate full scans.
+    // One schedule scan finds all three: the regular season boundary (earliest playoff matchupPeriodId minus one), the champion (winner of the WINNERS_BRACKET game at the latest playoff week), and the last completed week.
     let firstPlayoffWeek = null;
     let finalPlayoffWeek = null;
     let champGame = null;
@@ -55,24 +54,48 @@ export function processCoreData() {
         ? firstPlayoffWeek - 1
         : (data.settings?.scheduleSettings?.matchupPeriodCount || 16);
 
+    // A finished season has status.latestScoringPeriod past status.finalScoringPeriod, verified against real captures. currentMatchupPeriod vs matchupPeriodCount is the fallback, and cannot speak for roto, so if neither pair is readable assume the season is still running.
+    const latestPeriod = data.status?.latestScoringPeriod;
+    const finalPeriod = data.status?.finalScoringPeriod;
+    const currentMatchup = data.status?.currentMatchupPeriod;
+    const scheduledMatchups = data.settings?.scheduleSettings?.matchupPeriodCount;
+    if (Number.isFinite(latestPeriod) && Number.isFinite(finalPeriod)) {
+        AppState.isSeasonOver = latestPeriod > finalPeriod;
+    } else if (Number.isFinite(currentMatchup) && Number.isFinite(scheduledMatchups)) {
+        AppState.isSeasonOver = currentMatchup > scheduledMatchups;
+    } else {
+        AppState.isSeasonOver = false;
+    }
+
+    // Prefer the league's own scoring format over guessing from scores, or a points league with no games played yet reads as a category league.
+    const scoringType = data.settings?.scoringSettings?.scoringType;
+    AppState.isPointsLeague = scoringType
+        ? scoringType === 'H2H_POINTS'
+        : teams.some(t => t.record?.overall?.pointsFor > 0);
+    // Season-long roto accumulates with no weekly matchups, so Team Metrics is built from ESPN's season standings instead.
+    AppState.isRotoLeague = scoringType === 'ROTO';
+
     let championTeamId = null;
     if (champGame) {
         const winningSide = champGame.winner === 'HOME' ? champGame.home : champGame.away;
         if (winningSide) championTeamId = winningSide.teamId;
     }
-    // Exposed on AppState (not just the "👑" name suffix below) so the Rankings bar charts can mark the champion directly, without re-deriving it from the schedule a second time.
+    // Roto has no bracket to win, so the champion is ESPN's own rankCalculatedFinal of 1 rather than a WINNERS_BRACKET game.
+    if (AppState.isRotoLeague) {
+        const rotoChampion = teams.find(t => t.rankCalculatedFinal === 1);
+        championTeamId = rotoChampion ? rotoChampion.id : null;
+    }
+    // Exposed on AppState so the Rankings bars can mark the champion without re-deriving it from the schedule.
     AppState.championTeamId = championTeamId;
-    // Prefer the league's actual scoring format over guessing from scores: a points league with no games played yet (all pointsFor === 0) would otherwise be misread as a category league.
-    const scoringType = data.settings?.scoringSettings?.scoringType;
-    AppState.isPointsLeague = scoringType
-        ? scoringType === 'H2H_POINTS'
-        : teams.some(t => t.record?.overall?.pointsFor > 0);
 
-    // Only the stat ids listed in scoringItems are actually used for standings/scoring in this league. Everything else in ESPN_STAT_MAPS is just data ESPN happens to track.
+    // Drop a leaderboard sort that made sense for the previous league, above all a roto sort surviving into a points league that has no roto ranks. Must run after isPointsLeague is set.
+    normalizePlayerViewStateForLeague();
+
+    // Only the ids in scoringItems count for this league's standings. Everything else in ESPN_STAT_MAPS is data ESPN happens to track, kept behind Advanced Stats.
     const scoringItems = data.settings?.scoringSettings?.scoringItems || [];
     AppState.scoredStatIds = new Set(scoringItems.map(i => i.statId?.toString()).filter(Boolean));
 
-    // Which roster slots this league actually uses (nonzero count). e.g. a league might only roster a generic OF slot with no separate LF/CF/RF, or vice versa.
+    // Only the roster slots this league actually uses, so a player is never split into positions the league has no spots for.
     const lineupSlotCounts = data.settings?.rosterSettings?.lineupSlotCounts || {};
     AppState.leagueActiveSlots = new Set(
         Object.keys(lineupSlotCounts).filter(slotId => lineupSlotCounts[slotId] > 0)
@@ -89,9 +112,14 @@ export function processCoreData() {
             abbrev: t.abbrev || (t.name || `${t.location} ${t.nickname}`).substring(0, 4).toUpperCase(),
             seasonCats: {},
             weeklyMatchWins: {},
+            weeklyMatchResult: {},
             weeklyCatWins: {},
             weeklyCats: {},
-            weeklyTier: {}
+            weeklyTier: {},
+            // Roto standings come straight off the payload and are never recomputed. ESPN owns that math including its tie handling, which is why per-category points can arrive as halves.
+            rotoPoints: statValue(t.points) || 0,
+            rotoPointsByStat: unwrapStats(t.pointsByStat || {}),
+            rotoRank: t.rankCalculatedFinal ?? null
         };
 
         let rawStats = t.valuesByStat || t.record?.overall?.stats || {};
@@ -121,7 +149,7 @@ export function processCoreData() {
                 const tId = game[side].teamId;
                 if (!teamDataMap[tId].weeklyCats[week]) teamDataMap[tId].weeklyCats[week] = {};
 
-                // Any bracket tier other than the winners bracket is a consolation ladder. Those teams are no longer playing for the actual championship.
+                // Any bracket tier other than the winners bracket is a consolation ladder. Every played week carries its tier so the charts can break down by it.
                 let tier = 'reg';
                 if (game.playoffTierType && game.playoffTierType !== 'NONE') {
                     tier = (game.playoffTierType === 'WINNERS_BRACKET') ? 'playoff' : 'consolation';
@@ -130,6 +158,10 @@ export function processCoreData() {
 
                 if (AppState.isPointsLeague) {
                     teamDataMap[tId].weeklyMatchWins[week] = game[side].totalPoints || 0;
+                    // A points-league week still has a real winner. That 1/0.5/0 result is recorded separately from the points total, so the standings can show a genuine record alongside points for.
+                    let pWin = (game.winner === side.toUpperCase()) ? 1 : 0;
+                    if (game.winner === "TIE") pWin = 0.5;
+                    teamDataMap[tId].weeklyMatchResult[week] = pWin;
                 } else {
                     let mWin = (game.winner === side.toUpperCase()) ? 1 : 0;
                     if (game.winner === "TIE") mWin = 0.5;
@@ -138,25 +170,26 @@ export function processCoreData() {
                     const cWins = game[side].cumulativeScore?.wins || 0;
                     const cTies = game[side].cumulativeScore?.ties || 0;
                     teamDataMap[tId].weeklyCatWins[week] = cWins + (cTies * 0.5);
+                }
 
-                    let boxStats = {};
-                    if (game.boxscore && game.boxscore[side] && game.boxscore[side].statistics) {
-                        game.boxscore[side].statistics.forEach(s => {
-                            boxStats[s.statId.toString()] = firstDefined(s.appliedTotal, s.value);
-                        });
-                    } else {
-                        const statsObj = game[side].cumulativeScore?.scoreByStat || game[side].cumulativeScore?.statBySlot || {};
-                        for (let key in statsObj) {
-                            const statData = statsObj[key];
-                            const sId = statData.statId !== undefined ? statData.statId.toString() : key;
-                            boxStats[sId] = firstDefined(statData.score, statData.value);
-                        }
+                // Per-category weekly totals feed the heatmap and Category Rankings for every league, points included, so this capture stays outside the category-only branch above.
+                let boxStats = {};
+                if (game.boxscore && game.boxscore[side] && game.boxscore[side].statistics) {
+                    game.boxscore[side].statistics.forEach(s => {
+                        boxStats[s.statId.toString()] = firstDefined(s.appliedTotal, s.value);
+                    });
+                } else {
+                    const statsObj = game[side].cumulativeScore?.scoreByStat || game[side].cumulativeScore?.statBySlot || {};
+                    for (let key in statsObj) {
+                        const statData = statsObj[key];
+                        const sId = statData.statId !== undefined ? statData.statId.toString() : key;
+                        boxStats[sId] = firstDefined(statData.score, statData.value);
                     }
+                }
 
-                    for (let sId in boxStats) {
-                        teamDataMap[tId].weeklyCats[week][sId] = boxStats[sId] || 0;
-                        AppState.availableStatsSet.add(sId);
-                    }
+                for (let sId in boxStats) {
+                    teamDataMap[tId].weeklyCats[week][sId] = boxStats[sId] || 0;
+                    AppState.availableStatsSet.add(sId);
                 }
             }
         });
@@ -172,7 +205,7 @@ export function processCoreData() {
 
             const hId = g.home.teamId;
             const aId = g.away.teamId;
-            // Escaped at the source: these go into the dropdown's innerHTML below, and team names are set by league members, so hostile markup must render as text.
+            // Escaped at the source: team names are set by league members and land in innerHTML below.
             const homeName = escapeHtml(teamDataMap[hId]?.name || `Team ${hId}`);
             const awayName = escapeHtml(teamDataMap[aId]?.name || `Team ${aId}`);
 
@@ -227,15 +260,26 @@ export function processCoreData() {
     const scoreboardDropdown = document.getElementById('scoreboard-dropdown');
 
     if (weekIndicator && scoreboardDropdown) {
-        weekIndicator.innerHTML = `Week ${currentWeek} <span style="color:#ccc; margin: 0 4px;">|</span> ${activeMatchups} Matchups ▾`;
+        // Roto has no matchup periods and no scoreboard behind them, so this control stands down rather than reading Week 1 forever.
+        weekIndicator.style.display = AppState.isRotoLeague ? 'none' : '';
+        // Matchup, not Week: currentWeek is status.currentMatchupPeriod, and this only ever renders for matchup leagues.
+        weekIndicator.innerHTML = `${axisUnit().long} ${currentWeek} <span style="color:#ccc; margin: 0 4px;">|</span> ${activeMatchups} Matchups ▾`;
+        // A recap is a single matchup's story, which roto has no equivalent of.
+        const recapBtn = document.getElementById('recap-btn');
+        if (recapBtn) {
+            recapBtn.disabled = AppState.isRotoLeague;
+            recapBtn.title = AppState.isRotoLeague
+                ? 'Recaps cover a single matchup, and roto leagues play the whole season at once.'
+                : 'Build a shareable image + text recap of a matchup week';
+        }
         if (activeMatchups > 0) {
-            scoreboardDropdown.innerHTML = `<div style="font-size:12px; font-weight:bold; margin-bottom:12px; color:#fff; border-bottom:1px solid #444; padding-bottom:6px; text-align:center;">Week ${currentWeek} Live Scoreboard</div>` + scoreboardHtml;
+            scoreboardDropdown.innerHTML = `<div style="font-size:12px; font-weight:bold; margin-bottom:12px; color:#fff; border-bottom:1px solid #444; padding-bottom:6px; text-align:center;">${axisUnit().long} ${currentWeek} Live Scoreboard</div>` + scoreboardHtml;
         } else {
             scoreboardDropdown.innerHTML = `<div style="font-size:12px; color:#aaa; text-align:center;">No active matchups available.</div>`;
         }
     }
 
-    // Populate the year dropdown from the seasons this specific league (this sport + league ID) actually existed for. See fetchLeagueHistorySeasons in api.js. leagueHistory only covers completed past seasons, not the current/in-progress one, so also guarantee this real-world year is always selectable. Otherwise a league whose current season hasn't been "historicized" yet loses its own active year entirely.
+    // leagueHistory only covers completed seasons, so the current real-world year is always selectable. Next year is deliberately left out, since ESPN 404s on a season that does not exist yet.
     const yearSelect = document.getElementById('year');
     const currentYearVal = parseInt(yearSelect.value);
     const apiSeasonId = data.seasonId || currentYearVal;
@@ -254,13 +298,13 @@ export function processCoreData() {
     });
 
     rebuildTimeframeOptions(true);
-    buildCheckboxes();
+    renderCategoryAdvancedToggle();
     buildLegend();
 
     renderLeftColumn();
     renderRightColumn();
     renderHeatmapBand();
 
-    // Start pulling the (big, ~5s) Player Metrics pool in the background right away, so the tab opens near-instantly when it's eventually clicked. See prefetchPlayerData.
+    // Start the large player pool fetch in the background so the Player Metrics tab opens fast when it is clicked.
     prefetchPlayerData();
 }
