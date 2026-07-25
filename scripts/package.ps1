@@ -22,13 +22,31 @@ try {
     $manifestObj = Get-Content 'manifest.json' -Raw | ConvertFrom-Json
     $version = $manifestObj.version
 
-    # The complete runtime - the ONLY things that ship. Anything not on this list (dev-preview.html,
-    # tests/, JSON_debug/, docs/, .claude/, ...) never enters either archive.
+    # The complete runtime, the only things that ship.
+    # The list is verified below, not trusted: a missing module kills the whole graph in the installed build.
     $runtimeFiles = @(
         'manifest.json', 'dashboard.html', 'dashboard.css', 'icon.svg', 'theme-init.js', 'compat.js',
         'api.js', 'controls.js', 'data.js', 'export.js', 'graphs.js', 'main.js', 'players.js',
-        'rank-engine.js', 'recap.js', 'state.js', 'utils.js'
+        'rank-engine.js', 'recap.js', 'roster-timeline.js', 'state.js', 'utils.js'
     )
+
+    # Every relative ES import and every local dashboard.html reference must resolve to the list.
+    $shipSet = @{}
+    foreach ($f in $runtimeFiles) { $shipSet[$f] = $true }
+    $missing = @()
+    foreach ($f in ($runtimeFiles | Where-Object { $_ -like '*.js' })) {
+        foreach ($m in ([regex]::Matches((Get-Content $f -Raw), "import[^'`"]+['`"]\./([\w./-]+)['`"]"))) {
+            $target = $m.Groups[1].Value
+            if (-not $shipSet.ContainsKey($target)) { $missing += "$f imports $target" }
+        }
+    }
+    foreach ($m in ([regex]::Matches((Get-Content 'dashboard.html' -Raw), "(?:src|href)=['`"](?!https?:|#|data:)([\w./-]+)['`"]"))) {
+        $target = $m.Groups[1].Value -replace '^\./', ''
+        if (-not $shipSet.ContainsKey($target)) { $missing += "dashboard.html references $target" }
+    }
+    if ($missing.Count -gt 0) {
+        throw "Runtime list is incomplete, refusing to build:`n$($missing -join "`n")"
+    }
     $iconFiles = @('icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png')
 
     New-Item -ItemType Directory -Force -Path 'dist' | Out-Null
