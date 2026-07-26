@@ -2,10 +2,34 @@ import { AppState } from './state.js';
 import { setDebugContext, escapeHtml } from './utils.js';
 import { processCoreData } from './data.js';
 
+// The host permission the cookie reads and every ESPN fetch depend on.
+const ESPN_ORIGINS = { origins: ['*://*.espn.com/*'] };
+
+// Firefox MV3 treats host_permissions as opt-in: a temporary add-on gets them automatically, a store or file install does not, so cookies.get returns nothing until the user grants access. Chrome grants at install, and a browser with no permissions API is treated as granted.
+async function hasEspnHostAccess() {
+    try {
+        if (!browser.permissions?.contains) return true;
+        return await browser.permissions.contains(ESPN_ORIGINS);
+    } catch {
+        return true;
+    }
+}
+
+// A missing host permission makes the cookie read throw rather than return null, and the caller only needs to know whether the cookie is there.
+async function readEspnCookie(name) {
+    try {
+        return await browser.cookies.get({ url: 'https://espn.com', name });
+    } catch {
+        return null;
+    }
+}
+
 export async function checkAuth() {
-    const s2Cookie = await browser.cookies.get({ url: 'https://espn.com', name: 'espn_s2' });
-    const swidCookie = await browser.cookies.get({ url: 'https://espn.com', name: 'SWID' });
+    const s2Cookie = await readEspnCookie('espn_s2');
+    const swidCookie = await readEspnCookie('SWID');
     const authStatus = document.getElementById('auth-status');
+    const grantBtn = document.getElementById('grant-access-btn');
+    if (grantBtn) grantBtn.style.display = 'none';
 
     if (s2Cookie && swidCookie) {
         // Only a missing-cookies problem is worth a banner.
@@ -15,11 +39,28 @@ export async function checkAuth() {
         AppState.userSwid = swidCookie.value || '';
         // Fire and forget: the manual sport, league id and year fields work whether or not discovery succeeds.
         populateLeaguePicker(swidCookie.value).catch(() => {});
-    } else {
-        authStatus.style.display = '';
-        authStatus.textContent = '❌ Missing Cookies. Log into ESPN Fantasy first.';
-        authStatus.className = 'status-red';
+        return;
     }
+
+    authStatus.style.display = '';
+    authStatus.className = 'status-red';
+
+    // No cookies can mean no ESPN login or an install that was never granted espn.com, so ask the permission first. Only when it is granted is "log in" the honest diagnosis.
+    if (!(await hasEspnHostAccess())) {
+        authStatus.textContent = '⚠️ Leaguewise needs access to espn.com.';
+        if (grantBtn) {
+            grantBtn.style.display = '';
+            // The request must be the first thing the click does, since awaiting anything first loses the user gesture Firefox requires. onclick rather than addEventListener, so a re-render never stacks handlers.
+            grantBtn.onclick = () => {
+                browser.permissions.request(ESPN_ORIGINS)
+                    .then(granted => { if (granted) checkAuth(); })
+                    .catch(() => {});
+            };
+        }
+        return;
+    }
+
+    authStatus.textContent = '❌ Missing Cookies. Log into ESPN Fantasy first.';
 }
 
 // ESPN's fan-profile endpoint lists every fantasy league the logged-in account belongs to, keyed by the SWID cookie and authenticated by the same espn_s2 cookie every other call here uses (gameId 1=ffl, 2=flb, 3=fba, 4=fhl). Parsed defensively field by field, and any failure just leaves the picker hidden.

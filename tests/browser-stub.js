@@ -174,6 +174,11 @@
             }
         },
         tabs: { create: async () => {} },
+        // Always granted, so the dev flow never sees the opt-in prompt a store install gets.
+        permissions: {
+            contains: async () => true,
+            request: async () => true
+        },
         runtime: { getURL: (p) => p }
     };
 })();

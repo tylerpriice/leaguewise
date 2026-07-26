@@ -21,7 +21,11 @@
                 </svg><span>ise</span>
             </a>
         </h2>
-        <div id="auth-status" class="status-red">Checking cookies...</div>
+        <!-- The grant button only appears when Firefox has not been given espn.com yet. It sits beside the status line, and its click handler calls permissions.request directly, since that needs the user gesture. -->
+        <div class="auth-row">
+            <div id="auth-status" class="status-red">Checking cookies...</div>
+            <button type="button" id="grant-access-btn" class="grant-access-btn" style="display:none;">Grant access</button>
+        </div>
 
         <div class="form-row">
             <button id="settings-toggle-btn" class="settings-toggle-btn" style="display:none;"
