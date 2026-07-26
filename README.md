@@ -2,6 +2,13 @@
 
 <p align="center">A browser extension for Firefox and Chrome. Edge is on the way.</p>
 
+<p align="center">
+  <a href="https://addons.mozilla.org/en-US/firefox/addon/leaguewise/"><img src="https://img.shields.io/amo/v/leaguewise?label=Firefox&color=e8792e" alt="Firefox version"></a>
+  <a href="https://chromewebstore.google.com/detail/leaguewise/emnepcdlpnnphjgfiajhkciijciifdoj"><img src="https://img.shields.io/chrome-web-store/v/emnepcdlpnnphjgfiajhkciijciifdoj?label=Chrome&color=4d9bff" alt="Chrome version"></a>
+</p>
+
+**Status:** 1.1.2 is live on Firefox. The same version is under review on the Chrome Web Store, which still serves 1.0.1. What changed in each release is in the [changelog](CHANGELOG.md).
+
 Standings, trend lines, category heatmaps, a ranked player leaderboard, and shareable weekly recaps for your ESPN Fantasy Baseball and Hockey leagues. Weekly head to head, points, and season-long roto formats are all supported.
 
 ## Built with AI, reviewed by humans
