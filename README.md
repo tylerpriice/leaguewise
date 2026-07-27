@@ -30,15 +30,17 @@ Three tabs, each answering a different question.
 
 - **Team Metrics**, how the league is doing. Standings with playoff shading, season trend lines, per-category rankings, a category heatmap, and live scoreboards for the matchup being played.
 
-<p align="center"><img src="screenshots/team-metrics.png" width="800" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
+<p align="center"><img src="screenshots/1.2.0/team-metrics-1.2.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
 
 - **Player Metrics**, who is actually good. Every player in your league ranked in your league's own categories, adjusted for playing time, with search and position filters. Open any player for a weekly trend chart and the arithmetic behind their rank.
 
-<p align="center"><img src="screenshots/player-metrics.png" width="800" alt="Player Metrics tab showing the ranked player leaderboard"></p>
+<p align="center"><img src="screenshots/1.2.0/player-metrics-1.2.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
+
+<p align="center"><img src="screenshots/1.2.0/player-drill-down-1.2.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
 
 - **My Team**, your roster at a glance. Every player with their rank and category line, grouped by role, sortable by any column. A switcher scouts any other team in the league, and it works during a live matchup as well as after a season ends.
 
-<p align="center"><img src="screenshots/my-team.png" width="800" alt="My Team tab showing a roster grouped by role with each player's rank and category line"></p>
+<p align="center"><img src="screenshots/1.2.0/my-team-1.2.0.png" width="900" alt="My Team tab showing a roster grouped by role with each player's rank and category line"></p>
 
 One timeframe control drives all three. Pick a part of the season and how recent a stretch inside it, so "the last four matchups of the regular season" is one click plus one.
 
