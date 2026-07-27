@@ -1,4 +1,4 @@
-import { checkAuth, loadStoredSettings, fetchEspnData, setPostFetchHook, renderMyLeaguesOptions } from './api.js';
+import { checkAuth, setupAuthWatchers, loadStoredSettings, fetchEspnData, setPostFetchHook, renderMyLeaguesOptions } from './api.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, setupCardPopout, isCardPopoutOpen, closeCardPopout } from './graphs.js';
 import { AppState } from './state.js';
 import { loadPlayerTabIfNeeded, renderPlayerLeaderboard, openPlayerDetail, closePlayerDetail, ensurePlayerDetailDiagnostic, reprioritizeWeeklyQueue, setWeeklyProgressHook } from './players.js';
@@ -6,6 +6,7 @@ import { downloadDebugData, setActiveDebugKind, refreshDebugPanel } from './util
 import { openExportModal } from './export.js';
 import { openRecapModal } from './recap.js';
 import { syncRotoTimeframePills } from './controls.js';
+import { renderMyTeamTab } from './myteam.js';
 
 // Theme cycle: Auto follows prefers-color-scheme, then Light, then Dark. The choice is stored in localStorage and re-applied before paint by theme-init.js, and "auto" removes data-theme so the media query drives it again.
 function setupThemeToggle() {
@@ -176,7 +177,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 1. Initial checks and load data
+    // 1. Initial checks and load data. Install first, log in second is the normal first run, so the dashboard watches for the cookies arriving instead of waiting for a refresh nobody thinks to do, wired before the first check so a login landing mid-startup is still noticed.
+    setupAuthWatchers();
     await checkAuth();
     await loadStoredSettings();
 
@@ -295,13 +297,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tabBtnPlayer = document.getElementById('tab-btn-player');
     const viewTeam = document.getElementById('view-team');
     const viewPlayer = document.getElementById('view-player');
+    const tabBtnMyTeam = document.getElementById('tab-btn-myteam');
+    const viewMyTeam = document.getElementById('view-myteam');
+
 
     function switchTab(name) {
         const isTeam = name === 'team';
         tabBtnTeam.classList.toggle('active', isTeam);
-        tabBtnPlayer.classList.toggle('active', !isTeam);
+        const isMine = name === 'myteam';
+        tabBtnPlayer.classList.toggle('active', name === 'player');
+        tabBtnMyTeam.classList.toggle('active', isMine);
         viewTeam.style.display = isTeam ? 'flex' : 'none';
-        viewPlayer.style.display = isTeam ? 'none' : 'flex';
+        viewPlayer.style.display = name === 'player' ? 'flex' : 'none';
+        viewMyTeam.style.display = isMine ? 'flex' : 'none';
+        // My Team measures its own bands, so it re-renders on every entry for the same reason the Team tab does: anything measured while the view was hidden reads zero.
+        if (isMine) {
+            setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'player-pool');
+            renderMyTeamTab();
+            return;
+        }
         if (isTeam) {
             setActiveDebugKind('team');
             // Re-render on return: anything measured while this tab was display:none reads zero heights, which silently dropped the inline pies until some later render happened to run while visible.
@@ -319,4 +333,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     tabBtnTeam.addEventListener('click', () => switchTab('team'));
     tabBtnPlayer.addEventListener('click', () => switchTab('player'));
+    tabBtnMyTeam.addEventListener('click', () => switchTab('myteam'));
 });

@@ -1,5 +1,6 @@
+import { buildPlayerAvatarHtml, wirePlayerAvatars } from './images.js';
 import { AppState, ESPN_STAT_MAPS, POSITION_MAPS, SLOT_POSITION_MAPS, PITCHER_POSITIONS, PITCHING_IDS, GOALIE_IDS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS } from './state.js';
-import { escapeHtml, getNiceMax, setDebugContext, setActiveDebugKind, hasDebugContext, setDebugLoading, getTimeframeBounds, splitScoredAdvanced, percentileColor, attachDataTooltips, statValue, unwrapStats, axisUnit } from './utils.js';
+import { escapeHtml, getNiceMax, setDebugContext, setActiveDebugKind, hasDebugContext, setDebugLoading, getTimeframeBounds, splitScoredAdvanced, percentileColor, attachDataTooltips, statValue, unwrapStats, axisUnit, buildMatchupPeriodMap, matchupOfPeriod, parseTimeframe } from './utils.js';
 import { fetchPlayerData, fetchPlayerWeeklyStats, fetchPlayersWeeklyChunk, WEEKLY_CHUNK_SIZE, WEEKLY_MAX_CONCURRENT_CHUNKS, fetchDraftDetail, harvestTransactions, harvestRosters } from './api.js';
 import { buildRosterTimeline, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from './roster-timeline.js';
 // All ranking and percentile MATH lives in the pure, unit-tested rank engine. This module owns the impure half: choosing pools, reading AppState, and building the ctx objects it passes over.
@@ -7,6 +8,7 @@ import {
     IP_STAT_ID, GAMES_PLAYED_IDS, MIN_PLAYING_TIME_FRACTION,
     inningsPitchedOf, opportunityGateFor,
     computeRotoRanks as engineComputeRotoRanks,
+    computePointsRanks as engineComputePointsRanks,
     computeCategoryBreakdown as engineComputeCategoryBreakdown,
     computeStatRankInPool, buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis,
     scoreRotoWeek, rotoPointsForCategory
@@ -15,6 +17,16 @@ import {
 const RANK_COLORS = { 1: '#b8860b', 2: '#767676', 3: '#a4581e' }; // gold, silver, bronze
 const RANK_MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' }; // leaderboard Rank column, top 3 of the current pool
 const WEEKLY_RANK_STAT_ID = '__weeklyrank__';
+// The points-league counterpart: fantasy points scored in each matchup. Not an ESPN stat id and not a stored number either, because ESPN publishes appliedTotal for the season only, so a per-matchup figure has to be computed from that matchup's own stat line.
+const WEEKLY_POINTS_STAT_ID = '__weeklypoints__';
+
+// The league's own scoring applied to one bucket of weekly stat sums. Same arithmetic computePointsRanks uses on a season line, which is validated to reproduce ESPN's appliedTotal.
+function pointsForStatBucket(sums) {
+    const weights = AppState.scoringWeights || {};
+    let total = 0;
+    Object.keys(weights).forEach(id => { total += (Number((sums || {})[id]) || 0) * weights[id]; });
+    return +total.toFixed(1);
+}
 
 // Ranks a player against everyone with real eligibility in the STAT's own role, keyed off which role the stat belongs to rather than the player's primary position, so a two-way player's pitching and batting stats each land in the right pool.
 function computeStatRank(player, sport, statId) {
@@ -29,6 +41,14 @@ const GROUP_LABELS = {
     flb: { primary: 'Batters', secondary: 'Pitchers' },
     fhl: { primary: 'Skaters', secondary: 'Goalies' }
 };
+
+// Which role group a player belongs to, for surfaces outside the leaderboard that group by role. Eligibility-based like the group tabs, so a two-way player lands in both and the caller decides which section to draw him in.
+export function playerRoleGroups(player, sport) {
+    return {
+        primary: matchesPlayerGroup(player, sport, false),
+        secondary: matchesPlayerGroup(player, sport, true)
+    };
+}
 
 // Group tab membership has to be ELIGIBILITY-based rather than based on a single primary role, because a genuine two-way player has real stats and eligibility in both roles and needs to appear, with his own numbers, in both tabs.
 function matchesPlayerGroup(player, sport, wantPitchers) {
@@ -148,6 +168,21 @@ function computeRotoRanks(groupPlayers, sport, posFilter = null) {
     return engineComputeRotoRanks(groupPlayers, rotoContext(groupPlayers, sport, posFilter));
 }
 
+// The points-league ranking, same call shape as computeRotoRanks so every surface that shows a rank can ask for one without caring which format the league is. Like roto it ranks exactly the pool it is handed, and the caller has already narrowed that to one position when a position filter is on, which is what makes a position rank a rank among that position.
+function computePointsRanks(groupPlayers, sport) {
+    return engineComputePointsRanks(groupPlayers, {
+        weights: AppState.scoringWeights,
+        workloadOf: p => gamesPlayedOf(p, sport)
+    });
+}
+
+// Whichever ranking this league is scored by, so there is one call site instead of an isPointsLeague fork at every surface that wants a rank.
+function computeLeagueRanks(groupPlayers, sport, posFilter = null) {
+    return AppState.isPointsLeague
+        ? computePointsRanks(groupPlayers, sport)
+        : computeRotoRanks(groupPlayers, sport, posFilter);
+}
+
 // The single-player per-category breakdown of the same math, for the drill-down.
 function computeCategoryBreakdown(player, groupPlayers, sport, posFilter = null) {
     return engineComputeCategoryBreakdown(player, groupPlayers, rotoContext(groupPlayers, sport, posFilter));
@@ -219,7 +254,26 @@ export function processPlayerData(rawData, sport) {
 
 // MLB and NHL report stats per game DAY rather than per fantasy week, so there is no single stat line to read for a given week.
 function weekOfScoringPeriod(scoringPeriodId) {
-    return Math.max(1, Math.floor(scoringPeriodId / 7));
+    const first = AppState.apiData?.status?.firstScoringPeriod || 1;
+    return Math.max(1, Math.floor((scoringPeriodId - first) / 7) + 1);
+}
+
+// The league's real day-to-matchup lookup, rebuilt whenever a new payload lands. Cached on the payload object itself rather than a league key, so a refetch of the same league mid-matchup picks up the days that have since been scored instead of serving yesterday's boundaries.
+let matchupMapCache = { data: null, map: null };
+function matchupPeriodMap() {
+    const data = AppState.apiData;
+    if (!data) return null;
+    if (matchupMapCache.data !== data) {
+        matchupMapCache = { data, map: buildMatchupPeriodMap(data.schedule, data.status) };
+    }
+    return matchupMapCache.map;
+}
+
+// The matchup a stat day belongs to. The league's own schedule answers this exactly, including its long opening week and any break week it folded in, so the arithmetic below is only a fallback for a payload that carries no per-period scores at all.
+function matchupOfScoringPeriod(scoringPeriodId) {
+    const real = matchupOfPeriod(matchupPeriodMap(), scoringPeriodId);
+    if (real !== null) return real;
+    return matchupNumberOfWeek(weekOfScoringPeriod(scoringPeriodId));
 }
 
 // A regular-season matchup is exactly one real week, but a playoff round can span several, which is what playoffMatchupPeriodLength describes.
@@ -291,7 +345,7 @@ function buildWeeklySums(playerStatLines, year) {
         // Matchup leagues bucket by matchup number, which folds ESPN's multi-week playoff rounds into one.
         const week = AppState.isRotoLeague
             ? weekOfScoringPeriod(s.scoringPeriodId)
-            : matchupNumberOfWeek(weekOfScoringPeriod(s.scoringPeriodId));
+            : matchupOfScoringPeriod(s.scoringPeriodId);
         if (!weeklySums[week]) weeklySums[week] = { sums: {}, games: 0 };
         const dayBucket = dailyByPeriod ? (dailyByPeriod[s.scoringPeriodId] = dailyByPeriod[s.scoringPeriodId] || { sums: {}, games: 0 }) : null;
 
@@ -353,8 +407,8 @@ let poolCache = null;
 // Whether the selected timeframe's resolved range covers the entire available season, not merely whether it is literally the season option.
 function isFullSeasonTimeframe() {
     // Roto has no matchup periods, so the season-against-window distinction is purely which pill is picked.
-    if (AppState.isRotoLeague) return !String(AppState.timeframe).startsWith('last');
-    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    if (AppState.isRotoLeague) return parseTimeframe(AppState.timeframe).window === null;
+    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     return start === 1 && end === AppState.maxCompletedWeek;
 }
 
@@ -364,7 +418,12 @@ function playerTimeframeBounds(sport) {
         const maxWeek = rotoWindowMaxWeek(sport);
         if (maxWeek > 0) return getTimeframeBounds(AppState.timeframe, maxWeek, maxWeek);
     }
-    return getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    return getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
+}
+
+// The pool as the current timeframe sees it, for surfaces outside the leaderboard that must window with it. Same function the leaderboard and the rank lookup read, so a roster row, its rank and the leaderboard row cannot disagree about which weeks count.
+export function effectivePlayerPool(sport) {
+    return getEffectivePlayerPool(sport);
 }
 
 function getEffectivePlayerPool(sport) {
@@ -671,6 +730,8 @@ function ensurePlayerDataLoaded(sport) {
             AppState.playerData = processPlayerData(raw, sport);
             AppState.playerDataLoaded = true;
             buildPositionFilterOptions(sport);
+            // My Team draws names, ranks and stats out of this pool and renders before the pool lands after a league switch, so every row read as a bare id until something forced a re-render. An event rather than a direct call, because myteam.js already imports this module and importing it back would close a cycle for one line.
+            document.dispatchEvent(new CustomEvent('leaguewise:player-pool-ready'));
         })();
         // A failed fetch must not poison every later attempt with the same rejected promise, so clear the slot and let the next call start fresh.
         promise.catch(() => {
@@ -684,7 +745,7 @@ function ensurePlayerDataLoaded(sport) {
 // Fire-and-forget warm-up as soon as league data lands, so the tab opens near-instantly rather than paying the whole round trip on click.
 export function prefetchPlayerData() {
     if (!AppState.apiData || AppState.playerDataLoaded) return;
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     ensurePlayerDataLoaded(sport)
         .then(() => {
             // Chain the bulk weekly fetch behind the pool fetch, since the Rank column's trend arrows need it and starting it on first render made the arrows pop in seconds late.
@@ -707,7 +768,7 @@ export async function loadPlayerTabIfNeeded() {
         return;
     }
 
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const progress = showPlayerLoadingProgress(container);
     try {
         await ensurePlayerDataLoaded(sport);
@@ -797,7 +858,7 @@ function prioritizeWeeklyIds(ids, sport) {
 // Re-tier whatever is left after a scroll or re-sort. Already-fetched and in-flight ids drop out, so nothing is requested twice and nothing in the air is wasted.
 export function reprioritizeWeeklyQueue() {
     if (!bulkWeeklyFetchInFlight || weeklyQueue.length === 0) return;
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const stillNeeded = weeklyQueue.filter(id => !AppState.playerWeeklyCache[id] && !weeklyClaimedIds.has(id));
     weeklyQueue = prioritizeWeeklyIds(stillNeeded, sport);
 }
@@ -821,7 +882,8 @@ async function runWeeklyQueue(sport, apiDataRef) {
                 if (AppState.apiData !== apiDataRef) return;
                 if (!weeklyPoolContextCaptured) {
                     weeklyPoolContextCaptured = true;
-                    setDebugContext('player-pool', raw);
+                    // Its own kind, never the pool's: one chunk of daily splits for the ids that were prioritized is a different thing from the player pool, and used to be labeled as it.
+                    setDebugContext('player-weekly', raw);
                 }
                 processBulkPlayerWeeklyHistory(raw, sport);
                 // A requested player the response did not include gets an empty stub, or the readiness check would stay false forever and every re-render would re-trigger the whole fetch.
@@ -1055,12 +1117,10 @@ export function rotoWindowMaxWeek(sport) {
 // The active roto window, or null on the full season, which always shows ESPN's official standings verbatim rather than a computed window.
 export function activeRotoWindow(sport) {
     if (!AppState.isRotoLeague) return null;
-    const tf = AppState.timeframe;
-    if (typeof tf !== 'string' || !tf.startsWith('last')) return null;
+    const n = parseTimeframe(AppState.timeframe).window;
+    if (!n) return null;
     const acc = rotoStartedSums(sport);
     if (!acc || acc.weeks.length === 0) return null;
-    const n = parseInt(tf.slice(4), 10);
-    if (!Number.isFinite(n) || n <= 0) return null;
     const maxWeek = acc.weeks[acc.weeks.length - 1];
     return { start: Math.max(acc.weeks[0], maxWeek - n + 1), end: maxWeek };
 }
@@ -1228,7 +1288,7 @@ export function resetLeaderboardWeeklyFetchState() {
 
 // Called on every league, season or sport switch, before the player tab reloads.
 export function normalizePlayerViewStateForLeague() {
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const statMap = ESPN_STAT_MAPS[sport] || {};
 
     const sortStat = AppState.playerSortStat;
@@ -1236,9 +1296,10 @@ export function normalizePlayerViewStateForLeague() {
     let sortValid;
     if (universalSortKeys.has(sortStat)) sortValid = true;
     else if (sortStat === 'total') sortValid = AppState.isPointsLeague;
-    else if (sortStat === 'rotoScore') sortValid = !AppState.isPointsLeague;
+    else if (sortStat === 'rotoScore') sortValid = true; // every league type ranks now
     else sortValid = statMap[sortStat] !== undefined; // a stat-id column this sport actually has
-    if (!sortValid) AppState.playerSortStat = AppState.isPointsLeague ? 'total' : 'rotoScore';
+    // Rank for every league type. A points league defaulted to the raw points total back when it had no ranking, and it has one now.
+    if (!sortValid) AppState.playerSortStat = 'rotoScore';
 
     const posFilter = AppState.playerPositionFilter;
     if (posFilter && posFilter !== 'ALL') {
@@ -1268,9 +1329,13 @@ function sortLeaderboardPlayers(players, rotoRanks, sport) {
         if (sortStat === 'rotoScore') return ((rotoRanks.scores.get(a.id) || 0) - (rotoRanks.scores.get(b.id) || 0)) * dir;
         if (sortStat === 'gp') return (gamesPlayedOf(a, sport) - gamesPlayedOf(b, sport)) * dir;
         if (sortStat === 'ip') return ((a.seasonTotals[IP_STAT_ID] || 0) - (b.seasonTotals[IP_STAT_ID] || 0)) * dir;
-        // Before the season starts the applied total is 0 for everyone, so fall back to ESPN's projection and keep a meaningful ranking rather than raw fetch order.
-        const av = sortStat === 'total' ? (a.appliedTotal || a.projectedAppliedTotal || 0) : (a.seasonTotals[sortStat] || 0);
-        const bv = sortStat === 'total' ? (b.appliedTotal || b.projectedAppliedTotal || 0) : (b.seasonTotals[sortStat] || 0);
+        // Total prefers the points computed from this window's stat line, so a last-four view sorts by points scored in those four rather than by the season figure ESPN publishes once. Before anything is scored it falls back to appliedTotal and then to the projection, which keeps the sort meaningful rather than raw fetch order.
+        const totalOf = (p) => {
+            const scored = rotoRanks && rotoRanks.scores.get(p.id);
+            return scored !== undefined ? scored : (p.appliedTotal || p.projectedAppliedTotal || 0);
+        };
+        const av = sortStat === 'total' ? totalOf(a) : (a.seasonTotals[sortStat] || 0);
+        const bv = sortStat === 'total' ? totalOf(b) : (b.seasonTotals[sortStat] || 0);
         return (av - bv) * dir;
     });
 }
@@ -1280,7 +1345,7 @@ export function buildLeaderboardExportModel(includeAdvanced = AppState.showAdvan
     if (!AppState.playerDataLoaded) return null;
     if (!isFullSeasonTimeframe() && !leaderboardWeeklyDataReady()) return null;
 
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const wantPitchers = AppState.playerGroup === 'secondary';
     const groupPlayers = getEffectivePlayerPool(sport).filter(p => matchesPlayerGroup(p, sport, wantPitchers));
@@ -1297,11 +1362,11 @@ export function buildLeaderboardExportModel(includeAdvanced = AppState.showAdvan
     });
 
     const rankPool = posFilter !== 'ALL' ? groupPlayers.filter(p => matchesPositionFilter(p, posFilter)) : groupPlayers;
-    const rotoRanks = !AppState.isPointsLeague ? computeRotoRanks(rankPool, sport, posFilter) : null;
+    const rotoRanks = computeLeagueRanks(rankPool, sport, posFilter);
     // Mirrors the leaderboard's own rule: unranked rows are hidden with the minimum-games toggle on and kept, sorted last, with it off.
     if (rotoRanks && AppState.requireMinPlayingTime) players = players.filter(p => rotoRanks.ranks.has(p.id));
     // The same default-sort normalization the leaderboard applies, since an export taken before its first render would otherwise sort a category league by the points default instead of Rank.
-    if (!AppState.isPointsLeague && AppState.playerSortStat === 'total') {
+    if (AppState.playerSortStat === 'total') {
         AppState.playerSortStat = 'rotoScore';
     }
     sortLeaderboardPlayers(players, rotoRanks, sport);
@@ -1317,7 +1382,7 @@ export function buildLeaderboardExportModel(includeAdvanced = AppState.showAdvan
     const showInnings = wantPitchers && sport === 'flb';
     const headers = [
         'Player', 'Team', 'Pos',
-        ...(AppState.isPointsLeague ? ['Total'] : ['Rank', 'Rank Score']),
+        ...(AppState.isPointsLeague ? ['Rank', 'Total'] : ['Rank', 'Rank Score']),
         'GP',
         ...(showInnings ? ['IP'] : []),
         ...statIds.map(id => statMap[id])
@@ -1325,7 +1390,8 @@ export function buildLeaderboardExportModel(includeAdvanced = AppState.showAdvan
     const rows = players.map(p => [
         p.name, p.teamName, p.positionDisplay,
         ...(AppState.isPointsLeague
-            ? [exportCell(p.appliedTotal)]
+            ? [rotoRanks.ranks.has(p.id) ? rotoRanks.ranks.get(p.id) : '-',
+               exportCell(rotoRanks.scores.get(p.id) !== undefined ? +rotoRanks.scores.get(p.id).toFixed(1) : p.appliedTotal)]
             // An unranked row exports the same placeholder the table shows, with a blank score rather than a fabricated 0.
             : rotoRanks.ranks.has(p.id)
                 ? [rotoRanks.ranks.get(p.id), +(rotoRanks.scores.get(p.id) || 0).toFixed(1)]
@@ -1336,6 +1402,30 @@ export function buildLeaderboardExportModel(includeAdvanced = AppState.showAdvan
     ]);
 
     return { headers, rows };
+}
+
+// The leaderboard's own ranking, offered to surfaces that show a rank outside the table. Both role pools are ranked exactly as the table ranks them, with no position filter, so a roster row and the leaderboard row for the same player always agree. A player the engine will not rank is absent, which the caller renders as a dash rather than inventing a number.
+export function rosterRankLookup(sport) {
+    const out = new Map();
+    if (!AppState.playerDataLoaded) return out;
+    const pool = getEffectivePlayerPool(sport);
+    // The rank context reads AppState.playerGroup for its workload measures, because every other caller ranks exactly one group, the one whose tab is open. This ranks both in one pass, so the group is moved for the duration of each and put back. Without that the pitcher pass measured pitchers by a batting stat almost none of them carry, and the zero floor then refused to rank them.
+    const activeGroup = AppState.playerGroup;
+    try {
+        [['primary', false], ['secondary', true]].forEach(([group, wantPitchers]) => {
+            AppState.playerGroup = group;
+            const groupPlayers = pool.filter(p => matchesPlayerGroup(p, sport, wantPitchers));
+            if (!groupPlayers.length) return;
+            const label = (GROUP_LABELS[sport] || {})[group] || group;
+            const ranked = computeLeagueRanks(groupPlayers, sport);
+            ranked.ranks.forEach((rank, id) => out.set(id, {
+                rank, total: ranked.total, poolLabel: label, score: ranked.scores.get(id)
+            }));
+        });
+    } finally {
+        AppState.playerGroup = activeGroup;
+    }
+    return out;
 }
 
 export function renderPlayerLeaderboard() {
@@ -1352,7 +1442,7 @@ export function renderPlayerLeaderboard() {
         return;
     }
 
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     renderGroupToggle(sport);
 
     if (!isFullSeasonTimeframe() && !leaderboardWeeklyDataReady()) {
@@ -1390,14 +1480,14 @@ export function renderPlayerLeaderboard() {
 
     // A real applied total only exists for points-format leagues.
     const rankPool = posFilter !== 'ALL' ? groupPlayers.filter(p => matchesPositionFilter(p, posFilter)) : groupPlayers;
-    const rotoRanks = !AppState.isPointsLeague ? computeRotoRanks(rankPool, sport, posFilter) : null;
+    const rotoRanks = computeLeagueRanks(rankPool, sport, posFilter);
 
     // With the minimum-games toggle on, the ranks hold exactly the players who cleared the threshold, so the rest are hidden entirely rather than shown with a placeholder nobody asked for.
     if (rotoRanks && AppState.requireMinPlayingTime) players = players.filter(p => rotoRanks.ranks.has(p.id));
 
     renderAdvancedStatsToggle(advanced.length);
     renderMinPlayingTimeToggle(rankPool, sport);
-    if (!AppState.isPointsLeague && AppState.playerSortStat === 'total') {
+    if (AppState.playerSortStat === 'total') {
         AppState.playerSortStat = 'rotoScore';
     }
 
@@ -1428,7 +1518,7 @@ export function renderPlayerLeaderboard() {
                     <th class="sortable" data-sort="name">Player${sortArrow('name')}</th>
                     <th class="sortable" data-sort="teamName">Team${sortArrow('teamName')}</th>
                     <th class="sortable" data-sort="positionName">Pos${sortArrow('positionName')}</th>
-                    ${AppState.isPointsLeague ? `<th class="sortable" data-sort="total">Total${sortArrow('total')}</th>` : `<th class="sortable" data-sort="rotoScore"><span class="rank-th-label">Rank${posFilter !== 'ALL' ? ` (${escapeHtml(posFilter)})` : ''}${sortArrow('rotoScore')}<button type="button" id="rank-explainer-trigger" class="rank-explainer-trigger">ⓘ</button></span></th>`}
+                    ${AppState.isPointsLeague ? `<th class="sortable" data-sort="rotoScore"><span class="rank-th-label">Rank${posFilter !== 'ALL' ? ` (${escapeHtml(posFilter)})` : ''}${sortArrow('rotoScore')}</span></th><th class="sortable" data-sort="total">Total${sortArrow('total')}</th>` : `<th class="sortable" data-sort="rotoScore"><span class="rank-th-label">Rank${posFilter !== 'ALL' ? ` (${escapeHtml(posFilter)})` : ''}${sortArrow('rotoScore')}<button type="button" id="rank-explainer-trigger" class="rank-explainer-trigger">ⓘ</button></span></th>`}
                     <th class="sortable" data-sort="gp">GP${sortArrow('gp')}</th>
                     ${showInnings ? `<th class="sortable" data-sort="ip">IP${sortArrow('ip')}</th>` : ''}
                     ${statIds.map(id => `<th class="sortable player-col-stat" data-sort="${id}">${escapeHtml(statMap[id])}${sortArrow(id)}</th>`).join('')}
@@ -1443,7 +1533,7 @@ export function renderPlayerLeaderboard() {
                 <td class="player-col-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
                 <td class="player-col-team" title="${escapeHtml(p.teamName)}">${p.teamColor ? `<span class="legend-color" style="background:${p.teamColor};width:10px;height:10px;"></span>` : ''}${escapeHtml(p.teamName)}</td>
                 <td class="player-col-pos" title="${escapeHtml(p.positionDisplay)}">${escapeHtml(p.positionDisplay)}</td>
-                ${AppState.isPointsLeague ? `<td>${p.appliedTotal.toFixed(1)}</td>` : `<td>${rotoRanks.ranks.has(p.id) ? `#${rotoRanks.ranks.get(p.id)} of ${rotoRanks.total}${rankExtrasFor(p)}` : '<span class="rank-unranked" title="No games played, nothing to rank on">-</span>'}</td>`}
+                ${AppState.isPointsLeague ? `<td>${rotoRanks.ranks.has(p.id) ? `#${rotoRanks.ranks.get(p.id)} of ${rotoRanks.total}${rankExtrasFor(p)}` : '<span class="rank-unranked" title="No games played, nothing to rank on">-</span>'}</td><td>${(rotoRanks.scores.get(p.id) !== undefined ? rotoRanks.scores.get(p.id) : p.appliedTotal).toFixed(1)}</td>` : `<td>${rotoRanks.ranks.has(p.id) ? `#${rotoRanks.ranks.get(p.id)} of ${rotoRanks.total}${rankExtrasFor(p)}` : '<span class="rank-unranked" title="No games played, nothing to rank on">-</span>'}</td>`}
                 <td>${formatStatValue(gamesPlayedOf(p, sport))}</td>
                 ${showInnings ? `<td>${formatInnings(p.seasonTotals[IP_STAT_ID])}</td>` : ''}
                 ${statIds.map(id => `<td class="player-col-stat">${formatStatValue(p.seasonTotals[id])}</td>`).join('')}
@@ -1531,7 +1621,7 @@ export async function ensurePlayerDetailDiagnostic() {
 // preserveView marks a reopen of the SAME player after a refresh. Comparing ids cannot detect that, because the fetch already wiped the selected id before this runs.
 export async function openPlayerDetail(playerId, preserveView = false) {
     if (!AppState.playerData.some(p => p.id === playerId)) return;
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
 
     // Only reset the drill-down's own view state when switching to a genuinely different player, so reopening the same one keeps whatever was selected.
     if (!preserveView) {
@@ -1631,11 +1721,11 @@ function buildRankChipHtml(poolKey, roto, player) {
 
 // Overall rank plus one rank per eligible position, since a smaller comparison pool naturally produces different percentiles and showing one number would hide that.
 function buildRankChipsHtml(player, sport) {
-    if (AppState.isPointsLeague) return '';
+    // Points leagues rank too, and the drill-down was the one surface still assuming they did not: the leaderboard showed a rank and opening the same player showed no chips. Same chips, same scoping, ranked by fantasy points instead of category percentiles.
     const wantPitchers = AppState.playerGroup === 'secondary';
     const pitcherPositions = PITCHER_POSITIONS[sport] || new Set();
     const samePool = getEffectivePlayerPool(sport).filter(p => matchesPlayerGroup(p, sport, wantPitchers));
-    const overallRoto = computeRotoRanks(samePool, sport);
+    const overallRoto = computeLeagueRanks(samePool, sport);
     const chips = [buildRankChipHtml('Overall', overallRoto, player)];
     // For a two-way player, only show chips for the positions relevant to the CURRENT group, or the wrong-role stats would be compared against the wrong-role pool.
     const relevantPositions = player.eligiblePositions.filter(pos => pitcherPositions.has(pos) === wantPitchers);
@@ -1643,13 +1733,14 @@ function buildRankChipsHtml(player, sport) {
         const posPool = samePool.filter(p => matchesPositionFilter(p, pos));
         // Skip a positional chip whose pool IS the group pool, since it would only restate Overall.
         if (posPool.length === samePool.length) return;
-        chips.push(buildRankChipHtml(pos, computeRotoRanks(posPool, sport, pos), player));
+        chips.push(buildRankChipHtml(pos, computeLeagueRanks(posPool, sport, pos), player));
     });
     return chips.filter(Boolean).join('');
 }
 
 // Explains how the selected chip's score is built, category by category. Every number in the table derives from the two values above it via the formula in the caption, so nothing is a mystery number.
 function buildRankBreakdownHtml(player, sport) {
+    // A points rank is one sum, not an average of category percentiles, so there is no per-category math to justify. The chips above still carry the ranks and their neighbours.
     if (AppState.isPointsLeague) return '';
     // Which role's breakdown to show, keyed off the current group tab rather than the player's primary position, so a two-way player opened from the Pitchers tab gets the pitching breakdown.
     const isPitching = AppState.playerGroup === 'secondary';
@@ -1712,7 +1803,7 @@ function buildRankBreakdownHtml(player, sport) {
 // Re-renders the open player detail view in place, and a no-op when no player is open.
 export function refreshOpenPlayerDetail() {
     if (!AppState.selectedPlayerId) return;
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     // The drill-down always caches weekly data for whoever it opens, so an open player is guaranteed to be found here.
     const player = getEffectivePlayerPool(sport).find(p => p.id === AppState.selectedPlayerId);
     if (player) renderPlayerDetail(player);
@@ -1720,7 +1811,7 @@ export function refreshOpenPlayerDetail() {
 
 function renderPlayerDetail(player) {
     const container = document.getElementById('player-detail-container');
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const { weekly = {} } = AppState.playerWeeklyCache[player.id] || {};
 
@@ -1732,6 +1823,8 @@ function renderPlayerDetail(player) {
     const statOptions = visibleIds.map(id => ({ id, name: statMap[id] }));
     // Category leagues get the computed weekly score as a selectable trend in place of ESPN's removed FPTS. Points leagues already have a real per-week points total, so there is nothing to replace.
     if (!AppState.isPointsLeague) statOptions.unshift({ id: WEEKLY_RANK_STAT_ID, name: `${axisUnit().long} Score` });
+    // A points league's headline number is its points, so that trend leads the picker and is what a freshly opened drill-down shows. The individual categories behind it stay selectable underneath.
+    if (AppState.isPointsLeague) statOptions.unshift({ id: WEEKLY_POINTS_STAT_ID, name: `${axisUnit().long} Points` });
 
     const currentStat = statOptions.find(s => s.id === AppState.playerDetailStat) || statOptions[0];
     if (currentStat) AppState.playerDetailStat = currentStat.id;
@@ -1739,21 +1832,21 @@ function renderPlayerDetail(player) {
     const rankChipsHtml = buildRankChipsHtml(player, sport);
     const rankBreakdownHtml = buildRankBreakdownHtml(player, sport);
 
-    // Rank pager for the header: Prev walks up the selected pool's ranking and Next walks down it, so a position chip pages through that position's own ranking.
+    // Rank pager for the header: Prev walks up the selected pool's ranking and Next walks down it, so a position chip pages through that position's own ranking. Points leagues walk it too, since the pager needs an order and ranked by fantasy points is as walkable as a percentile average.
     let pager = null;
-    if (!AppState.isPointsLeague) {
+    {
         const wantPitchersNav = AppState.playerGroup === 'secondary';
         const navPool = getEffectivePlayerPool(sport).filter(p => matchesPlayerGroup(p, sport, wantPitchersNav));
         const selectedPool = AppState.playerDetailRankPool || 'Overall';
         const isPositionPool = selectedPool !== 'Overall' && player.eligiblePositions.includes(selectedPool);
         const poolPlayers = isPositionPool ? navPool.filter(p => matchesPositionFilter(p, selectedPool)) : navPool;
-        const roto = computeRotoRanks(poolPlayers, sport, isPositionPool ? selectedPool : null);
-        const idx = roto.ranked.findIndex(p => p.id === player.id);
+        const ranked = computeLeagueRanks(poolPlayers, sport, isPositionPool ? selectedPool : null);
+        const idx = ranked.ranked.findIndex(p => p.id === player.id);
         if (idx !== -1) {
             pager = {
                 pool: selectedPool,
-                prev: idx > 0 ? { player: roto.ranked[idx - 1], rank: idx } : null,
-                next: idx + 1 < roto.ranked.length ? { player: roto.ranked[idx + 1], rank: idx + 2 } : null
+                prev: idx > 0 ? { player: ranked.ranked[idx - 1], rank: idx } : null,
+                next: idx + 1 < ranked.ranked.length ? { player: ranked.ranked[idx + 1], rank: idx + 2 } : null
             };
         }
     }
@@ -1790,11 +1883,16 @@ function renderPlayerDetail(player) {
         <div class="player-detail-header">
             <button id="player-back-btn" class="player-back-btn">&larr; Leaderboard</button>
             <div class="player-detail-title">
-                <h3>${escapeHtml(player.name)}</h3>
-                <span class="player-detail-meta">${escapeHtml(player.teamName)} &middot; ${escapeHtml(player.positionDisplay)}</span>
+                ${buildPlayerAvatarHtml(sport, player.id, player.name)}
+                <div class="player-detail-name">
+                    <h3>${escapeHtml(player.name)}</h3>
+                    <span class="player-detail-meta">${escapeHtml(player.teamName)} &middot; ${escapeHtml(player.positionDisplay)}</span>
+                </div>
             </div>
-            ${statOptions.length ? `<select id="player-stat-picker">${statOptions.map(s => `<option value="${s.id}"${currentStat && s.id === currentStat.id ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select>` : ''}
-            ${pagerHtml}
+            <div class="player-detail-tools">
+                ${statOptions.length ? `<select id="player-stat-picker">${statOptions.map(s => `<option value="${s.id}"${currentStat && s.id === currentStat.id ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select>` : ''}
+                ${pagerHtml}
+            </div>
         </div>
         ${rankChipsHtml ? `<div id="player-rank-chips" class="player-rank-chips">${rankChipsHtml}</div>` : ''}
         ${rankBreakdownHtml}
@@ -1802,6 +1900,8 @@ function renderPlayerDetail(player) {
         <div id="player-trend-chart" class="graph-viewport" style="flex:1; min-height:300px; margin-top:8px;"></div>
     `;
 
+    // The headshot uses the same plumbing the roster band does, so a missing or failed image leaves the initials tile rather than a broken glyph.
+    wirePlayerAvatars(container);
     document.getElementById('player-back-btn').addEventListener('click', closePlayerDetail);
 
     // preserveView keeps the selected pool, stat and breakdown state while walking a ranking, so paging through a position pool stays that pool's walk.
@@ -1983,22 +2083,28 @@ function buildMatchupTrendIcons(players, sport) {
 
 function drawPlayerTrendChart(player, stat, weekly, maxWk) {
     const container = document.getElementById('player-trend-chart');
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
 
     // weekly is already keyed by fantasy week and summed per stat, the day-to-week rollup having happened once against the league's own schedule mapping. maxWk is the EFFECTIVE max week, so a league whose schedule ends early does not hide real weeks of a player's data.
-    const { start: tfStart, end: tfEnd } = getTimeframeBounds(AppState.timeframe, maxWk, AppState.regSeasonWeeks);
+    const { start: tfStart, end: tfEnd } = getTimeframeBounds(AppState.timeframe, maxWk, AppState.regSeasonWeeks, AppState.currentMatchup);
     const weeks = Object.keys(weekly).map(Number)
         .filter(w => w >= tfStart && w <= tfEnd)
         .sort((a, b) => a - b);
     const isWeeklyRank = stat.id === WEEKLY_RANK_STAT_ID;
+    const isWeeklyPoints = stat.id === WEEKLY_POINTS_STAT_ID;
     const weeklyRankScores = isWeeklyRank ? computeWeeklyRankSeries(player, sport, weekly, weeks) : null;
-    const actualValues = weeks.map(w => isWeeklyRank ? (weeklyRankScores[w] ?? 0) : ((weekly[w] && weekly[w][stat.id]) || 0));
+    const actualValues = weeks.map(w => {
+        if (isWeeklyRank) return weeklyRankScores[w] ?? 0;
+        // The weekly cache keys raw stat sums by matchup, so this is the same weighted sum the rank uses, evaluated one matchup at a time.
+        if (isWeeklyPoints) return pointsForStatBucket(weekly[w]);
+        return (weekly[w] && weekly[w][stat.id]) || 0;
+    });
 
     const isRateStat = (AVERAGE_STATS[sport] || new Set()).has(stat.id);
 
     // Per-week gap notes were removed: they were mostly noise once the day-to-week mapping was fixed, and a real bye or IL week with no games would still trigger one.
     const gapNotes = [];
-    if (!isWeeklyRank && !isRateStat) {
+    if (!isWeeklyRank && !isWeeklyPoints && !isRateStat) {
         const plottedSum = actualValues.reduce((a, b) => a + b, 0);
         const seasonValue = player.seasonTotals[stat.id] || 0;
         if (Math.round(plottedSum) !== Math.round(seasonValue)) {
@@ -2017,16 +2123,18 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
         avgLabel = `Avg ${axisUnit().long} Score`;
         totalLabel = `Avg ${axisUnit().long} Score`;
     } else {
-        // Rate stats use ESPN's own verified season rate for the reference line, so an average-of-rates error cannot creep back in.
-        const seasonValue = player.seasonTotals[stat.id] || 0;
-        avgVal = isRateStat ? seasonValue : (actualValues.length ? actualValues.reduce((a, b) => a + b, 0) / actualValues.length : 0);
+        // Rate stats use ESPN's own verified season rate for the reference line, so an average-of-rates error cannot creep back in. Points have no seasonTotals entry to read, so their total is what the plotted matchups add up to, which is also the honest figure for a windowed timeframe.
+        const seasonValue = isWeeklyPoints
+            ? +actualValues.reduce((a, b) => a + b, 0).toFixed(1)
+            : (player.seasonTotals[stat.id] || 0);
+        avgVal = (isRateStat && !isWeeklyPoints) ? seasonValue : (actualValues.length ? actualValues.reduce((a, b) => a + b, 0) / actualValues.length : 0);
         actualTotal = seasonValue;
-        avgLabel = isRateStat ? 'Season Avg' : 'Avg/Matchup';
-        totalLabel = 'Season Total';
+        avgLabel = (isRateStat && !isWeeklyPoints) ? 'Season Avg' : 'Avg/Matchup';
+        totalLabel = isWeeklyPoints ? `Points, ${axisUnit().plural.toLowerCase()} shown` : 'Season Total';
     }
-    const avgDisplay = isWeeklyRank ? avgVal.toFixed(1) : formatStatValue(avgVal);
+    const avgDisplay = (isWeeklyRank || isWeeklyPoints) ? avgVal.toFixed(1) : formatStatValue(avgVal);
     // For the weekly score the total and the average are the same number, so only the one reference-line stat is shown, matching the single dashed line drawn.
-    const totalStatHtml = isWeeklyRank ? '' : `<div>${totalLabel}: <strong>${formatStatValue(actualTotal)}</strong></div>`;
+    const totalStatHtml = isWeeklyRank ? '' : `<div>${totalLabel}: <strong>${isWeeklyPoints ? Number(actualTotal).toFixed(1) : formatStatValue(actualTotal)}</strong></div>`;
     // The weekly score is a computed stat rather than an ESPN number, so it is the one chart that has to explain itself.
     const matchupScoreInfo = isWeeklyRank
         ? `<span class="tooltip tooltip-bottom" style="margin-left:4px;">ⓘ<span class="tooltiptext">Scores each ${axisUnit().long.toLowerCase()} from 0 to 100. The player's numbers in every scored category are compared against other ranked players' real ${axisUnit().plural.toLowerCase()} from the same stretch, and those category percentiles are averaged. 50 is the middle of the pack.</span></span>`
@@ -2063,7 +2171,8 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
         const y = padding + (i / 4) * (svgHeight - padding * 2);
         svgStr += `<line x1="${padding}" y1="${y}" x2="${svgWidth - padding}" y2="${y}" style="stroke:var(--chart-grid)" />`;
         // formatStatValue rather than a fixed decimal, since a one-decimal label rounded rate stats to the point of unreadability.
-        svgStr += `<text x="${padding - 5}" y="${y + 4}" font-size="12" text-anchor="end" style="fill:var(--chart-axis)">${formatStatValue(maxVal - (i / 4) * maxVal)}</text>`;
+        const tickVal = maxVal - (i / 4) * maxVal;
+        svgStr += `<text x="${padding - 5}" y="${y + 4}" font-size="12" text-anchor="end" style="fill:var(--chart-axis)">${isWeeklyPoints ? tickVal.toFixed(1) : formatStatValue(tickVal)}</text>`;
     }
 
     // The same dashed playoff-start marker the team trends chart uses, adapted for an axis spaced by ARRAY INDEX: a bye or IL week can leave a gap, so the boundary is placed between the two displayed weeks that straddle the split rather than interpolated from week numbers.
@@ -2110,8 +2219,8 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
 
     svgStr += `<polyline points="${actualPts.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke-width="2.5" style="stroke:var(--accent)" />`;
     actualPts.forEach(p => {
-        // No opponent or matchup info here, because a player may have been picked up partway through the season and a real matchup that week does not mean he was rostered for it.
-        const displayValue = isWeeklyRank ? p.value.toFixed(1) : formatStatValue(p.value);
+        // No opponent or matchup info here, because a player may have been picked up partway through the season and a real matchup that week does not mean he was rostered for it. Points are a scored total rather than a rate, so one decimal is the precision the league itself shows.
+        const displayValue = (isWeeklyRank || isWeeklyPoints) ? p.value.toFixed(1) : formatStatValue(p.value);
         const tooltipText = `${axisUnit().long} ${p.week}: ${escapeHtml(displayValue)} ${escapeHtml(stat.name)}`;
         // A larger transparent hit target over the small visible dot, which alone is hard to hover once many weeks are crowded into a narrow chart.
         svgStr += `<circle cx="${p.x}" cy="${p.y}" r="4" style="fill:var(--accent); pointer-events:none;" />`;

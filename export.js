@@ -1,7 +1,7 @@
 // CSV and clipboard export of the standings, category totals and player leaderboard, each written as currently configured rather than as a fixed dump.
 
 import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS } from './state.js';
-import { getTimeframeBounds, splitScoredAdvanced, escapeHtml, orderStatIdsByRole, axisUnit } from './utils.js';
+import { getTimeframeBounds, splitScoredAdvanced, escapeHtml, orderStatIdsByRole, axisUnit, parseTimeframe } from './utils.js';
 import { buildLeaderboardExportModel } from './players.js';
 
 // ==== Pure text builders ====
@@ -24,10 +24,16 @@ export function buildDelimitedText(headers, rows, delimiter = ',') {
 // Human-readable timeframe label with its resolved range. The unit follows the league type, so a roto export covers weeks rather than matchups.
 export function timeframeLabel() {
     const tf = AppState.timeframe;
-    const { start, end } = getTimeframeBounds(tf, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start, end } = getTimeframeBounds(tf, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     const unit = axisUnit();
     const names = { all: 'Regular Season + Playoffs', reg: 'Regular Season', p_all: 'Playoffs' };
-    const base = names[tf] || (tf.startsWith('last') ? `Last ${tf.slice(4)} ${unit.plural}` : tf);
+    // Both halves get named, so an export of the last four of the regular season says exactly that rather than picking one and hiding the other. The span is named only when it narrows things, since a bare lookback already means the last four of the season.
+    const { span, window: n } = parseTimeframe(tf);
+    const spanName = names[span] || span;
+    const qualifier = span === 'all' ? '' : `, ${spanName}`;
+    const base = n === 1 ? `Current ${unit.long}${qualifier}`
+        : n ? `Last ${n} ${unit.plural}${qualifier}`
+        : spanName;
     return `${base} (${unit.plural} ${start}-${end})`;
 }
 
@@ -48,8 +54,10 @@ function summarizeTeam(t, start, end) {
     for (let wk = start; wk <= end; wk++) {
         const mw = t.weeklyMatchWins[wk];
         if (mw === undefined) continue;
-        const result = isPoints ? (t.weeklyMatchResult[wk] || 0) : mw;
         if (isPoints) points += mw;
+        // A playoff bye scored points but played nobody, so it counts toward Points For and toward no record at all.
+        if (t.weeklyBye?.[wk]) continue;
+        const result = isPoints ? (t.weeklyMatchResult[wk] || 0) : mw;
         matchWins += result;
         cWins += t.weeklyCatWins[wk] || 0;
         if (result === 1) w++; else if (result === 0.5) ties++; else l++;
@@ -73,11 +81,11 @@ function sortedTeamSummaries(start, end) {
 }
 
 export function buildStandingsExport() {
-    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
     // Two columns per category, because the season value alone does not say what it earned and the points alone do not say what produced them.
     if (AppState.isRotoLeague) {
-        const sport = document.getElementById('sport').value;
+        const sport = AppState.loadedSport;
         const statMap = ESPN_STAT_MAPS[sport] || {};
         const catIds = orderStatIdsByRole(sport, Object.keys(statMap).filter(id => AppState.scoredStatIds.has(id)));
         const ranked = [...AppState.teamStats].sort((a, b) =>
@@ -124,7 +132,7 @@ export function buildStandingsExport() {
 
 // One column per category, one row per team: sums over the timeframe, except rate stats which average across weeks played. Names are deduped as the category checkboxes are.
 export function buildCategoryTotalsExport(sport, includeAdvanced) {
-    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const avgStats = AVERAGE_STATS[sport] || new Set();
 
@@ -235,8 +243,9 @@ function setExportStatus(text, isError = false) {
 export function openExportModal() {
     if (!AppState.apiData) return;
     const overlay = ensureExportModal();
-    const sport = document.getElementById('sport').value;
-    const year = document.getElementById('year').value;
+    // Both describe the league being exported, so both come off the loaded payload rather than the form: a dropdown the user has moved since would otherwise label this export, and the file it downloads, with a sport and season the rows do not belong to.
+    const sport = AppState.loadedSport;
+    const year = String(AppState.apiData.seasonId || document.getElementById('year').value);
     const leagueName = AppState.apiData.settings?.name || 'league';
 
     overlay.querySelector('#export-modal-subtitle').textContent =

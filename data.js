@@ -3,12 +3,23 @@ import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, col
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, resetRankingsViewState } from './graphs.js';
 import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData } from './players.js';
 import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit } from './utils.js';
+import { resetMyTeamView, renderMyTeamTab } from './myteam.js';
+
+// ESPN's own game ids, the authoritative statement of what sport a payload is. Only the two this app supports are mapped, and anything else falls back to the form.
+const GAME_ID_SPORTS = { 2: 'flb', 4: 'fhl' };
 
 // Every caller is a genuine new league, year or sport fetch, so this always resets.
+
 export function processCoreData() {
     if (!AppState.apiData) return;
     document.getElementById('results').style.display = 'flex';
     collapseSettingsBar();
+
+    // First, because everything below it describes the league now loading and must read its sport from here rather than from the form. gameId is the payload's own answer, so a restored session and a fresh fetch agree.
+    AppState.loadedSport = GAME_ID_SPORTS[AppState.apiData.gameId]
+        || document.getElementById('sport').value
+        || 'flb';
+
 
     // A fresh fetch invalidates the loaded player pool, which is re-fetched lazily when the Player Metrics tab opens.
     AppState.playerData = [];
@@ -19,6 +30,8 @@ export function processCoreData() {
     resetLeaderboardWeeklyFetchState();
     // The viewed category and any sections flipped to a pie belong to the league that was on screen, so a new league starts from its own first category with every section back on bars.
     resetRankingsViewState();
+    // The scouted team belongs to the league that was on screen, so a new league starts on its own owner's team again.
+    resetMyTeamView();
     // A stale timeframe from a playoff-less season would hide postseason data here, so rebuildTimeframeOptions forces the right default once this season's own hasPlayoffs is known.
 
     const data = AppState.apiData;
@@ -67,6 +80,9 @@ export function processCoreData() {
         AppState.isSeasonOver = false;
     }
 
+    // maxCompletedWeek is the last matchup with a score on the board, which on the first morning of a new matchup is still the one that just ended, so the timeframe pills need the live one too. Zero once the season is over, since then there is no matchup being played.
+    AppState.currentMatchup = (!AppState.isSeasonOver && Number.isFinite(currentMatchup)) ? currentMatchup : 0;
+
     // Prefer the league's own scoring format over guessing from scores, or a points league with no games played yet reads as a category league.
     const scoringType = data.settings?.scoringSettings?.scoringType;
     AppState.isPointsLeague = scoringType
@@ -95,6 +111,13 @@ export function processCoreData() {
     const scoringItems = data.settings?.scoringSettings?.scoringItems || [];
     AppState.scoredStatIds = new Set(scoringItems.map(i => i.statId?.toString()).filter(Boolean));
 
+    // The same items carry the points each stat is worth, which is what makes a points league rankable. pointsOverrides holds per-position weights when a league uses them, and a league that does keeps its base weight here, so its rank is coarse for those positions rather than wrong for everyone.
+    AppState.scoringWeights = {};
+    scoringItems.forEach(i => {
+        const id = i.statId?.toString();
+        if (id && i.points) AppState.scoringWeights[id] = i.points;
+    });
+
     // Only the roster slots this league actually uses, so a player is never split into positions the league has no spots for.
     const lineupSlotCounts = data.settings?.rosterSettings?.lineupSlotCounts || {};
     AppState.leagueActiveSlots = new Set(
@@ -116,6 +139,8 @@ export function processCoreData() {
             weeklyCatWins: {},
             weeklyCats: {},
             weeklyTier: {},
+            // Weeks this team sat out, meaning a playoff bye. Not a game, so it belongs in no record, but the team still played real games that week and its points still count.
+            weeklyBye: {},
             // Roto standings come straight off the payload and are never recomputed. ESPN owns that math including its tie handling, which is why per-category points can arrive as halves.
             rotoPoints: statValue(t.points) || 0,
             rotoPointsByStat: unwrapStats(t.pointsByStat || {}),
@@ -156,20 +181,29 @@ export function processCoreData() {
                 }
                 teamDataMap[tId].weeklyTier[week] = tier;
 
+                // A playoff bye is a schedule entry with only one side: ESPN gives the resting team a game with no opponent and leaves winner UNDECIDED. Every result line below reads whether this side won, and UNDECIDED is not a win, so a bye was booking a loss against a team that never played. Record no result at all, since the tallies already skip a week with none, while the points and per-category totals still land because those games were played.
+                const isBye = !game.home || !game.away;
+                if (isBye) teamDataMap[tId].weeklyBye[week] = true;
+
                 if (AppState.isPointsLeague) {
                     teamDataMap[tId].weeklyMatchWins[week] = game[side].totalPoints || 0;
                     // A points-league week still has a real winner. That 1/0.5/0 result is recorded separately from the points total, so the standings can show a genuine record alongside points for.
-                    let pWin = (game.winner === side.toUpperCase()) ? 1 : 0;
-                    if (game.winner === "TIE") pWin = 0.5;
-                    teamDataMap[tId].weeklyMatchResult[week] = pWin;
+                    if (!isBye) {
+                        let pWin = (game.winner === side.toUpperCase()) ? 1 : 0;
+                        if (game.winner === "TIE") pWin = 0.5;
+                        teamDataMap[tId].weeklyMatchResult[week] = pWin;
+                    }
                 } else {
-                    let mWin = (game.winner === side.toUpperCase()) ? 1 : 0;
-                    if (game.winner === "TIE") mWin = 0.5;
-                    teamDataMap[tId].weeklyMatchWins[week] = mWin;
+                    if (!isBye) {
+                        let mWin = (game.winner === side.toUpperCase()) ? 1 : 0;
+                        if (game.winner === "TIE") mWin = 0.5;
+                        teamDataMap[tId].weeklyMatchWins[week] = mWin;
 
-                    const cWins = game[side].cumulativeScore?.wins || 0;
-                    const cTies = game[side].cumulativeScore?.ties || 0;
-                    teamDataMap[tId].weeklyCatWins[week] = cWins + (cTies * 0.5);
+                        // Category wins are wins against an opponent, so a bye has none to record, and writing a zero would read as losing every category that week.
+                        const cWins = game[side].cumulativeScore?.wins || 0;
+                        const cTies = game[side].cumulativeScore?.ties || 0;
+                        teamDataMap[tId].weeklyCatWins[week] = cWins + (cTies * 0.5);
+                    }
                 }
 
                 // Per-category weekly totals feed the heatmap and Category Rankings for every league, points included, so this capture stays outside the category-only branch above.
@@ -304,6 +338,8 @@ export function processCoreData() {
     renderLeftColumn();
     renderRightColumn();
     renderHeatmapBand();
+    // My Team too, for the same reason the Team Metrics boxes re-render here: a fetch committed while that tab is the one on screen would otherwise leave the previous league's roster sitting there.
+    renderMyTeamTab();
 
     // Start the large player pool fetch in the background so the Player Metrics tab opens fast when it is clicked.
     prefetchPlayerData();

@@ -99,10 +99,16 @@ export const RATE_COMPONENTS = {
     ]
 };
 
-// Roster slots that do NOT count toward standings: bench and injured reserve. A player's daily stats credit his team only when that day's lineupSlotId is outside this set, and the starting set is derived per league from lineupSlotCounts minus these.
+// Roster slots that do NOT count toward standings: bench and injured reserve. A player's daily stats credit his team only when that day's lineupSlotId is outside this set, and the starting set is derived per league from lineupSlotCounts minus these. Confirmed for baseball against a real in-progress capture of four teams' lineups, where every starting slot fills to exactly its cap and 16 and 17 are the only slots every rostered player is eligible for, which is the signature of bench and IL.
 export const NON_STARTING_SLOTS = {
     flb: new Set([16, 17]),
     fhl: new Set([7, 8])
+};
+
+// The order a roster reads in, top to bottom, per sport: position slots first in ESPN's own catalog order, then the flex and utility slots, then the generic ones, which is the order the fantasy site itself lists a lineup in. Validated from the same capture as NON_STARTING_SLOTS, with decisive per-slot evidence, and catalog slots a league does not roster are ordered on the slot-map reading until one shows up. Any slot a league rosters that is missing here still renders, appended in id order.
+export const LINEUP_SLOT_ORDER = {
+    flb: [0, 1, 2, 3, 4, 6, 7, 19, 5, 12, 13, 14, 15],
+    fhl: [3, 4, 5, 6]
 };
 
 export const POSITION_MAPS = {
@@ -121,12 +127,15 @@ export const PITCHER_POSITIONS = {
 };
 
 // Central Application Memory
+
 export const AppState = {
     visibleTeams: new Set(),
     apiData: null,
     teamStats: [],
     teamColorMap: {},
     availableStatsSet: new Set(),
+    // The sport of the league currently LOADED, set from the payload's own gameId. Every view of loaded data reads its stat maps, position maps and role groups from here and never from the sport dropdown, which is an input for the next fetch: a user browsing it re-rendered the loaded pool under the other sport's rules.
+    loadedSport: 'flb',
     isPointsLeague: false,
     // Season-long roto accumulates with no weekly matchups, so the matchup-based Team Metrics pipeline has nothing to stand on and shows a notice instead. Player Metrics is matchup-agnostic and still works, so this flag gates only the one tab.
     isRotoLeague: false,
@@ -135,6 +144,10 @@ export const AppState = {
     regSeasonWeeks: 16,
     // Whether the season has actually finished, derived from the payload's own schedule status. Distinct from maxCompletedWeek, which mid-season only means the last completed matchup.
     isSeasonOver: false,
+    // The matchup being played right now, which is one past maxCompletedWeek on the morning before its first game. Zero when the season is over or unknown.
+    currentMatchup: 0,
+    // statId to points per unit, from the league's own scoringSettings. Only a points league uses it, where the weighted stat line is the player's fantasy total. Empty for category and roto leagues.
+    scoringWeights: {},
     // The heatmap column the rows are sorted by, or null for the default team order. It lives here so the state carries between the inline band and the pop-out, which share one renderer.
     heatmapSortCat: null,
     heatmapSortDir: 'desc',
@@ -156,7 +169,7 @@ export const AppState = {
 
     playerData: [],
     playerDataLoaded: false,
-    playerSortStat: 'total',
+    playerSortStat: 'rotoScore',
     playerSortDir: 'desc',
     playerSearchQuery: '',
     playerPositionFilter: 'ALL',

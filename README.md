@@ -19,7 +19,7 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 ## Your data stays in your browser
 
 - No backend, no servers. The extension runs entirely in your browser.
-- It talks to exactly one place: ESPN's fantasy API, using the ESPN login already in your browser.
+- It only ever contacts ESPN: the fantasy API for your league data, and ESPN's image CDN for player photos. It uses the ESPN login already in your browser.
 - No analytics, telemetry, or tracking.
 - Three permissions: `cookies` (your ESPN session), `storage` (your settings), `clipboardWrite` (the export button).
 - No dependencies, no build step. The code in this repository is the code that runs.

@@ -105,15 +105,32 @@ export function getZoomedFillPct(val, min, max) {
     return Math.max(0, ((val - baseline) / adjustedMax) * 100);
 }
 
-// Resolves the one shared timeframe value into a [start, end] week range, used by the Team Metrics graphs, the leaderboard and the drill-down chart alike.
-export function getTimeframeBounds(tfVal, maxWk, regWks) {
-    if (tfVal === 'all') return { start: 1, end: maxWk };
-    if (tfVal === 'reg') return { start: 1, end: Math.min(maxWk, regWks) };
-    if (tfVal === 'p_all') return { start: regWks + 1, end: maxWk };
+// PURE. A timeframe value is two independent choices, not one: which part of the season, and how recent a stretch within it. They are stored as "span" or "span+lastN" so the two segmented controls in the tab bar each own one of them. A bare "lastN" still parses, so a timeframe stored by an older session restores as a full-season lookback rather than being dropped.
+export function parseTimeframe(tfVal) {
+    const parts = String(tfVal || 'all').split('+');
+    const head = parts[0];
+    if (head.startsWith('last')) return { span: 'all', window: parseInt(head.slice(4), 10) || null };
+    const tail = parts[1];
+    const window = tail && tail.startsWith('last') ? (parseInt(tail.slice(4), 10) || null) : null;
+    return { span: head, window };
+}
 
-    // A fixed lookback does not need the total season length, which is unreliable for leagues whose matchup schedule does not span the real season.
-    const n = parseInt(tfVal.slice(4), 10);
-    return { start: Math.max(1, maxWk - n + 1), end: maxWk };
+// Resolves the one shared timeframe value into a [start, end] week range, used by the Team Metrics graphs, the leaderboard and the drill-down chart alike. The span resolves first and the window is then clamped inside it, so a window wider than its span collapses to the span rather than reaching past it.
+export function getTimeframeBounds(tfVal, maxWk, regWks, currentWk = 0) {
+    const { span, window: n } = parseTimeframe(tfVal);
+
+    let start = 1;
+    let end = maxWk;
+    if (span === 'reg') end = Math.min(maxWk, regWks);
+    else if (span === 'p_all') start = regWks + 1;
+
+    if (n) {
+        // currentWk is the matchup being played right now. It moves only the "Current" pill, and only on the morning before that matchup's first game, when nothing is scored and maxWk still points at the matchup that just ended. Every other window is retrospective and ends at the last completed matchup. It is accepted only one past maxWk, and only for a span that contains it, so the regular season's last four do not move because a playoff matchup started.
+        const spanHoldsLive = span === 'reg' ? currentWk <= regWks : true;
+        if (n === 1 && spanHoldsLive && currentWk === maxWk + 1) end = currentWk;
+        start = Math.max(start, end - n + 1);
+    }
+    return { start, end };
 }
 
 export function getNiceMax(val) {
@@ -268,11 +285,12 @@ export function attachDataTooltips(container) {
 const DEBUG_LABELS = {
     team: 'Team Schema',
     'player-pool': 'Player Pool Schema',
+    'player-weekly': 'Weekly Stats Chunk',
     'player-detail': 'Player Detail Schema'
 };
-const debugContexts = { team: null, 'player-pool': null, 'player-detail': null };
+const debugContexts = { team: null, 'player-pool': null, 'player-weekly': null, 'player-detail': null };
 // Set while an on-demand diagnostic fetch is in flight, so the panel shows a loading line instead of the nothing-captured placeholder.
-const debugLoading = { team: false, 'player-pool': false, 'player-detail': false };
+const debugLoading = { team: false, 'player-pool': false, 'player-weekly': false, 'player-detail': false };
 let activeDebugKind = 'team';
 // The payload on screen right now, without the label prefix, so the download button saves directly parseable JSON.
 let lastDebugPayload = null;
@@ -281,6 +299,8 @@ let lastDebugPayload = null;
 export function setDebugContext(kind, payload) {
     debugContexts[kind] = payload;
     debugLoading[kind] = false;
+    // A pool landing while the panel shows the weekly stand-in promotes itself, so the view never sits on the substitute once the real thing is available.
+    if (kind === 'player-pool' && activeDebugKind === 'player-weekly') activeDebugKind = 'player-pool';
     if (kind === activeDebugKind) renderActiveDebugContext();
 }
 
@@ -297,7 +317,10 @@ export function setDebugLoading(kind, isLoading) {
 
 // Called on every view transition, so the panel matches the screen even when nothing new was fetched.
 export function setActiveDebugKind(kind) {
-    activeDebugKind = kind;
+    // A weekly chunk is not the pool. Promote to it only when the pool itself has nothing captured, so the panel never labels one as the other.
+    activeDebugKind = (kind === 'player-pool' && !debugContexts['player-pool'] && debugContexts['player-weekly'])
+        ? 'player-weekly'
+        : kind;
     renderActiveDebugContext();
 }
 
@@ -342,4 +365,53 @@ export function downloadDebugData() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+}
+
+// ==== Scoring period to matchup ====
+
+// PURE. The league's real day-to-matchup mapping, read off its own schedule. Every H2H schedule side carries pointsByScoringPeriod, keyed by the scoringPeriodIds that matchup covered, and the game carries matchupPeriodId. Validated against live captures of four league types, where matchups are NOT the fixed seven days this once assumed: an opening week can run long, a break week can fold two or three weeks into one matchup, and one irregular week shifts every matchup after it. A season-long roto league returns an empty map, which is correct rather than a failure, because roto has no matchups to have boundaries. This is a different field from settings.scheduleSettings.matchupPeriods, which is a self-reference for ordinary weeks and lists week-index groups for playoff rounds, never real days.
+export function buildMatchupPeriodMap(schedule, status) {
+    const byPeriod = new Map();
+    let lastPeriod = 0;
+    let lastMatchup = 0;
+    (schedule || []).forEach(game => {
+        const mp = game && game.matchupPeriodId;
+        if (!mp) return;
+        let contributed = false;
+        ['home', 'away'].forEach(side => {
+            const pts = (game[side] || {}).pointsByScoringPeriod;
+            if (!pts) return;
+            Object.keys(pts).forEach(key => {
+                const period = Number(key);
+                if (!Number.isFinite(period) || period <= 0) return;
+                // The lowest matchup wins a contested day, which belongs to the earlier one that was live.
+                const prev = byPeriod.get(period);
+                if (prev === undefined || mp < prev) byPeriod.set(period, mp);
+                if (period > lastPeriod) lastPeriod = period;
+                contributed = true;
+            });
+        });
+        if (contributed && mp > lastMatchup) lastMatchup = mp;
+    });
+    // The matchup being played right now, straight from the payload, which is what resolves days the schedule has not scored yet.
+    const currentMatchup = (status || {}).currentMatchupPeriod || 0;
+    return { byPeriod, lastPeriod, lastMatchup, currentMatchup };
+}
+
+// PURE. The matchup a day belongs to, given that map. A day past the end of the map has been played but not yet scored into the schedule, so it is today or close to it, and today is in the matchup ESPN reports as current. Returns null when the map is empty, so the caller keeps its own fallback rather than being handed a confidently wrong number.
+export function matchupOfPeriod(map, scoringPeriodId) {
+    if (!map || !map.byPeriod.size) return null;
+    const known = map.byPeriod.get(scoringPeriodId);
+    if (known !== undefined) return known;
+    if (scoringPeriodId > map.lastPeriod) {
+        if (map.currentMatchup >= map.lastMatchup) return map.currentMatchup;
+        // No usable status: the ordinary seven-day cadence from the first unscored day is the last resort.
+        return map.lastMatchup + 1 + Math.floor((scoringPeriodId - map.lastPeriod - 1) / 7);
+    }
+    // A gap below the last mapped day is an off day the schedule skipped, not a new matchup, so it takes the nearest matchup already established before it.
+    let best = null;
+    map.byPeriod.forEach((mp, period) => {
+        if (period < scoringPeriodId && (best === null || period > best.period)) best = { period, mp };
+    });
+    return best ? best.mp : null;
 }

@@ -345,3 +345,28 @@ export function scoreRotoWeek(teams, categories) {
     });
     return totals;
 }
+
+// ==== Points-league pool ranking ====
+// PURE. Rank by fantasy points scored, since a points league already agrees on one number: every stat carries a weight in the league's own scoringSettings and the weighted sum is the player's fantasy total. Validated against a real points league, where summing stat times weight reproduced ESPN's own appliedTotal for every player in the pool, to the tenth. Computing it rather than reading appliedTotal is what lets the rank follow the timeframe pills, and the minimum-playing-time machinery deliberately does not apply because it exists for rate categories, which points are not. Only true zero evidence is withheld, matching computeRotoRanks' own floor.
+export function computePointsRanks(groupPlayers, ctx) {
+    const { weights, workloadOf } = ctx;
+    const ids = Object.keys(weights || {}).filter(id => weights[id]);
+
+    const scores = new Map();
+    const anyPlayed = groupPlayers.some(p => workloadOf(p) > 0);
+    groupPlayers.forEach(p => {
+        if (anyPlayed && !(workloadOf(p) > 0)) return;
+        const totals = p.seasonTotals || {};
+        let sum = 0;
+        ids.forEach(id => { sum += (Number(totals[id]) || 0) * weights[id]; });
+        scores.set(p.id, sum);
+    });
+
+    // Descending points, with a tie broken by id so the order is stable across re-renders rather than depending on whatever order the pool arrived in.
+    const ranked = groupPlayers.filter(p => scores.has(p.id))
+        .sort((a, b) => (scores.get(b.id) - scores.get(a.id)) || (a.id - b.id));
+    const ranks = new Map();
+    ranked.forEach((p, i) => ranks.set(p.id, i + 1));
+
+    return { scores, ranks, ranked, total: ranked.length };
+}

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 (2026-07-27)
+- My Team: a third tab, showing your own roster with each player's rank and category line, and a switcher to scout any other team in the league. Works during a live matchup and after a season ends.
+- Player photos on the roster and the drill-down, with initials shown until a photo loads.
+- Points leagues get a real player rank, everywhere a rank appears: the leaderboard, the drill-down cards, and the Prev and Next walk through the rankings. A points-per-matchup trend leads the drill-down chart.
+- The timeframe selector is two controls that combine: which part of the season, and how recent a stretch inside it. You can now ask for the last four matchups of the regular season, which was not expressible before.
+- Fixed: stat days were assigned to matchups by assuming every matchup is seven days long. Real leagues have longer opening weeks and folded break weeks, so production was landing in the wrong matchup all season. Matchup boundaries now come from your league's own schedule.
+- Fixed: the This Matchup timeframe showed the matchup that just ended rather than the one being played.
+- Fixed: a playoff bye counted as a loss, so a team that won every playoff game could show a defeat.
+- Fixed: recaps for points leagues ranked teams by points scored instead of by matchups won.
+
 ## 1.1.2 (2026-07-24)
 - Hockey leagues are supported alongside baseball, in every format: weekly categories, weekly points, and season-long roto.
 - The Roto Race: a season-long standings chart for roto leagues rebuilt from your league's own daily lineups, with timeframe filters that re-score the standings over any window of weeks.

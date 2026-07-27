@@ -24,6 +24,9 @@ async function readEspnCookie(name) {
     }
 }
 
+// True once checkAuth has seen both cookies. The watchers below read it so a green dashboard is never re-checked, which keeps the status from flickering and the league picker from being rebuilt under a user who is already using it.
+let authSatisfied = false;
+
 export async function checkAuth() {
     const s2Cookie = await readEspnCookie('espn_s2');
     const swidCookie = await readEspnCookie('SWID');
@@ -38,10 +41,13 @@ export async function checkAuth() {
         // Remember the SWID so the recap can pre-select the user's own team.
         AppState.userSwid = swidCookie.value || '';
         // Fire and forget: the manual sport, league id and year fields work whether or not discovery succeeds.
-        populateLeaguePicker(swidCookie.value).catch(() => {});
+        // Only the first green run builds the picker, so a watcher that fires again never rebuilds a list the user is reading.
+        if (!authSatisfied) populateLeaguePicker(swidCookie.value).catch(() => {});
+        authSatisfied = true;
         return;
     }
 
+    authSatisfied = false;
     authStatus.style.display = '';
     authStatus.className = 'status-red';
 
@@ -270,6 +276,38 @@ export async function harvestTransactions(sport, leagueId, year, firstScoringPer
 }
 
 // One period's roster snapshot: every team's roster with the lineupSlotId each player sat in that day. Distilled to [{ id, entries: [{ p, slot }] }] so the pure module never sees ESPN's full payload, and any missing field drops that entry rather than throwing.
+// Install first, log in second is the normal first run, and the dashboard never noticed: the warning sat there until a manual refresh, and because checkAuth had already run before the login the league picker stayed empty too. Two layers, because neither is sufficient alone, with one re-check at a time and never while the state is already green.
+let authRecheckTimer = null;
+function recheckAuthSoon() {
+    if (authSatisfied || authRecheckTimer) return;
+    authRecheckTimer = setTimeout(() => {
+        authRecheckTimer = null;
+        checkAuth();
+    }, 250);
+}
+
+export function setupAuthWatchers() {
+    // The precise layer: the cookies permission already covers this listener, and it only fires once the host permission is granted, which is exactly when cookie visibility begins, so it covers grant-then-login and login-then-grant alike. Guarded, since the preview stub has no cookies.onChanged.
+    try {
+        browser.cookies?.onChanged?.addListener((change) => {
+            const domain = change?.cookie?.domain || '';
+            if (domain.includes('espn.com')) recheckAuthSoon();
+        });
+    } catch { /* no listener available, the focus layer below still covers it */ }
+
+    // The layer that needs no permissions at all: coming back to this page is the moment a user returns from logging in. Both events fire in the cases that matter, and recheckAuthSoon collapses them into one check.
+    window.addEventListener('focus', recheckAuthSoon);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') recheckAuthSoon();
+    });
+}
+
+// One period's rosters, for the surface that needs the last lineup of a finished season. The league payload only carries current rosters while a matchup is live, so a completed season has none and this is the single call that answers it. Same validated parser the harvest uses.
+export async function fetchRosterForPeriod(scoringPeriodId) {
+    const { sport, leagueId, year } = getLeagueParams();
+    return fetchRosterPeriod(sport, leagueId, year, scoringPeriodId);
+}
+
 async function fetchRosterPeriod(sport, leagueId, year, scoringPeriodId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&scoringPeriodId=${scoringPeriodId}`;

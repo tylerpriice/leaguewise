@@ -1,7 +1,8 @@
 import { AppState } from './state.js';
-import { advancedCategoryCount } from './utils.js';
+import { advancedCategoryCount, axisUnit, parseTimeframe } from './utils.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand } from './graphs.js';
 import { renderPlayerLeaderboard, refreshOpenPlayerDetail, rotoWindowsAvailable, rotoWindowMaxWeek } from './players.js';
+import { renderMyTeamTab } from './myteam.js';
 
 // One timeframe drives both tabs, so refresh whichever views have data loaded regardless of which tab is active.
 export function handleTimeframeChange() {
@@ -14,6 +15,8 @@ export function handleTimeframeChange() {
         renderPlayerLeaderboard();
         refreshOpenPlayerDetail();
     }
+    // My Team windows with the same pills: its roster lines, its ranks and its standing all read the current timeframe, so it re-renders here rather than waiting for a tab switch.
+    if (AppState.apiData) renderMyTeamTab();
 }
 
 
@@ -73,19 +76,42 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     // Every window here is in MATCHUP units, not calendar weeks: ESPN folds a multi-week championship round into one matchup.
     const options = [];
     // Full Season only means something different from Regular Season once playoffs have started.
-    if (hasPlayoffs) options.push({ value: 'all', text: 'Full Season', title: 'Regular Season + Playoffs' });
-    options.push({ value: 'reg', text: 'Regular Season' });
+    if (hasPlayoffs) options.push({ value: 'all', text: 'Full Season', title: 'Regular Season + Playoffs', group: 'span' });
+    options.push({ value: 'reg', text: 'Regular Season', group: 'span' });
 
-    if (hasPlayoffs) options.push({ value: 'p_all', text: 'Playoffs' });
+    if (hasPlayoffs) options.push({ value: 'p_all', text: 'Playoffs', group: 'span' });
 
     // Fixed lookback windows, offered only when more season sits outside the window than inside it. n=1 is the live matchup, since maxCompletedWeek counts one in progress.
+
+    // A window only applies when the span it sits in is longer than the window itself, since "last 8" inside a three-matchup playoff bracket is the whole bracket. The pill still renders, disabled: removing it changes the strip's width, and the strip is centred between the tabs and the utilities, so every pill in the row would jump sideways on a span click.
+    const spanLength = (span) => {
+        if (span === 'reg') return Math.min(maxWk, regWks);
+        if (span === 'p_all') return Math.max(0, maxWk - regWks);
+        return maxWk;
+    };
+    const activeSpan = parseTimeframe(AppState.timeframe).span;
+    const spanValues = options.map(o => o.value);
+    const span = spanValues.includes(activeSpan) ? activeSpan : (hasPlayoffs ? 'all' : 'reg');
+    const unit = axisUnit();
+    // The group caption carries the unit, so no pill in it repeats the word: Current, Last 4, Last 8, Last 12 under one heading. group marks which segment a pill belongs to, the season span on the left and the recent stretch on the right.
     [1, 4, 8, 12].forEach(n => {
-        if (maxWk > n) options.push({ value: `last${n}`, text: n === 1 ? 'This Matchup' : `Last ${n} Matchups` });
+        if (maxWk <= n) return;
+        const fits = spanLength(span) > n;
+        options.push({
+            value: `${span}+last${n}`, group: 'recent', window: n, disabled: !fits,
+            text: n === 1 ? 'Current' : `Last ${n}`,
+            title: !fits
+                ? `Only ${spanLength(span)} ${unit.plural.toLowerCase()} in this stretch`
+                : (n === 1 ? `The ${unit.long.toLowerCase()} being played now` : `The last ${n} completed ${unit.plural.toLowerCase()}`)
+        });
     });
 
     const currentVal = forceDefault ? null : AppState.timeframe;
     const fallback = hasPlayoffs ? 'all' : 'reg';
-    AppState.timeframe = options.some(o => o.value === currentVal) ? currentVal : fallback;
+    // A window the new span cannot offer costs the window, not the span. Switching to a four-matchup bracket while holding "last 4" should not throw both away and land back on the full season.
+    const spanOnly = currentVal ? parseTimeframe(currentVal).span : null;
+    const live = (val) => options.some(o => o.value === val && !o.disabled);
+    AppState.timeframe = live(currentVal) ? currentVal : (live(spanOnly) ? spanOnly : fallback);
 
     renderTimeframeToggle(options);
 }
@@ -95,21 +121,49 @@ function renderTimeframeToggle(options) {
     const toggle = document.getElementById('timeframe-toggle');
     toggle.innerHTML = '';
 
+    // Two segmented groups rather than one long pill run: the left picks which part of the season, the right picks how recent a stretch. They are different questions, and running them together read as one row of equal choices.
+    const seg = (name) => {
+        const el = document.createElement('div');
+        el.className = `timeframe-seg timeframe-seg-${name}`;
+        return el;
+    };
+    const groups = { span: seg('span'), recent: seg('recent') };
+    toggle.appendChild(groups.span);
+    // The right group carries a caption naming the unit, which is what lets its pills read Current, Last 4, Last 8 rather than repeating the word four times. It follows the league's own timeline unit, so a roto league reads Week.
+    const caption = document.createElement('span');
+    caption.className = 'timeframe-caption';
+    caption.textContent = axisUnit().long;
+    toggle.appendChild(caption);
+    toggle.appendChild(groups.recent);
+
     options.forEach(opt => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'timeframe-chip' + (opt.value === AppState.timeframe ? ' active' : '');
+        // Each segment shows its own half of the answer: the span pill for the part of the season, the window pill for the stretch, and no window pill lit means the whole span.
+        const cur = parseTimeframe(AppState.timeframe);
+        const isActive = opt.group === 'recent' ? cur.window === opt.window : cur.span === opt.value;
+        btn.className = 'timeframe-chip' + (isActive ? ' active' : '') + (opt.disabled ? ' disabled' : '');
+        btn.disabled = !!opt.disabled;
         btn.textContent = opt.text;
         // The unabbreviated wording on hover.
         btn.title = opt.title || opt.text;
         btn.dataset.value = opt.value;
+        (groups[opt.group] || groups.span).appendChild(btn);
+        if (opt.disabled) return;
         btn.addEventListener('click', () => {
-            if (AppState.timeframe === opt.value) return;
-            AppState.timeframe = opt.value;
-            setActiveTimeframeChip(toggle, opt.value);
+            // A window pill toggles, so clicking the lit one drops back to the whole span, which is how that stays reachable without spending a pill on saying so. A span pill carries the current window across instead of silently widening the view.
+            const cur = parseTimeframe(AppState.timeframe);
+            let next;
+            if (opt.group === 'recent') {
+                next = cur.window === opt.window ? cur.span : `${cur.span}+last${opt.window}`;
+            } else {
+                next = cur.window ? `${opt.value}+last${cur.window}` : opt.value;
+            }
+            if (AppState.timeframe === next) return;
+            AppState.timeframe = next;
+            rebuildTimeframeOptions();
             handleTimeframeChange();
         });
-        toggle.appendChild(btn);
     });
 }
 
@@ -117,7 +171,7 @@ function renderTimeframeToggle(options) {
 let rotoPillsShown = false;
 export function syncRotoTimeframePills() {
     if (!AppState.isRotoLeague || rotoPillsShown) return;
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     if (!rotoWindowsAvailable(sport)) return; // still on a fallback tier, or harvest not done, stay hidden
 
     const toggleEl = document.getElementById('timeframe-toggle');
@@ -147,7 +201,7 @@ function setActiveTimeframeChip(toggle, value) {
 export function renderCategoryAdvancedToggle() {
     const container = document.getElementById('cat-advanced-toggle');
     if (!container) return;
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const advancedCount = advancedCategoryCount(sport);
 
     if (advancedCount === 0) {

@@ -27,7 +27,8 @@ try {
     $runtimeFiles = @(
         'manifest.json', 'dashboard.html', 'dashboard.css', 'icon.svg', 'theme-init.js', 'compat.js',
         'api.js', 'controls.js', 'data.js', 'export.js', 'graphs.js', 'main.js', 'players.js',
-        'rank-engine.js', 'recap.js', 'roster-timeline.js', 'state.js', 'utils.js'
+        'rank-engine.js', 'recap.js', 'roster-timeline.js', 'state.js', 'utils.js',
+        'myteam.js', 'images.js'
     )
 
     # Every relative ES import and every local dashboard.html reference must resolve to the list.

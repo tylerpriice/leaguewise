@@ -74,11 +74,12 @@
             <div class="tabs-container">
                 <button class="tab-button active" id="tab-btn-team">Team Metrics</button>
                 <button class="tab-button" id="tab-btn-player">Player Metrics</button>
+                <button class="tab-button" id="tab-btn-myteam">My Team</button>
                 <div id="timeframe-toggle" class="timeframe-toggle"></div>
                 <div class="share-toolbar">
                     <div class="legend-menu">
                         <button type="button" id="legend-btn" class="share-toolbar-btn" aria-haspopup="true"
-                            aria-expanded="false" title="What the crown, medals, and trend arrows mean">🔑 Legend</button>
+                            aria-expanded="false" title="What the crown, medals, and trend arrows mean"><span class="btn-icon">🔑</span><span class="btn-label">Legend</span></button>
                         <div id="legend-popover" class="legend-popover" role="menu" aria-label="Icon legend" hidden>
                             <div class="legend-item"><span class="legend-item-icon">👑</span><span>League champion</span></div>
                             <div class="legend-item"><span class="legend-item-icon">🥇🥈🥉</span><span>Top three by Rank</span></div>
@@ -87,9 +88,9 @@
                         </div>
                     </div>
                     <button type="button" id="export-btn" class="share-toolbar-btn"
-                        title="Export standings, category totals, or the player leaderboard (CSV / clipboard)">⬇ Export</button>
+                        title="Export standings, category totals, or the player leaderboard (CSV / clipboard)"><span class="btn-icon">⬇</span><span class="btn-label">Export</span></button>
                     <button type="button" id="recap-btn" class="share-toolbar-btn"
-                        title="Build a shareable image + text recap of a matchup week">📣 Recap</button>
+                        title="Build a shareable image + text recap of a matchup week"><span class="btn-icon">📣</span><span class="btn-label">Recap</span></button>
                 </div>
             </div>
 
@@ -243,6 +244,11 @@
                 </div>
 
                 <div id="player-detail-container" class="graph-viewport" style="display:none; flex-direction:column;"></div>
+            </div>
+
+            <!-- The roster viewer. One container, filled by renderMyTeamTab, so the tab's bands are one render with one measurement pass. -->
+            <div id="view-myteam" class="tab-view" style="display:none;">
+                <div id="myteam-container" class="myteam-container"></div>
             </div>
 
         </div>

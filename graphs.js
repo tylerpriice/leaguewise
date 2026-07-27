@@ -231,7 +231,7 @@ function renderStandings() {
     const graph = document.getElementById('left-graph-container');
     graph.innerHTML = '';
 
-    const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
     // A single-matchup window cannot make a W-L record, since every team is its own undecided 1/0 from one week. Show the ranking that IS real for a single week instead: categories won, or points scored in a points league. No pie arrow either, since one week has no season total to divide teams against.
     if (startWeek === endWeek) {
@@ -328,7 +328,7 @@ function renderRotoStandings() {
     graph.innerHTML = '';
 
     // Full Season shows ESPN's official points verbatim. A lookback pill instead re-scores the categories over only that window's started-day components, through the same pure machinery the race uses.
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const bounds = activeRotoWindow(sport);
     const win = bounds ? computeRotoWindow(sport, bounds.start, bounds.end) : null;
     const pointsFor = t => win ? (win.pointsByTeam.get(t.id) || 0) : (t.rotoPoints || 0);
@@ -381,7 +381,7 @@ function renderRotoCategoryGraph() {
     container.innerHTML = '';
 
     // Every category the league has, in role-grouped order, cycled one per screen. There is no selection state to pick or restore.
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const selectedStats = categoryCycleList(sport);
     if (selectedStats.length === 0 || !AppState.teamStats.length) {
         container.innerHTML = buildEmptyStateHtml('No category data for this league yet.');
@@ -780,7 +780,7 @@ export function renderRightColumn() {
         return;
     }
 
-    const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     // Points leagues get the scoreboard too.
     const isScoreboard = startWeek === endWeek;
     updateTrendsBoxChrome(isScoreboard);
@@ -805,6 +805,26 @@ function updateTrendsBoxChrome(isScoreboard) {
 }
 
 // The Category Heatmap is a permanent full-width band below the two columns, visible at every timeframe and timeframe-aware.
+// The team's best and bleeding categories, for the My Team summary. A category is bleeding when the team sits below the league's midpoint in it and winning when above, expressed as a standing percentile rather than a rank so it means the same thing at any league size. Competition ranking, inverse-aware, so it agrees with the heatmap category by category.
+export function teamCategoryProfile(teamId) {
+    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
+    const cats = scoredCategoriesInRange(start, end);
+    const ranked = cats.map(cat => {
+        const vals = AppState.teamStats
+            .map(t => ({ id: t.id, v: aggregateTeamCategory(t, cat.id, cat.isAvg, start, end) }))
+            .filter(x => x.v !== undefined);
+        const mine = vals.find(x => x.id === teamId);
+        if (!mine) return null;
+        const better = vals.filter(x => cat.inverse ? x.v < mine.v : x.v > mine.v).length;
+        return { id: cat.id, name: cat.name, rank: better + 1, of: vals.length };
+    }).filter(Boolean);
+    const pctOf = (r) => (r.of <= 1 ? 50 : ((r.of - r.rank) / (r.of - 1)) * 100);
+    const scored = ranked.map(r => ({ ...r, pct: pctOf(r) }));
+    const best = scored.filter(r => r.pct > 50).sort((a, b) => a.rank - b.rank);
+    const worst = scored.filter(r => r.pct < 50).sort((a, b) => b.rank - a.rank);
+    return { all: ranked, best, worst };
+}
+
 export function renderHeatmapBand() {
     const container = document.getElementById('heatmap-graph-container');
     if (!container) return;
@@ -821,7 +841,7 @@ function isHeatmapPoppedOut() {
 
 // The league's scored categories that have data anywhere in the range, role-grouped, each tagged with whether it is a rate stat and whether lower is better.
 function scoredCategoriesInRange(startWeek, endWeek) {
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const avgSet = AVERAGE_STATS[sport] || new Set();
     const invSet = INVERSE_STATS[sport] || new Set();
@@ -845,7 +865,7 @@ function scoredCategoriesInRange(startWeek, endWeek) {
 function aggregateTeamCategory(team, catId, isAvg, startWeek, endWeek) {
     if (AppState.isRotoLeague) {
         // Full Season reads the payload's season values, which are the same numbers ESPN ranks on, and there are no weeks to aggregate.
-        const sport = document.getElementById('sport').value;
+        const sport = AppState.loadedSport;
         const bounds = activeRotoWindow(sport);
         if (!bounds) return team.seasonCats[catId];
         const win = computeRotoWindow(sport, bounds.start, bounds.end);
@@ -1336,7 +1356,7 @@ function renderScoreboardPager(pager, perPage, cardCount, cards) {
 
 // Category Heatmap: a teams by categories grid, each cell aggregated over the selected timeframe and shaded by its rank among visible teams, inverse-aware so a low ERA reads green.
 function renderDominanceHeatmap(container, { capRows = true } = {}) {
-    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     let teams = AppState.teamStats.filter(t => AppState.visibleTeams.has(t.id));
     const cats = scoredCategoriesInRange(start, end);
 
@@ -1658,7 +1678,7 @@ function renderTrendGraph() {
     const showCat = document.getElementById('toggle-cat').checked;
     const showMatch = document.getElementById('toggle-match').checked;
     const tfVal = AppState.timeframe;
-    const { start: startWeek, end: endWeek } = getTimeframeBounds(tfVal, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start: startWeek, end: endWeek } = getTimeframeBounds(tfVal, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
     // A line trend needs at least two weeks to plot, or a single-week timeframe would draw one isolated dot.
     if (startWeek === endWeek) {
@@ -1849,7 +1869,7 @@ function renderTrendGraph() {
 
 // The Roto Race: one cumulative roto-points line per team over the season, in the same visual language as the trends chart.
 function renderRotoRaceGraph(container) {
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
 
     // Kick every source the race needs BEFORE deciding what to draw, since the series holds a loading state until they land and starting them afterwards would wait forever.
     if (!weeklyDataFailed()) ensureWeeklyDataForRace(sport);
@@ -1989,7 +2009,7 @@ export function resetRankingsViewState() {
 // One category's RACE: each team's cumulative value in that category, week by week, under its ranking bars.
 function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
     if (AppState.isRotoLeague) {
-        const sport = document.getElementById('sport').value;
+        const sport = AppState.loadedSport;
         const series = rotoCategorySeries(sport);
         if (!series) return null;
         const points = teams.map(t => ({
@@ -2264,7 +2284,7 @@ function renderCategoryGraph() {
     const container = document.getElementById('cat-graph-container');
     container.innerHTML = '';
 
-    const sport = document.getElementById('sport').value;
+    const sport = AppState.loadedSport;
     const avgStatsForSport = AVERAGE_STATS[sport] || new Set();
     const inverseStatsForSport = INVERSE_STATS[sport] || new Set();
 
@@ -2282,7 +2302,7 @@ function renderCategoryGraph() {
     }
 
     const tfVal = AppState.timeframe;
-    const { start: startWeek, end: endWeek } = getTimeframeBounds(tfVal, AppState.maxCompletedWeek, AppState.regSeasonWeeks);
+    const { start: startWeek, end: endWeek } = getTimeframeBounds(tfVal, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
     // One ranking block per category. Exactly one shows at a time and the arrows cycle the rest, so every block is built at full width and height.
     const blocks = [];

@@ -50,25 +50,31 @@ export function defaultRecapWeek() {
     return lastCompleted || AppState.maxCompletedWeek;
 }
 
-// Cumulative standings through thruWeek, sorted like the Rankings bars, built twice per recap so movement can be derived.
+// Cumulative standings through thruWeek, sorted like the Rankings bars, built twice per recap so movement can be derived. weeklyMatchWins holds the 1/0.5/0 result in a category league but the raw points scored in a points one, whose result lives in weeklyMatchResult. Reading it the same way for both meant a points league counted a win only when a team scored exactly 1.00 in a week, so the standings were ordered by points scored rather than by matchups won and the movement arrows came off that order. A points league is decided by matchups won with points as the tiebreak, so it sorts and reads that way, keeping the points total beside the record rather than in place of it.
 function standingsThrough(thruWeek, isPoints) {
     return AppState.teamStats.map(t => {
-        let mWins = 0, cWins = 0, w = 0, l = 0, ties = 0;
+        let matchWins = 0, points = 0, cWins = 0, w = 0, l = 0, ties = 0;
         for (let wk = 1; wk <= thruWeek; wk++) {
             const val = t.weeklyMatchWins[wk];
             if (val === undefined) continue;
-            mWins += val;
+            if (isPoints) points += val;
+            // A playoff bye is not a game and belongs in no record.
+            if (t.weeklyBye?.[wk]) continue;
+            const result = isPoints ? (t.weeklyMatchResult[wk] || 0) : val;
+            matchWins += result;
             cWins += t.weeklyCatWins[wk] || 0;
-            if (val === 1) w++; else if (val === 0.5) ties++; else l++;
+            if (result === 1) w++; else if (result === 0.5) ties++; else l++;
         }
         return {
             id: t.id,
             name: t.name,
             color: AppState.teamColorMap[t.id] || '#888',
-            mWins, cWins,
-            record: isPoints ? mWins.toFixed(1) : `${w}-${l}-${ties}`
+            mWins: matchWins, cWins, points,
+            record: `${w}-${l}-${ties}`,
+            // The secondary number each format is ranked by after the record, shown beside it.
+            detail: isPoints ? `${Math.round(points)} pts` : null
         };
-    }).sort((a, b) => (b.mWins - a.mWins) || (b.cWins - a.cWins) || a.name.localeCompare(b.name));
+    }).sort((a, b) => (b.mWins - a.mWins) || (b.points - a.points) || (b.cWins - a.cWins) || a.name.localeCompare(b.name));
 }
 
 export function buildRecapModel(week) {
@@ -190,7 +196,7 @@ export function buildRecapText(m) {
         lines.push('', '📊 Standings:');
         m.standings.forEach(s => {
             const move = s.move > 0 ? ` ▲${s.move}` : (s.move < 0 ? ` ▼${-s.move}` : '');
-            lines.push(`${s.rank}. ${s.name} (${s.record})${move}`);
+            lines.push(`${s.rank}. ${s.name} (${s.record}${s.detail ? `, ${s.detail}` : ''})${move}`);
         });
     }
     lines.push('', `📈 Made with ${BRAND_NAME}`);
@@ -408,7 +414,7 @@ export function renderRecapImage(m) {
             ctx.font = `600 24px ${FONT_STACK}`;
             ctx.fillStyle = P.text;
             ctx.textAlign = 'right';
-            ctx.fillText(m.isPoints ? `${s.record} pts` : s.record, IMG_W - PAD, cy);
+            ctx.fillText(s.detail ? `${s.record}  ${s.detail}` : s.record, IMG_W - PAD, cy);
             ctx.textAlign = 'left';
 
             y += STANDING_ROW_H;
@@ -466,7 +472,7 @@ function fmtCatValue(v) {
 export function buildTeamMatchupRecapModel(week, teamId) {
     const data = AppState.apiData;
     if (!data || !week || teamId == null) return null;
-    const sport = document.getElementById('sport')?.value || 'flb';
+    const sport = AppState.loadedSport;
     const isPoints = AppState.isPointsLeague;
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const inverseSet = INVERSE_STATS[sport] || new Set();

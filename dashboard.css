@@ -2919,8 +2919,8 @@ button:hover {
     display: flex;
     gap: 6px;
     align-items: center;
-    margin-left: 12px;
-    padding-left: 12px;
+    margin-left: 10px;
+    padding-left: 10px;
     border-left: 1px solid var(--border);
     flex-shrink: 0;
 }
@@ -3235,4 +3235,468 @@ button:hover {
     .trends-popout-btn {
         display: none;
     }
+}
+
+/* ==== My Team ==== */
+/* The tab is one column of bands: summary, then the roster, which takes the rest. No page scroll, so the roster owns the leftover height and scrolls inside itself only as the last resort. */
+.myteam-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 10px;
+    padding: 12px;
+}
+
+/* Band one. Three data groups on one line, so the header stays a header rather than a panel. */
+.mt-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    flex: 0 0 auto;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+}
+
+/* The switcher is the Category Rankings arrow language, so the two cycles read as one control. */
+.mt-team {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Exactly the other tabs' header metrics (.header-row h3 is 16px bold): this tab is a peer, not a variant, and a distinct identity for it is 's job rather than a size difference here. */
+.mt-team-name {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--text-heading);
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mt-own {
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 1px 5px;
+}
+
+.mt-stand, .mt-profile {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-body);
+}
+
+.mt-stand-label, .mt-profile-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-subtle);
+}
+
+.mt-stand-value { font-weight: bold; }
+.mt-stand-rank { color: var(--text-subtle); }
+
+/* Category profile chips: the name carries the rank, so neither needs a sentence around it. */
+.mt-cat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: bold;
+    border-radius: 3px;
+    padding: 1px 5px;
+}
+
+.mt-cat-best { background-color: var(--success-tint); color: var(--success); }
+.mt-cat-worst { background-color: var(--danger-tint); color: var(--danger); }
+.mt-cat-rank { font-weight: normal; opacity: 0.75; }
+.mt-cat-none { font-size: 11px; color: var(--text-faint); }
+
+/* Band two. Takes the leftover height and scrolls internally only when a roster genuinely cannot fit, which keeps the page itself off the scrollbar. */
+.mt-roster {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.mt-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.mt-table th {
+    position: sticky;
+    top: 0;
+    background-color: var(--surface);
+    color: var(--text-subtle);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-align: left;
+    padding: 4px 6px;
+    box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.mt-table td {
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--border-faint);
+    color: var(--text-body);
+}
+
+.mt-row { cursor: pointer; }
+.mt-row:hover td { background-color: var(--surface-hover); }
+
+.mt-slot {
+    width: 46px;
+    font-weight: bold;
+    color: var(--text-subtle);
+}
+
+.mt-pos { width: 52px; color: var(--text-subtle); }
+.mt-rankcell { width: 54px; }
+.mt-stat { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* A band label inside the table, so bench and IR read as sections without leaving the one grid that keeps every column aligned. */
+.mt-band-head td {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-subtle);
+    background-color: var(--surface-sunken);
+    padding-top: 6px;
+}
+
+.mt-rank { font-weight: bold; color: var(--accent); cursor: help; }
+.mt-rank-none { color: var(--text-faint); }
+
+/* The avatar is a tile with the image ON TOP: the initials show until a headshot decodes, and a headshot that never arrives leaves the tile showing. */
+.player-avatar {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    overflow: hidden;
+    background-color: var(--surface-sunken);
+    vertical-align: middle;
+    margin-right: 6px;
+    flex: 0 0 auto;
+}
+
+.avatar-initials {
+    font-size: 9px;
+    font-weight: bold;
+    color: var(--text-subtle);
+    letter-spacing: 0.02em;
+}
+
+.player-avatar.has-image .avatar-initials { visibility: hidden; }
+
+.avatar-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+}
+
+.mt-player { min-width: 150px; }
+.mt-name { vertical-align: middle; }
+
+/* Shown while the player pool is still loading, so the roster reads as incomplete rather than wrong: the slots and the lineup are already real, only the player detail is pending. */
+.mt-note {
+    font-size: 11px;
+    color: var(--text-subtle);
+    padding: 2px 6px 6px;
+}
+
+/* The drill-down header: back button pinned top-left, the stat picker and pager top-right, and the player centred between them. The title is the only flexible child, so the two ends keep their corners no matter how long a name runs. */
+/* Three columns with equal flexible sides, so the player sits in the HEADER's centre rather than in the centre of whatever space the two ends happen to leave. Back takes the left corner, the stat picker and pager the right, both pinned to the top. */
+.player-detail-header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    gap: 12px;
+}
+
+.player-detail-header > .player-back-btn { justify-self: start; }
+
+.player-detail-tools {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-self: end;
+}
+
+.player-detail-title {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+/* Name over meta, beside the headshot rather than under it. */
+.player-detail-name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.player-detail-title .player-avatar {
+    width: 34px;
+    height: 34px;
+    margin-right: 0;
+}
+
+.player-detail-title .avatar-initials { font-size: 12px; }
+
+/* Role groups: each is its own table with its own columns, so a pitcher's line never sits under batting headers. They share the roster band's height, each shrinking to its own content, and only the band scrolls if a very deep roster demands it. */
+.mt-group {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin-bottom: 10px;
+}
+
+.mt-group:last-child { margin-bottom: 0; }
+
+.mt-group-head {
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-subtle);
+    padding: 2px 6px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 2px;
+}
+
+/* Density steps for the roster band (see fitRosterBand). Each one only tightens chrome: padding, type size and the avatar. No player is ever dropped, which is the point of yielding density. */
+.mt-dense .mt-table td { padding: 1px 6px; font-size: 11px; }
+.mt-dense .mt-group { margin-bottom: 6px; }
+.mt-dense .player-avatar { width: 18px; height: 18px; }
+.mt-dense .avatar-initials { font-size: 8px; }
+.mt-dense .mt-group-head { padding: 1px 6px; margin-bottom: 0; }
+
+.mt-denser .mt-table td { padding: 0 5px; font-size: 10px; line-height: 1.35; }
+.mt-denser .mt-table th { padding: 2px 5px; }
+.mt-denser .mt-group { margin-bottom: 4px; }
+.mt-denser .player-avatar { width: 15px; height: 15px; margin-right: 4px; }
+.mt-denser .avatar-initials { font-size: 7px; }
+
+/* Third rung. Two were enough at 800px tall and ran out at 680, where a 23-player roster still overflowed by 83px and clipped two players behind an internal scrollbar. Every player visible is the rule the tab is built on, so the ladder grows rather than the roster hiding anyone. */
+.mt-densest .mt-table td { padding: 0 4px; font-size: 9px; line-height: 1.3; }
+.mt-densest .mt-table th { padding: 1px 4px; font-size: 9px; }
+.mt-densest .mt-group { margin-bottom: 2px; }
+.mt-densest .mt-group-head { padding: 0 4px; font-size: 9px; }
+.mt-densest .mt-band-head td { padding: 0 4px; font-size: 8px; }
+.mt-densest .player-avatar { width: 12px; height: 12px; margin-right: 3px; }
+.mt-densest .avatar-initials { font-size: 6px; }
+/* The last group's own bottom margin is content the band still has to scroll for, and at the tightest rung it was the difference between a clean fit and a 14px scrollbar under a roster whose every player was already visible. */
+.mt-roster .mt-group:last-child { margin-bottom: 0; }
+
+
+/* The two group tables are read as one roster, so their fixed columns have to line up even though each carries a different number of stat columns. A fixed layout with explicit widths does that; with the default layout each table sized Slot, Player, Pos and Rank to its own content and the two headers landed at different x. */
+.mt-table {
+    table-layout: fixed;
+}
+
+/* Every stat column takes the same fixed pitch in BOTH tables, and a trailing filler column soaks up whatever is left over. Without the filler, a full-width table hands its slack to the stat columns themselves, so five categories spread wider than nine and nothing past Rank lined up; sizing the table to its content instead broke the fixed columns' alignment. The filler keeps both: fixed columns aligned, and the Nth category of one group directly above the Nth of the other until the shorter group runs out. */
+.mt-table th.mt-fill, .mt-table td.mt-fill {
+    width: auto;
+    padding: 0;
+}
+
+.mt-table th.mt-slot, .mt-table td.mt-slot { width: 46px; }
+.mt-table th.mt-player, .mt-table td.mt-player { width: 210px; }
+.mt-table th.mt-pos, .mt-table td.mt-pos { width: 74px; }
+.mt-table th.mt-rankcell, .mt-table td.mt-rankcell { width: 54px; }
+
+/* A right-aligned number under a left-aligned header reads as belonging to the column to its right. The header takes the value's alignment so the two sit on the same edge. */
+/* One pitch for every stat column in both groups, so the Nth category of one sits directly above the Nth of the other and the longer group just continues past the shorter one's end. */
+.mt-table th.mt-stat, .mt-table td.mt-stat {
+    width: 58px;
+}
+
+.mt-table th.mt-stat {
+    text-align: right;
+}
+
+/* Names and positions are clipped rather than allowed to widen a fixed column. */
+.mt-table td.mt-player, .mt-table td.mt-pos {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Sortable group headers: the same affordances the heatmap's headers carry (pointer, hover, a visible focus ring since they are keyboard-reachable), and the arrow slot is always present so sorting a column cannot shift the header's text sideways. */
+.mt-sortable { cursor: pointer; }
+.mt-sortable:hover { color: var(--accent); }
+.mt-sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.mt-sorted { color: var(--accent); }
+.mt-arrow { display: inline-block; width: 9px; font-size: 8px; }
+
+/* The sorted column carries the emphasis, exactly as the heatmap's does: weight only, and the line box is locked so a heavier face cannot make the row taller (the lesson - a bold column grew every row and pushed the table's neighbours around). Column widths are already fixed, so the bold cannot change them either. */
+.mt-table td.mt-sorted-col, .mt-table th.mt-sorted-col {
+    font-weight: bold;
+}
+
+.mt-table td, .mt-table th {
+    line-height: 16px;
+}
+
+.mt-dense .mt-table td, .mt-dense .mt-table th { line-height: 15px; }
+.mt-denser .mt-table td, .mt-denser .mt-table th { line-height: 14px; }
+.mt-densest .mt-table td, .mt-densest .mt-table th { line-height: 12px; }
+
+
+
+/* ==== Timeframe strip and the utility cluster ==== */
+
+/* Its own row under the tab bar. It was inline with the tabs until My Team and the Playoffs pill arrived together and pushed the row to 1322px of demand against 1145px available, at which point it silently scrolled and painted over the utility buttons. Full width means the labels never have to shrink, and the tab row has headroom for whatever lands there next. */
+.timeframe-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    /* The container is a flex column, so without this the strip takes a share of the free space and becomes a 300px band of nothing. It is chrome: it gets exactly the height it needs. */
+    flex: 0 0 auto;
+    /* Back on the tab bar, centred in the gap between the tabs and the utilities: auto margins on both sides split the leftover space evenly, so it sits in the middle rather than shoved against either neighbour. It only fits there because the labels lost their repeated words and the utilities became icons; the row wanted 1322px before that and has 1145px. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
+    justify-content: flex-start;
+    overflow: visible;
+    margin: 0 auto;
+    padding: 0;
+}
+
+/* Wrapping is the honest fallback when the row genuinely runs out: nothing is hidden. */
+.tabs-container {
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+/* Below the width where all three fit inline, the TIMEFRAME is what drops, not the utilities. Left to itself, flex wraps whatever comes last, which put Legend/Export/Recap alone on line two while the timeframe kept the space it could no longer justify. Measured need is about 1090px of content: 350 tabs, 564 timeframe, 153 utilities and the gaps between them. */
+@media (max-width: 1230px) {
+    .tabs-container > .timeframe-toggle {
+        order: 3;
+        flex-basis: 100%;
+        margin: 0;
+        padding-top: 2px;
+    }
+
+    /* With the timeframe on its own line there is nothing between the tabs and the utilities to push them right, so they claim the space themselves. */
+    .tabs-container > .share-toolbar { margin-left: auto; }
+}
+
+/* One segment reads as one control: shared border, no gaps, dividers between members. */
+.timeframe-seg {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface);
+}
+
+.timeframe-seg:empty { display: none; }
+
+/* The caption naming the unit, which is what keeps the word off all four pills beside it. Quiet enough to read as a heading rather than a fifth option. */
+.timeframe-caption {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-right: -4px;
+}
+
+.timeframe-toggle .timeframe-chip {
+    border: none;
+    border-radius: 0;
+    border-left: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    /* 9px rather than 11: seven pills pay this four times over, and the row is decided by ~60px. */
+    padding: 5px 9px;
+    font-size: 12px;
+    line-height: 16px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.timeframe-seg .timeframe-chip:first-child { border-left: none; }
+
+.timeframe-toggle .timeframe-chip:hover { background: var(--surface-hover); color: var(--text-body); }
+
+/* A window the current span is too short for. It keeps its place so the row never shifts, and reads as unavailable rather than as an option that quietly vanished. */
+.timeframe-toggle .timeframe-chip.disabled {
+    opacity: 0.38;
+    cursor: default;
+}
+
+.timeframe-toggle .timeframe-chip.disabled:hover {
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.timeframe-toggle .timeframe-chip.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: bold;
+}
+
+/* Icon-only utilities, with the word revealed on hover and on keyboard focus. The label is taken OUT of flow to do it: revealing it inline widened the toolbar, and the timeframe beside it is centred in the space the toolbar leaves, so hovering Export slid the whole timeframe sideways. Out of flow, the button's box never changes and nothing next to it can move. */
+.share-toolbar-btn { position: relative; }
+
+.share-toolbar-btn .btn-label {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    padding: 3px 7px;
+    border-radius: 4px;
+    /* The same treatment the app's other hover labels use, so it reads as one tooltip language. */
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    font-size: 11px;
+    line-height: 14px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+    z-index: 30;
+}
+
+.share-toolbar-btn:hover .btn-label,
+.share-toolbar-btn:focus-visible .btn-label,
+.share-toolbar-btn[aria-expanded="true"] .btn-label {
+    opacity: 1;
+}
+
+/* Mobile keeps the labels: there is no hover to reveal them with. */
+@media (max-width: 700px) {
+    /* Touch has no hover, so the word rides beside the icon in flow. There is no centred timeframe to disturb at this width: it has its own line. */
+    .share-toolbar-btn .btn-label {
+        position: static;
+        opacity: 1;
+        padding: 0;
+        border: none;
+        background: none;
+        margin-left: 5px;
+        font-size: inherit;
+    }
+    .timeframe-toggle { gap: 10px; }
 }
