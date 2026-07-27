@@ -26,13 +26,21 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 
 ## What it does
 
-- **Team Metrics**: standings with playoff shading, season trend lines, category rankings, a category heatmap, live weekly scoreboards, and a shared timeframe control (full season, regular season, last N matchups, playoffs).
+Three tabs, each answering a different question.
 
-<p align="center"><img src="screenshots/team-metrics.png" width="800" alt="Team Metrics tab: season trends, team rankings, and the category heatmap"></p>
+- **Team Metrics**, how the league is doing. Standings with playoff shading, season trend lines, per-category rankings, a category heatmap, and live scoreboards for the matchup being played.
 
-- **Player Metrics**: every player in your league ranked by percentile in your league's own categories, adjusted for playing time, with search and position filters and per-player weekly trend charts.
+<p align="center"><img src="screenshots/team-metrics.png" width="800" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
 
-<p align="center"><img src="screenshots/player-metrics.png" width="800" alt="Player Metrics tab: the ranked player leaderboard"></p>
+- **Player Metrics**, who is actually good. Every player in your league ranked in your league's own categories, adjusted for playing time, with search and position filters. Open any player for a weekly trend chart and the arithmetic behind their rank.
+
+<p align="center"><img src="screenshots/player-metrics.png" width="800" alt="Player Metrics tab showing the ranked player leaderboard"></p>
+
+- **My Team**, your roster at a glance. Every player with their rank and category line, grouped by role, sortable by any column. A switcher scouts any other team in the league, and it works during a live matchup as well as after a season ends.
+
+<p align="center"><img src="screenshots/my-team.png" width="800" alt="My Team tab showing a roster grouped by role with each player's rank and category line"></p>
+
+One timeframe control drives all three. Pick a part of the season and how recent a stretch inside it, so "the last four matchups of the regular season" is one click plus one.
 
 - **Export and Recap**: CSV or clipboard export of any view, and a shareable image recap of a matchup week for the league group chat.
 
