@@ -1,6 +1,6 @@
 <p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball and Hockey. Nothing leaves your browser."></p>
 
-<p align="center">A browser extension for Firefox and Chrome. Edge is on the way.</p>
+<p align="center">A browser extension for Firefox and Chrome.</p>
 
 <p align="center">
   <a href="https://addons.mozilla.org/en-US/firefox/addon/leaguewise/"><img src="https://img.shields.io/amo/v/leaguewise?label=Firefox&color=e8792e" alt="Firefox version"></a>
@@ -38,7 +38,7 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 
 ## Install
 
-**[Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/leaguewise/)** or **[Add to Chrome](https://chromewebstore.google.com/detail/leaguewise/emnepcdlpnnphjgfiajhkciijciifdoj)**. Edge is on the way.
+**[Add to Firefox](https://addons.mozilla.org/en-US/firefox/addon/leaguewise/)** or **[Add to Chrome](https://chromewebstore.google.com/detail/leaguewise/emnepcdlpnnphjgfiajhkciijciifdoj)**.
 
 Click the extension icon, enter your league's sport, ID, and year, and hit **Fetch Data**.
 
