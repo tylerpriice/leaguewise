@@ -38,7 +38,7 @@ Three tabs, each answering a different question.
 
 <p align="center"><img src="screenshots/1.2.0/player-drill-down-1.2.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
 
-- **My Team**, your roster at a glance. Every player with their rank and category line, grouped by role, sortable by any column. A switcher scouts any other team in the league, and it works during a live matchup as well as after a season ends.
+- **My Team**, your roster at a glance. Every player with their rank and category line, grouped by role, sortable by any column.
 
 <p align="center"><img src="screenshots/1.2.0/my-team-1.2.0.png" width="900" alt="My Team tab showing a roster grouped by role with each player's rank and category line"></p>
 
