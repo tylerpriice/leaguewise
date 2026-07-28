@@ -79,11 +79,10 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     if (hasPlayoffs) options.push({ value: 'all', text: 'Full Season', title: 'Regular Season + Playoffs', group: 'span' });
     options.push({ value: 'reg', text: 'Regular Season', group: 'span' });
 
+    // Playoffs sits directly after Regular Season (before the recent-window options), so the pill row reads Full Season -> Regular Season -> Playoffs -> This Matchup -> Last N.
     if (hasPlayoffs) options.push({ value: 'p_all', text: 'Playoffs', group: 'span' });
 
     // Fixed lookback windows, offered only when more season sits outside the window than inside it. n=1 is the live matchup, since maxCompletedWeek counts one in progress.
-
-    // A window only applies when the span it sits in is longer than the window itself, since "last 8" inside a three-matchup playoff bracket is the whole bracket. The pill still renders, disabled: removing it changes the strip's width, and the strip is centred between the tabs and the utilities, so every pill in the row would jump sideways on a span click.
     const spanLength = (span) => {
         if (span === 'reg') return Math.min(maxWk, regWks);
         if (span === 'p_all') return Math.max(0, maxWk - regWks);
@@ -93,7 +92,6 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     const spanValues = options.map(o => o.value);
     const span = spanValues.includes(activeSpan) ? activeSpan : (hasPlayoffs ? 'all' : 'reg');
     const unit = axisUnit();
-    // The group caption carries the unit, so no pill in it repeats the word: Current, Last 4, Last 8, Last 12 under one heading. group marks which segment a pill belongs to, the season span on the left and the recent stretch on the right.
     [1, 4, 8, 12].forEach(n => {
         if (maxWk <= n) return;
         const fits = spanLength(span) > n;
@@ -101,7 +99,7 @@ export function rebuildTimeframeOptions(forceDefault = false) {
             value: `${span}+last${n}`, group: 'recent', window: n, disabled: !fits,
             text: n === 1 ? 'Current' : `Last ${n}`,
             title: !fits
-                ? `Only ${spanLength(span)} ${unit.plural.toLowerCase()} in this stretch`
+                ? `Only ${spanLength(span)} ${(spanLength(span) === 1 ? unit.long : unit.plural).toLowerCase()} in this stretch, so there is no window to take inside it`
                 : (n === 1 ? `The ${unit.long.toLowerCase()} being played now` : `The last ${n} completed ${unit.plural.toLowerCase()}`)
         });
     });
@@ -129,7 +127,6 @@ function renderTimeframeToggle(options) {
     };
     const groups = { span: seg('span'), recent: seg('recent') };
     toggle.appendChild(groups.span);
-    // The right group carries a caption naming the unit, which is what lets its pills read Current, Last 4, Last 8 rather than repeating the word four times. It follows the league's own timeline unit, so a roto league reads Week.
     const caption = document.createElement('span');
     caption.className = 'timeframe-caption';
     caption.textContent = axisUnit().long;
@@ -172,7 +169,7 @@ let rotoPillsShown = false;
 export function syncRotoTimeframePills() {
     if (!AppState.isRotoLeague || rotoPillsShown) return;
     const sport = AppState.loadedSport;
-    if (!rotoWindowsAvailable(sport)) return; // still on a fallback tier, or harvest not done, stay hidden
+    if (!rotoWindowsAvailable(sport)) return; // still on a fallback tier, or harvest not done - stay hidden
 
     const toggleEl = document.getElementById('timeframe-toggle');
     if (!toggleEl) return;
@@ -183,7 +180,7 @@ export function syncRotoTimeframePills() {
     [4, 8, 12].forEach(n => {
         if (maxWeek > n) options.push({ value: `last${n}`, text: `Last ${n} Weeks` });
     });
-    if (options.length === 1) return; // season too short for any honest window, keep the row hidden
+    if (options.length === 1) return; // season too short for any honest window - keep the row hidden
 
     toggleEl.style.display = '';
     renderTimeframeToggle(options); // AppState.timeframe is still 'all', so Full Season starts active

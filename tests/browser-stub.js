@@ -7,6 +7,14 @@
     const payloadName = params.get('payload') || 'espn-debug-1783444818700.json';
     const payloadFile = payloadName.includes('/') ? payloadName : `JSON_debug/${payloadName}`;
     const anonymize = params.get('anon') === '1';
+    const poolStatus = parseInt(params.get('poolstatus'), 10) || 0;
+    window.__stubLoggedOut = params.get('nocookies') === '1';
+    // Flips the fake session to logged in and pokes the same watcher a real login would, so the recovery runs through the real path rather than a hand-fired event. Clears ?poolstatus too, since a login that leaves the pool still refused is not a login.
+    window.__stubLogIn = () => {
+        window.__stubLoggedOut = false;
+        window.__stubPoolStatusCleared = true;
+        window.dispatchEvent(new Event('focus'));
+    };
 
     const anonymizePayload = (data) => {
         if (!data?.teams) return data;
@@ -55,7 +63,7 @@
     async function serveWeeklyChunk(filterHeader) {
         const index = await weeklyIndexPromise;
         let ids = [];
-        try { ids = JSON.parse(filterHeader)?.players?.filterIds?.value || []; } catch { /* unparseable filter, serve empty */ }
+        try { ids = JSON.parse(filterHeader)?.players?.filterIds?.value || []; } catch { /* unparseable filter - serve empty */ }
         const players = ids.map(id => index.get(Number(id))).filter(Boolean);
         await new Promise(resolve => setTimeout(resolve, weeklyDelayMs));
         window.__stubWeeklyChunks.push({ at: Math.round(performance.now()), count: ids.length, ids: ids.slice() });
@@ -137,6 +145,10 @@
             }
             return Promise.resolve(new Response('{"players": []}', { headers: { 'Content-Type': 'application/json' } }));
         }
+        // ?poolstatus=<code> refuses the pool with that status and nothing else, which is what a logged-out ESPN session looks like from the dashboard's side.
+        if (poolStatus && !window.__stubPoolStatusCleared) {
+            return Promise.resolve(new Response('', { status: poolStatus, statusText: 'Stubbed' }));
+        }
         return playersFile ? realFetch(playersFile) : realFetch(url, options);
     };
 
@@ -144,7 +156,8 @@
         cookies: {
             // Fake cookies so the auth check passes and the dashboard renders clean. The SWID is derived from whichever payload is loaded rather than hardcoded, so team auto-detection has a real match against any of them.
             get: async ({ name }) => {
-                if (name !== 'SWID') return { name, value: 'dev' };
+                // ?nocookies=1 starts the page logged OUT. window.__stubLogIn() then flips it, which is the only way to exercise the mid-session login recovery: the real trigger is checkAuth going green, and it can only go green if it was red first.
+                if (window.__stubLoggedOut) return null;
                 const apiData = await payloadPromise;
                 const owner = apiData?.teams?.find(t => t.primaryOwner)?.primaryOwner;
                 return { name, value: owner || '' };

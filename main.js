@@ -1,12 +1,12 @@
 import { checkAuth, setupAuthWatchers, loadStoredSettings, fetchEspnData, setPostFetchHook, renderMyLeaguesOptions } from './api.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, setupCardPopout, isCardPopoutOpen, closeCardPopout } from './graphs.js';
 import { AppState } from './state.js';
-import { loadPlayerTabIfNeeded, renderPlayerLeaderboard, openPlayerDetail, closePlayerDetail, ensurePlayerDetailDiagnostic, reprioritizeWeeklyQueue, setWeeklyProgressHook } from './players.js';
-import { downloadDebugData, setActiveDebugKind, refreshDebugPanel } from './utils.js';
+import { loadPlayerTabIfNeeded, renderPlayerLeaderboard, openPlayerDetail, closePlayerDetail, ensurePlayerDetailDiagnostic, reprioritizeWeeklyQueue, setWeeklyProgressHook, retryPlayerPoolAfterLogin } from './players.js';
+import { downloadDebugData, setActiveDebugKind, refreshDebugPanel, setupHintTooltips } from './utils.js';
 import { openExportModal } from './export.js';
 import { openRecapModal } from './recap.js';
 import { syncRotoTimeframePills } from './controls.js';
-import { renderMyTeamTab } from './myteam.js';
+import { renderMyTeamTab, invalidateMyTeamLayout } from './myteam.js';
 
 // Theme cycle: Auto follows prefers-color-scheme, then Light, then Dark. The choice is stored in localStorage and re-applied before paint by theme-init.js, and "auto" removes data-theme so the media query drives it again.
 function setupThemeToggle() {
@@ -25,7 +25,7 @@ function setupThemeToggle() {
         try {
             if (mode === 'auto') localStorage.removeItem('efv-theme');
             else localStorage.setItem('efv-theme', mode);
-        } catch { /* private mode / storage disabled, theme still applies for this session */ }
+        } catch { /* private mode / storage disabled - theme still applies for this session */ }
         btn.textContent = ICON[mode];
         btn.title = LABEL[mode];
     };
@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Redirect to a full tab when opened as a small popup, but only on the first untagged load. On Firefox for Android every surface renders under the width threshold, so without the tag the tab this opens would trip the same check and open another, forever.
     const params = new URLSearchParams(location.search);
     let alreadyTab = params.has('tab');
-    try { alreadyTab = alreadyTab || sessionStorage.getItem('lwTab') === '1'; } catch { /* storage disabled, fall back to the URL tag alone */ }
+    try { alreadyTab = alreadyTab || sessionStorage.getItem('lwTab') === '1'; } catch { /* storage disabled - fall back to the URL tag alone */ }
     if (!alreadyTab && window.innerWidth < 800) {
         browser.tabs.create({ url: browser.runtime.getURL("dashboard.html") + "?tab=1" });
         window.close();
@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     // On the tagged load, mark this tab and drop only the 'tab' param, so the URL reads clean while any other params survive a reload.
     if (params.has('tab')) {
-        try { sessionStorage.setItem('lwTab', '1'); } catch { /* storage disabled, the load still works, only the reload guard is lost */ }
+        try { sessionStorage.setItem('lwTab', '1'); } catch { /* storage disabled - the load still works, only the reload guard is lost */ }
         params.delete('tab');
         const qs = params.toString();
         history.replaceState(null, '', location.pathname + (qs ? `?${qs}` : ''));
@@ -177,6 +177,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    // One delegated listener for every ⓘ on the page, including the ones panels render later. Wired once, before anything renders.
+    setupHintTooltips();
+
+    // Logging in with the dashboard already open should heal it where the user is standing, on any tab, without a manual refresh. Two failures are worth retrying, in this order, since the league payload is what the pool is fetched against. A refused league is re-fetched and the post-fetch hook rebuilds every tab from there. A league that loaded with a refused pool re-fetches just the pool. Anything else means nothing was broken.
+    document.addEventListener('leaguewise:auth-restored', async () => {
+        if (AppState.leagueDataError) {
+            AppState.leagueDataError = null;
+            await fetchEspnData();
+            return;
+        }
+        await retryPlayerPoolAfterLogin();
+    });
+
     // 1. Initial checks and load data. Install first, log in second is the normal first run, so the dashboard watches for the cookies arriving instead of waiting for a refresh nobody thinks to do, wired before the first check so a login landing mid-startup is still noticed.
     setupAuthWatchers();
     await checkAuth();
@@ -193,6 +206,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('settings-toggle-btn').addEventListener('click', () => {
         document.getElementById('settings-bar').classList.toggle('collapsed');
     });
+    // Deliberately no re-render here. The bar is 64px of the page's height, so every view's budget changes when it moves, and re-fitting My Team once the transition finished was worse than doing nothing: the roster overflowed while the bar animated, then the density ladder snapped the type to a new size. The other two tabs run no JS on this toggle. Their content shrinks in CSS and whatever cannot shrink scrolls inside itself, and .mt-roster is built the same way, so the density chosen on entry stays.
+
     document.getElementById('toggle-cat').addEventListener('change', renderRightColumn);
     document.getElementById('toggle-match').addEventListener('change', renderRightColumn);
 
@@ -297,14 +312,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tabBtnPlayer = document.getElementById('tab-btn-player');
     const viewTeam = document.getElementById('view-team');
     const viewPlayer = document.getElementById('view-player');
+
     const tabBtnMyTeam = document.getElementById('tab-btn-myteam');
     const viewMyTeam = document.getElementById('view-myteam');
 
-
     function switchTab(name) {
         const isTeam = name === 'team';
-        tabBtnTeam.classList.toggle('active', isTeam);
         const isMine = name === 'myteam';
+        tabBtnTeam.classList.toggle('active', isTeam);
         tabBtnPlayer.classList.toggle('active', name === 'player');
         tabBtnMyTeam.classList.toggle('active', isMine);
         viewTeam.style.display = isTeam ? 'flex' : 'none';
@@ -313,6 +328,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // My Team measures its own bands, so it re-renders on every entry for the same reason the Team tab does: anything measured while the view was hidden reads zero.
         if (isMine) {
             setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'player-pool');
+            // Re-fit from scratch on entry. What was measured last time was measured for whatever league, roster and window size were on screen then, and any of the three can have changed while this tab was away.
+            invalidateMyTeamLayout();
             renderMyTeamTab();
             return;
         }

@@ -127,7 +127,6 @@ export const PITCHER_POSITIONS = {
 };
 
 // Central Application Memory
-
 export const AppState = {
     visibleTeams: new Set(),
     apiData: null,
@@ -169,6 +168,12 @@ export const AppState = {
 
     playerData: [],
     playerDataLoaded: false,
+    // Why the pool is missing, when it is. The league payload can load without cookies while the pool cannot, so "no players" is a state several tabs have to explain, not just the one that made the request. null means nothing has failed.
+    playerDataError: null,
+    // The same for the league payload itself, which a private league refuses outright when logged out. Set only when the login is the reason, since that is the only failure logging in fixes.
+    leagueDataError: null,
+    // The pro sports schedule for the loaded sport and season, keyed so a league switch to another sport or year refetches rather than counting starts against the wrong calendar.
+    proTeamSchedules: null,
     playerSortStat: 'rotoScore',
     playerSortDir: 'desc',
     playerSearchQuery: '',

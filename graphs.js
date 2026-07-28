@@ -775,7 +775,7 @@ export function renderRightColumn() {
         const title = document.getElementById('trends-box-title');
         const tooltip = document.getElementById('trends-box-tooltip');
         if (title) title.textContent = 'Roto Race';
-        if (tooltip) tooltip.textContent = "Each team's cumulative roto points week by week, rebuilt from its current roster. ESPN keeps no roster history, so trades slightly rewrite the past.";
+        if (tooltip) tooltip.setAttribute('data-hint', "Each team's cumulative roto points by week, rebuilt from its current roster. ESPN keeps no roster history, so past trades shift the line.");
         renderRotoRaceGraph(container);
         return;
     }
@@ -798,33 +798,13 @@ function updateTrendsBoxChrome(isScoreboard) {
     const tooltip = document.getElementById('trends-box-tooltip');
     if (title) title.textContent = isScoreboard ? 'Matchup Scoreboard' : 'Season Trends';
     if (!tooltip) return;
-    // Roto never reaches here: it sets its own title and returns earlier, so this only covers the matchup box's two roles.
-    tooltip.textContent = isScoreboard
-        ? "This week's matchups, category by category. The winning side of each is bolded. Switch to a wider timeframe for the season trend line."
-        : `${AppState.isPointsLeague ? 'Points' : 'Cat Wins'} and Match Wins using the selected timeframe. The dashed line marks when playoffs started. Hover any point to get a breakdown.`;
+    // Roto never reaches here - renderRightColumn sets its own "Roto Race" title/tooltip and returns before this runs - so this only covers the matchup box's two roles.
+    tooltip.setAttribute('data-hint', isScoreboard
+        ? 'This matchup, category by category. The winning side is bold. Pick a wider timeframe for the season trend.'
+        : `${AppState.isPointsLeague ? 'Points' : 'Cat Wins'} and Match Wins over the selected timeframe. The dashed line marks the playoff start. Hover a point for the breakdown.`);
 }
 
-// The Category Heatmap is a permanent full-width band below the two columns, visible at every timeframe and timeframe-aware.
-// The team's best and bleeding categories, for the My Team summary. A category is bleeding when the team sits below the league's midpoint in it and winning when above, expressed as a standing percentile rather than a rank so it means the same thing at any league size. Competition ranking, inverse-aware, so it agrees with the heatmap category by category.
-export function teamCategoryProfile(teamId) {
-    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
-    const cats = scoredCategoriesInRange(start, end);
-    const ranked = cats.map(cat => {
-        const vals = AppState.teamStats
-            .map(t => ({ id: t.id, v: aggregateTeamCategory(t, cat.id, cat.isAvg, start, end) }))
-            .filter(x => x.v !== undefined);
-        const mine = vals.find(x => x.id === teamId);
-        if (!mine) return null;
-        const better = vals.filter(x => cat.inverse ? x.v < mine.v : x.v > mine.v).length;
-        return { id: cat.id, name: cat.name, rank: better + 1, of: vals.length };
-    }).filter(Boolean);
-    const pctOf = (r) => (r.of <= 1 ? 50 : ((r.of - r.rank) / (r.of - 1)) * 100);
-    const scored = ranked.map(r => ({ ...r, pct: pctOf(r) }));
-    const best = scored.filter(r => r.pct > 50).sort((a, b) => a.rank - b.rank);
-    const worst = scored.filter(r => r.pct < 50).sort((a, b) => b.rank - a.rank);
-    return { all: ranked, best, worst };
-}
-
+// The Category Heatmap is a permanent full-width band below the two columns, visible at every timeframe.
 export function renderHeatmapBand() {
     const container = document.getElementById('heatmap-graph-container');
     if (!container) return;
@@ -879,14 +859,41 @@ function aggregateTeamCategory(team, catId, isAvg, startWeek, endWeek) {
     return isAvg ? sum / weeks : sum;
 }
 
+// The Category Heatmap is a permanent full-width band below the two columns, visible at every timeframe and timeframe-aware.
+// The team's best and bleeding categories, for the My Team summary. A category is bleeding when the team sits below the league's midpoint in it and winning when above, expressed as a standing percentile rather than a rank so it means the same thing at any league size. Competition ranking, inverse-aware, so it agrees with the heatmap category by category.
+export function teamCategoryProfile(teamId) {
+    const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
+    const cats = scoredCategoriesInRange(start, end);
+    const ranked = cats.map(cat => {
+        const vals = AppState.teamStats
+            .map(t => ({ id: t.id, v: aggregateTeamCategory(t, cat.id, cat.isAvg, start, end) }))
+            .filter(x => x.v !== undefined);
+        const mine = vals.find(x => x.id === teamId);
+        if (!mine) return null;
+        // Competition ranking, inverse-aware: better values rank first, ties share a rank.
+        const better = vals.filter(x => cat.inverse ? x.v < mine.v : x.v > mine.v).length;
+        return { id: cat.id, name: cat.name, rank: better + 1, of: vals.length };
+    }).filter(Boolean);
+    // A category is BLEEDING when the team sits below the league's midpoint in it and winning when above, expressed as a standing percentile rather than a rank so it means the same at any league size. This replaces a best-three and worst-three cut, which was degenerate: with 14 categories over 4 teams a team usually holds enough firsts and lasts to fill both lists, so every chip read #1 or #4 and the middle of the table never appeared.
+    const pctOf = (r) => (r.of <= 1 ? 50 : ((r.of - r.rank) / (r.of - 1)) * 100);
+    const scored = ranked.map(r => ({ ...r, pct: pctOf(r) }));
+    const best = scored.filter(r => r.pct > 50).sort((a, b) => a.rank - b.rank);
+    const worst = scored.filter(r => r.pct < 50).sort((a, b) => b.rank - a.rank);
+    return { all: ranked, best, worst };
+}
+
 // Display value for a category cell: rate stats keep decimals, counting stats show as whole numbers.
 function formatCatValue(v) {
     if (v === undefined || v === null) return '-';
-    return (v % 1 !== 0) ? v.toFixed(3) : v;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return Number.isNaN(n) ? '-' : (n > 0 ? '∞' : '-∞');
+    return (n % 1 !== 0) ? n.toFixed(3) : n;
 }
 
 function formatCatScore(v) {
-    return (v % 1 !== 0) ? v.toFixed(1) : v;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return Number.isNaN(n) ? '-' : (n > 0 ? '∞' : '-∞');
+    return (n % 1 !== 0) ? n.toFixed(1) : n;
 }
 
 // Head-to-head scoreboard for the single-matchup timeframe, replacing bars that for one matchup were a useless all-or-nothing 1/0.

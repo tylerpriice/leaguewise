@@ -1,37 +1,37 @@
-# Builds both release artifacts from one source of truth - run from anywhere, paths are
-# resolved relative to the repo root (this script's parent directory).
+# Builds both release artifacts from one source of truth. Run it from anywhere, since paths
+# resolve against the repo root rather than the working directory.
 #
-# dist/leaguewise-<version>-firefox.xpi: today's manifest.json verbatim (browser_specific_settings,
-#   SVG icons) plus the 16 other runtime files (see $runtimeFiles below).
-# dist/leaguewise-<version>-chrome.zip: the SAME files, except manifest.json is transformed
-#   in-memory (never written to disk) - browser_specific_settings dropped (Chrome warns on/rejects
-#   unknown keys), minimum_chrome_version added (storage.session needs Chrome 102+; 110 gives
-#   margin), and the icons block swapped from the single SVG to the icons/*.png set (Chrome does
-#   not accept SVG manifest icons) - icons/ is added to the zip alongside the runtime files.
+# The .xpi ships manifest.json verbatim, with browser_specific_settings and the SVG icon.
+# The .zip ships the same files with the manifest transformed in memory and never written to
+# disk: browser_specific_settings dropped, since Chrome rejects unknown keys,
+# minimum_chrome_version added for storage.session, and the icon block swapped to the PNG set,
+# since Chrome will not take an SVG.
 #
-# Version comes from manifest.json itself so this never goes stale on a version bump. Every other
-# field (name, permissions, host_permissions, action, ...) is identical between the two artifacts.
+# The version comes from manifest.json, so a bump never leaves this stale. Every other field is
+# identical between the two artifacts.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
-# PowerShell's own location (Push-Location) and .NET's current directory are two separate
-# things - relative paths passed into System.IO/System.IO.Compression APIs below resolve
-# against the LATTER, which stays wherever the process originally started unless set explicitly.
+# PowerShell's own location (Push-Location) and .NET's current directory are two separate things - relative paths passed into System.IO/System.IO.Compression APIs below resolve against the LATTER, which stays wherever the process originally started unless set explicitly.
 [Environment]::CurrentDirectory = $root
 try {
     $manifestObj = Get-Content 'manifest.json' -Raw | ConvertFrom-Json
     $version = $manifestObj.version
 
-    # The complete runtime, the only things that ship.
-    # The list is verified below, not trusted: a missing module kills the whole graph in the installed build.
+    # The complete runtime, the ONLY things that ship. Anything off this list never enters
+    # either archive. THE LIST IS VERIFIED, NOT TRUSTED: the check below walks every ES import
+    # in the packaged modules and every src and href in dashboard.html, and fails the build if a
+    # target is missing from it. 1.1.0 shipped broken because a module added long after this list
+    # was written was absent from it. One dead import kills the whole module graph, and the
+    # temporary-install testing everyone does loads from the directory, where nothing is missing.
     $runtimeFiles = @(
         'manifest.json', 'dashboard.html', 'dashboard.css', 'icon.svg', 'theme-init.js', 'compat.js',
         'api.js', 'controls.js', 'data.js', 'export.js', 'graphs.js', 'main.js', 'players.js',
         'rank-engine.js', 'recap.js', 'roster-timeline.js', 'state.js', 'utils.js',
-        'myteam.js', 'images.js'
+        'myteam.js', 'images.js', 'probables.js'
     )
 
-    # Every relative ES import and every local dashboard.html reference must resolve to the list.
+    # Every relative ES import in the shipped modules, and every local src/href in dashboard.html, must resolve to a file on the runtime list. Run BEFORE building so a stale list never produces an archive at all.
     $shipSet = @{}
     foreach ($f in $runtimeFiles) { $shipSet[$f] = $true }
     $missing = @()
@@ -49,7 +49,10 @@ try {
         throw "Runtime list is incomplete, refusing to build:`n$($missing -join "`n")"
     }
 
-    # A complete decode of every packaged image: header checks once passed a corrupt icon into a build no Chrome user could install.
+    # Declared BEFORE the decode loop below, which reads it. Assigning it after meant $iconFiles was $null there, PowerShell folded that into an empty array, and the loop ran over nothing at all: the one guard standing between a corrupt icon and a build no Chrome user could install had been silently checking zero files.
+    $iconFiles = @('icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png')
+
+    # Full decode of every packaged image, in the script rather than in review tooling: the 1.0.0 icon had a bad IDAT that only a complete decode catches, and header checks passed it into a build no Chrome user could install.
     Add-Type -AssemblyName System.Drawing
     foreach ($img in ($iconFiles + ($runtimeFiles | Where-Object { $_ -match '\.(png|jpg)$' }))) {
         try {
@@ -60,14 +63,12 @@ try {
             throw "Image failed a full decode, refusing to build: $img ($_)"
         }
     }
-    $iconFiles = @('icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png')
 
     New-Item -ItemType Directory -Force -Path 'dist' | Out-Null
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-    # Entries is an ordered map of zip-entry-name -> either a source file path (string) or raw
-    # bytes (used only for the in-memory Chrome manifest, which never touches disk).
+    # Entries is an ordered map of zip-entry-name -> either a source file path (string) or raw bytes (used only for the in-memory Chrome manifest, which never touches disk).
     function New-ZipFromEntries {
         param([string]$Path, [System.Collections.Specialized.OrderedDictionary]$Entries)
         if (Test-Path $Path) { Remove-Item $Path -Force }
@@ -100,10 +101,7 @@ try {
     $chromeManifest | Add-Member -NotePropertyName 'minimum_chrome_version' -NotePropertyValue '110'
     $chromeManifestBytes = [Text.Encoding]::UTF8.GetBytes(($chromeManifest | ConvertTo-Json -Depth 10))
 
-    # Plain if/else STATEMENTS, not an if-as-expression assignment - PowerShell's pipeline output
-    # unrolls a byte[] into individual bytes (collected as a generic Object[]) when an if-block's
-    # value is captured via assignment from an inline `if(){} else{}` expression; imperative
-    # assignment inside each branch avoids that entirely.
+    # Plain if/else STATEMENTS, not an if-as-expression assignment - PowerShell's pipeline output unrolls a byte[] into individual bytes (collected as a generic Object[]) when an if-block's value is captured via assignment from an inline `if(){} else{}` expression; imperative assignment inside each branch avoids that entirely.
     $chromeEntries = [ordered]@{}
     foreach ($f in $runtimeFiles) {
         if ($f -eq 'manifest.json') { $chromeEntries[$f] = $chromeManifestBytes }

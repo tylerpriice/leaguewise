@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1 (2026-07-28)
+- Projected starts: a pitcher column on My Team counting the starts each of your pitchers is projected to make in the current matchup, with the day and opponent of every one of them behind the number. Projections, not promises, and they move as lineups are posted.
+- An availability icon next to any player who is day to day, on the IL, out or suspended. It shows on the leaderboard, on your roster and in the player drill-down, with the exact status on hover.
+- Logged out, the app now says so and offers the login instead of printing a status code at you. Log in with the page still open and it heals itself where you are standing, on whichever tab you are on.
+- Fixed: My Team changed size when you clicked a timeframe, opened the settings bar, or left for another league and came back. The roster now decides its layout once on entry and holds it.
+- Fixed: on the Current timeframe, My Team and Season Trends showed full-season numbers instead of the matchup being played.
+- Fixed: a category with no innings or at-bats yet reports an infinite rate during a live matchup, which took the whole page down. It now reads as an infinity sign.
+- Fixed: the page could scroll sideways because of a tooltip nobody could see, and the scrollbar that appeared then brought a vertical one with it.
+- Fixed: My Team rows carried more space than they needed, and category headers did not sit over their values. Columns now measure the roster on screen and fill the row they are given, with the two role groups staying aligned to each other.
+
 ## 1.2.0 (2026-07-27)
 - My Team: a third tab, showing your own roster with each player's rank and category line, and a switcher to scout any other team in the league. Works during a live matchup and after a season ends.
 - Player photos on the roster and the drill-down, with initials shown until a photo loads.

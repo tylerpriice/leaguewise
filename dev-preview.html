@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Dev-only copy of dashboard.html for running the dashboard on a static server without the WebExtension runtime, where tests/browser-stub.js fakes the browser APIs and preloads a captured payload. Not referenced by manifest.json, and it never ships. Mirror any markup change from dashboard.html here. -->
+<!-- DEV-ONLY copy of dashboard.html for running the dashboard on a static server without the WebExtension runtime - tests/browser-stub.js fakes the browser.* APIs and preloads a real captured league payload (see that file for the ?payload= switch). Not referenced by manifest.json; never ships. If dashboard.html's markup changes, mirror it here. -->
 <html>
 
 <head>
@@ -11,7 +11,7 @@
 
 <body>
     <div class="container">
-        <!-- Brand banner: the wordmark with the rising-W sparkline slotted in as the word's own "w". The same mark is the standalone logo, drawn from the same 24-unit geometry. The link gets an href once a product website exists. -->
+        <!-- Brand BANNER: the full wordmark with the rising-W-sparkline mark slotted in as the word's own "w" - League[W]ise. The mark doubles as the standalone LOGO (recap canvas tiles via drawBrandMark in recap.js, and icon.svg) - two official brand assets, same 24-unit geometry: banner = wordmark with embedded W (this), logo = the W alone. Tight viewBox (cropped to the glyph) + align-items:baseline on .brand-link make the mark sit on the text baseline like a letter. The accent dot is the sparkline's "now" point, ending higher than the first peak. The <a> has no href yet: it becomes the product-website link once a domain exists - add the href here (and in dashboard.html) only, nothing else changes. -->
         <h2 class="brand-lockup" title="Leaguewise">
             <a class="brand-link" aria-label="Leaguewise">
                 <span>League</span><svg class="banner-mark" viewBox="1.4 3.6 22 15.5" aria-hidden="true">
@@ -20,7 +20,7 @@
                 </svg><span>ise</span>
             </a>
         </h2>
-        <!-- The grant button only appears when Firefox has not been given espn.com yet. It sits beside the status line, and its click handler calls permissions.request directly, since that needs the user gesture. -->
+        <!-- The grant button only appears when Firefox has not been given espn.com yet (see checkAuth in api.js). It sits beside the status line so the ask and the reason read as one sentence, and its click handler calls permissions.request directly, since that needs the user gesture. -->
         <div class="auth-row">
             <div id="auth-status" class="status-red">Checking cookies...</div>
             <button type="button" id="grant-access-btn" class="grant-access-btn" style="display:none;">Grant access</button>
@@ -36,6 +36,7 @@
                 </div>
                 <div>
                     <label>Sport:</label>
+                    <!-- Hockey option hidden until its stat maps are validated against a live season (see the backlog) - the fhl plumbing stays in the JS. -->
                     <select id="sport">
                         <option value="fhl">Hockey</option>
                         <option value="flb" selected>Baseball</option>
@@ -79,18 +80,19 @@
                 <div class="share-toolbar">
                     <div class="legend-menu">
                         <button type="button" id="legend-btn" class="share-toolbar-btn" aria-haspopup="true"
-                            aria-expanded="false" title="What the crown, medals, and trend arrows mean"><span class="btn-icon">🔑</span><span class="btn-label">Legend</span></button>
+                            aria-expanded="false"><span class="btn-icon">🔑</span><span class="btn-label">Legend</span></button>
                         <div id="legend-popover" class="legend-popover" role="menu" aria-label="Icon legend" hidden>
                             <div class="legend-item"><span class="legend-item-icon">👑</span><span>League champion</span></div>
                             <div class="legend-item"><span class="legend-item-icon">🥇🥈🥉</span><span>Top three by Rank</span></div>
                             <div class="legend-item"><span class="legend-item-icon trend-up">↗</span><span>Last matchup above average</span></div>
                             <div class="legend-item"><span class="legend-item-icon trend-down">↘</span><span>Last matchup below average</span></div>
+                            <div class="legend-item"><span class="legend-item-icon injury-major">✚</span><span>Injured, not expected to play</span></div>
+                            <div class="legend-item"><span class="legend-item-icon injury-minor">✚</span><span>Day to day</span></div>
+                            <div class="legend-item"><span class="legend-item-icon injury-major">!</span><span>Suspended</span></div>
                         </div>
                     </div>
-                    <button type="button" id="export-btn" class="share-toolbar-btn"
-                        title="Export standings, category totals, or the player leaderboard (CSV / clipboard)"><span class="btn-icon">⬇</span><span class="btn-label">Export</span></button>
-                    <button type="button" id="recap-btn" class="share-toolbar-btn"
-                        title="Build a shareable image + text recap of a matchup week"><span class="btn-icon">📣</span><span class="btn-label">Recap</span></button>
+                    <button type="button" id="export-btn" class="share-toolbar-btn"><span class="btn-icon">⬇</span><span class="btn-label">Export</span></button>
+                    <button type="button" id="recap-btn" class="share-toolbar-btn"><span class="btn-icon">📣</span><span class="btn-label">Recap</span></button>
                 </div>
             </div>
 
@@ -99,15 +101,11 @@
                     <div class="col col-trends">
                         <div class="header-row">
                             <h3 style="display: flex; align-items: center;"><span id="trends-box-title">Season Trends</span>
-                                <span class="tooltip tooltip-bottom">ⓘ
-                                    <span class="tooltiptext" id="trends-box-tooltip">
-                                        Cat Wins and Match Wins using the selected timeframe. The dashed line
-                                        marks when playoffs started. Hover any point to get a breakdown.
-                                    </span>
-                                </span>
+                                <span class="hint" id="trends-box-tooltip" tabindex="0" role="button" aria-label="About this chart"
+                                    data-hint="Cat Wins and Match Wins over the selected timeframe. The dashed line marks the playoff start. Hover a point for the breakdown.">ⓘ</span>
                             </h3>
                             <button type="button" id="trends-popout-btn" class="trends-popout-btn" aria-expanded="false"
-                                title="Pop out the trends chart" aria-label="Pop out the trends chart">⛶</button>
+                                title="Expand" aria-label="Expand the trends chart">⛶</button>
                         </div>
 
                         <div id="line-graph-container" class="graph-viewport"></div>
@@ -118,18 +116,10 @@
                             <h3 class="rankings-tabs">
                                 <button type="button" id="rankings-tab-standings" class="rankings-tab active">Team Rankings</button>
                                 <button type="button" id="rankings-tab-category" class="rankings-tab">Category Rankings</button>
-                                <span class="tooltip tooltip-bottom">ⓘ
-                                    <span class="tooltiptext">
-                                        <strong>Team Rankings:</strong> H2H and Category Wins standings. Bars
-                                        shade darker for playoffs, lighter for consolation. Each section's
-                                        arrow swaps its bars for a pie.<br><br>
-                                        <strong>Category Rankings:</strong> teams ranked by their total in one
-                                        category. The arrows cycle every category the league scores. Advanced
-                                        Stats adds the ones it does not.
-                                    </span>
-                                </span>
+                                <span class="hint" tabindex="0" role="button" aria-label="About these rankings"
+                                    data-hint="Team Rankings shows H2H and Category Wins standings. Bars shade darker for playoffs, lighter for consolation. Each arrow swaps its bars for a pie.&#10;&#10;Category Rankings ranks teams by their total in one category. The arrows cycle every category the league scores, and Advanced Stats adds the rest.">ⓘ</span>
                             </h3>
-                            <!-- Category Rankings shows one category at a time and the arrows cycle the list, so this toggle is all that survives of the old picker: it extends the cycle to the categories the league does not score. -->
+                            <!-- Category Rankings shows ONE category at a time and the pager arrows cycle the league's whole list, so there is no picker any more. This toggle is all that survives of it: it extends the cycle to the categories the league does not score. It sits in the header slot the Bar/Pie selector vacates in Category view, so it costs no layout. -->
                             <div id="cat-advanced-toggle" class="advanced-stats-toggle" style="display:none;"></div>
                         </div>
 
@@ -141,15 +131,11 @@
                 <div class="heatmap-band">
                     <div class="header-row">
                         <h3 style="display: flex; align-items: center;">Category Heatmap
-                            <span class="tooltip tooltip-bottom">ⓘ
-                                <span class="tooltiptext">
-                                    Every team's total per category, shaded green (best) to red (worst).
-                                    Click a category to sort by it.
-                                </span>
-                            </span>
+                            <span class="hint" tabindex="0" role="button" aria-label="About this heatmap"
+                                data-hint="Every team's total per category, shaded green (best) to red (worst). Click a category to sort by it.">ⓘ</span>
                         </h3>
                         <button type="button" id="heatmap-popout-btn" class="trends-popout-btn" aria-expanded="false"
-                            title="Pop out the category heatmap" aria-label="Pop out the category heatmap">⛶</button>
+                            title="Expand" aria-label="Expand the category heatmap">⛶</button>
                     </div>
                     <div id="heatmap-graph-container" class="graph-viewport"></div>
                 </div>
@@ -182,7 +168,7 @@
                     </div>
                     <div class="trends-overlay-body">
                         <div id="trends-overlay-chart" class="trends-overlay-chart"></div>
-                        <!-- The same collapsible box the heatmap pop-out docks its filters in, so the two overlays present one control rather than two look-alikes. Collapsing hands the height to the chart. -->
+                        <!-- Same collapsible box the heatmap pop-out docks its filters in: the shared .control-panel chrome and caret, so the two overlays present one control rather than two look-alikes. Collapsing hands the height to the chart, which is the whole point of popping it out. -->
                         <div id="trends-overlay-filters-panel" class="control-panel overlay-filters-panel">
                             <button type="button" id="trends-filters-toggle" class="control-panel-toggle" aria-expanded="true">
                                 <span class="control-panel-caret">▸</span> Data Filters
@@ -192,7 +178,7 @@
                     </div>
                 </div>
 
-                <!-- Per-card pop-out: drills into one matchup's visual at full size with a hover readout. Deliberately generic rather than race-specific, so whatever visual a card registered is what this overlay renders. -->
+                <!-- Per-CARD pop-out: drills into ONE matchup's visual at full size with a hover readout. Deliberately generic, not race-specific - the card registers whatever visual it drew (see registerCardVisual in graphs.js) and this overlay renders it, so the cats race chart and swing meter inherit the affordance when they land. No filters dock here: a single matchup has nothing to filter. -->
                 <div id="card-overlay" class="trends-overlay" hidden>
                     <div class="trends-overlay-header">
                         <h3 class="trends-overlay-title" id="card-overlay-title">Matchup</h3>
@@ -212,7 +198,7 @@
                     </div>
                     <div class="trends-overlay-body">
                         <div id="heatmap-overlay-chart" class="trends-overlay-chart"></div>
-                        <!-- The docked Teams strip gets the same disclosure, so collapsing it hands its height to the heatmap. The toggle lives in the overlay's own markup, so the moved node is relocated untouched. -->
+                        <!-- The docked Teams strip gets the Data Filters disclosure: collapsing it hands its whole height to the heatmap, which is the point of popping out in the first place. The toggle lives in the overlay's own markup, not on the moved #team-filters node, so the pop-out controller keeps relocating that node untouched. -->
                         <div id="heatmap-overlay-filters-panel" class="control-panel overlay-filters-panel">
                             <button type="button" id="heatmap-filters-toggle" class="control-panel-toggle" aria-expanded="true">
                                 <span class="control-panel-caret">▸</span> Teams
@@ -246,7 +232,8 @@
                 <div id="player-detail-container" class="graph-viewport" style="display:none; flex-direction:column;"></div>
             </div>
 
-            <!-- The roster viewer. One container, filled by renderMyTeamTab, so the tab's bands are one render with one measurement pass. -->
+
+            <!-- My Team: the roster viewer. One container, filled by renderMyTeamTab, so the tab's three bands are one render with one measurement pass. -->
             <div id="view-myteam" class="tab-view" style="display:none;">
                 <div id="myteam-container" class="myteam-container"></div>
             </div>
@@ -261,7 +248,7 @@
         <pre id="debug-output"></pre>
     </details>
     <script src="tests/browser-stub.js"></script>
-    <!-- Chrome and Edge compat shim, loaded after browser-stub.js on purpose: the stub already defines window.browser, so this no-ops here. -->
+    <!-- Chrome/Edge compat shim (see compat.js) - loaded AFTER browser-stub.js on purpose: the stub already defines window.browser, so this no-ops here and the stub keeps winning. -->
     <script src="compat.js"></script>
     <script type="module" src="main.js"></script>
 </body>

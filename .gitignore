@@ -5,3 +5,6 @@ JSON_debug/
 # Packaged extension builds
 *.xpi
 *.zip
+
+# Local dev server config, not part of the published extension
+.claude/

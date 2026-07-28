@@ -2,17 +2,17 @@ import { AppState, TEAM_COLORS } from './state.js';
 import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, collapseSettingsBar } from './controls.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, resetRankingsViewState } from './graphs.js';
 import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData } from './players.js';
-import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit } from './utils.js';
+import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat } from './utils.js';
 import { resetMyTeamView, renderMyTeamTab } from './myteam.js';
 
 // ESPN's own game ids, the authoritative statement of what sport a payload is. Only the two this app supports are mapped, and anything else falls back to the form.
 const GAME_ID_SPORTS = { 2: 'flb', 4: 'fhl' };
 
 // Every caller is a genuine new league, year or sport fetch, so this always resets.
-
 export function processCoreData() {
     if (!AppState.apiData) return;
     document.getElementById('results').style.display = 'flex';
+    // Data's in - tuck the one-time setup fields away behind the gear button.
     collapseSettingsBar();
 
     // First, because everything below it describes the league now loading and must read its sport from here rather than from the form. gameId is the payload's own answer, so a restored session and a fresh fetch agree.
@@ -20,10 +20,11 @@ export function processCoreData() {
         || document.getElementById('sport').value
         || 'flb';
 
-
     // A fresh fetch invalidates the loaded player pool, which is re-fetched lazily when the Player Metrics tab opens.
     AppState.playerData = [];
     AppState.playerDataLoaded = false;
+    // A previous league's pool failure says nothing about this one, and the user may have logged in since.
+    AppState.playerDataError = null;
     AppState.playerWeeklyCache = {};
     AppState.selectedPlayerId = null;
     // A failed bulk weekly-stats fetch from a previous season must not permanently block this one from trying.
@@ -149,7 +150,7 @@ export function processCoreData() {
 
         let rawStats = t.valuesByStat || t.record?.overall?.stats || {};
         Object.keys(rawStats).forEach(statId => {
-            let val = statValue(rawStats[statId]);
+            let val = numericStat(rawStats[statId]);
             teamDataMap[t.id].seasonCats[statId] = val || 0;
             AppState.availableStatsSet.add(statId.toString());
         });
@@ -210,14 +211,14 @@ export function processCoreData() {
                 let boxStats = {};
                 if (game.boxscore && game.boxscore[side] && game.boxscore[side].statistics) {
                     game.boxscore[side].statistics.forEach(s => {
-                        boxStats[s.statId.toString()] = firstDefined(s.appliedTotal, s.value);
+                        boxStats[s.statId.toString()] = numericStat(firstDefined(s.appliedTotal, s.value));
                     });
                 } else {
                     const statsObj = game[side].cumulativeScore?.scoreByStat || game[side].cumulativeScore?.statBySlot || {};
                     for (let key in statsObj) {
                         const statData = statsObj[key];
                         const sId = statData.statId !== undefined ? statData.statId.toString() : key;
-                        boxStats[sId] = firstDefined(statData.score, statData.value);
+                        boxStats[sId] = numericStat(firstDefined(statData.score, statData.value));
                     }
                 }
 

@@ -43,7 +43,10 @@ export async function checkAuth() {
         // Fire and forget: the manual sport, league id and year fields work whether or not discovery succeeds.
         // Only the first green run builds the picker, so a watcher that fires again never rebuilds a list the user is reading.
         if (!authSatisfied) populateLeaguePicker(swidCookie.value).catch(() => {});
+        const wasSatisfied = authSatisfied;
         authSatisfied = true;
+        // The moment a logged-out session becomes a logged-in one, which the auth watchers already detect on a focus or a cookie change. Anything that failed for want of a login can now succeed, so say so and let main.js decide what to reload. api.js importing players.js would close a cycle.
+        if (!wasSatisfied) document.dispatchEvent(new CustomEvent('leaguewise:auth-restored'));
         return;
     }
 
@@ -67,6 +70,33 @@ export async function checkAuth() {
     }
 
     authStatus.textContent = '❌ Missing Cookies. Log into ESPN Fantasy first.';
+}
+
+// One period's roster snapshot: every team's roster with the lineupSlotId each player sat in that day. Distilled to [{ id, entries: [{ p, slot }] }] so the pure module never sees ESPN's full payload, and any missing field drops that entry rather than throwing.
+// Install first, log in second is the normal first run, and the dashboard never noticed: the warning sat there until a manual refresh, and because checkAuth had already run before the login the league picker stayed empty too. Two layers, because neither is sufficient alone, with one re-check at a time and never while the state is already green.
+let authRecheckTimer = null;
+function recheckAuthSoon() {
+    if (authSatisfied || authRecheckTimer) return;
+    authRecheckTimer = setTimeout(() => {
+        authRecheckTimer = null;
+        checkAuth();
+    }, 250);
+}
+
+export function setupAuthWatchers() {
+    // The precise layer: the cookies permission already covers this listener, and it only fires once the host permission is granted, which is exactly when cookie visibility begins, so it covers grant-then-login and login-then-grant alike. Guarded, since the preview stub has no cookies.onChanged.
+    try {
+        browser.cookies?.onChanged?.addListener((change) => {
+            const domain = change?.cookie?.domain || '';
+            if (domain.includes('espn.com')) recheckAuthSoon();
+        });
+    } catch { /* no listener available, the focus layer below still covers it */ }
+
+    // The layer that needs no permissions at all: coming back to this page is the moment a user returns from logging in. Both events fire in the cases that matter, and recheckAuthSoon collapses them into one check.
+    window.addEventListener('focus', recheckAuthSoon);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') recheckAuthSoon();
+    });
 }
 
 // ESPN's fan-profile endpoint lists every fantasy league the logged-in account belongs to, keyed by the SWID cookie and authenticated by the same espn_s2 cookie every other call here uses (gameId 1=ffl, 2=flb, 3=fba, 4=fhl). Parsed defensively field by field, and any failure just leaves the picker hidden.
@@ -184,11 +214,19 @@ async function runWithConcurrencyLimit(items, limit, worker) {
     return results;
 }
 
-// Shared fetch, throw and parse. Every endpoint sends cookies with credentials include, plus an X-Fantasy-Filter header when filtering server-side, and a non-ok response is worth a real Error rather than a broken body.
+// Shared fetch, throw and parse for an ESPN call. Every endpoint sends cookies with credentials:'include', and the filtered ones add an X-Fantasy-Filter header. A non-ok response always means something ESPN-specific went wrong, so it becomes a real Error rather than a broken body. VALIDATED against a real logged-out session: ESPN refuses an unauthenticated player-pool request with 405 rather than 401, and that call is the only one carrying the filter header it objects to. A league read with restrictionType NONE succeeds with no cookies at all, so the three statuses below mean one thing between them and callers phrase it instead of printing a number.
+const AUTH_STATUSES = new Set([401, 403, 405]);
+
 async function fetchEspnJson(url, filter) {
     const headers = filter ? { 'X-Fantasy-Filter': JSON.stringify(filter) } : {};
     const response = await fetch(url, { credentials: 'include', headers });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+        // The message keeps the status for the diagnostic panel and any log; authRequired is what the UI branches on, so no surface has to know which code ESPN chose this time.
+        const err = new Error(`HTTP ${response.status}`);
+        err.status = response.status;
+        err.authRequired = AUTH_STATUSES.has(response.status);
+        throw err;
+    }
     return response.json();
 }
 
@@ -275,31 +313,28 @@ export async function harvestTransactions(sport, leagueId, year, firstScoringPer
     return Array.from(byId.values());
 }
 
-// One period's roster snapshot: every team's roster with the lineupSlotId each player sat in that day. Distilled to [{ id, entries: [{ p, slot }] }] so the pure module never sees ESPN's full payload, and any missing field drops that entry rather than throwing.
-// Install first, log in second is the normal first run, and the dashboard never noticed: the warning sat there until a manual refresh, and because checkAuth had already run before the login the league picker stayed empty too. Two layers, because neither is sufficient alone, with one re-check at a time and never while the state is already green.
-let authRecheckTimer = null;
-function recheckAuthSoon() {
-    if (authSatisfied || authRecheckTimer) return;
-    authRecheckTimer = setTimeout(() => {
-        authRecheckTimer = null;
-        checkAuth();
-    }, 250);
-}
-
-export function setupAuthWatchers() {
-    // The precise layer: the cookies permission already covers this listener, and it only fires once the host permission is granted, which is exactly when cookie visibility begins, so it covers grant-then-login and login-then-grant alike. Guarded, since the preview stub has no cookies.onChanged.
+// The pro sports schedule, which turns a probable-start game id into a day. A SEASON endpoint rather than a league one: no league id, no cookies, and the same host the manifest already lists, so it adds no permission and no privacy question. One fetch per sport and season, cached in session storage, since the response is around 850KB for baseball and a season's schedule does not move. Failure is silent by design and the projected-start column just does not render.
+export async function fetchProTeamSchedules() {
+    const { sport, year } = getLeagueParams();
+    const key = `proTeamSchedules:${sport}:${year}`;
+    if (AppState.proTeamSchedules && AppState.proTeamSchedules.key === key) return AppState.proTeamSchedules.data;
     try {
-        browser.cookies?.onChanged?.addListener((change) => {
-            const domain = change?.cookie?.domain || '';
-            if (domain.includes('espn.com')) recheckAuthSoon();
-        });
-    } catch { /* no listener available, the focus layer below still covers it */ }
-
-    // The layer that needs no permissions at all: coming back to this page is the moment a user returns from logging in. Both events fire in the cases that matter, and recheckAuthSoon collapses them into one check.
-    window.addEventListener('focus', recheckAuthSoon);
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') recheckAuthSoon();
-    });
+        const cached = await browser.storage.session.get(key);
+        if (cached && cached[key]) {
+            AppState.proTeamSchedules = { key, data: cached[key] };
+            return cached[key];
+        }
+    } catch { /* session storage unavailable, fall through to the network */ }
+    try {
+        const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}?view=proTeamSchedules_wl`;
+        const data = await fetchEspnJson(url);
+        AppState.proTeamSchedules = { key, data };
+        try { await browser.storage.session.set({ [key]: data }); } catch { /* over quota, keep the memory copy */ }
+        return data;
+    } catch {
+        AppState.proTeamSchedules = { key, data: null };
+        return null;
+    }
 }
 
 // One period's rosters, for the surface that needs the last lineup of a finished season. The league payload only carries current rosters while a matchup is live, so a completed season has none and this is the single call that answers it. Same validated parser the harvest uses.
@@ -308,6 +343,7 @@ export async function fetchRosterForPeriod(scoringPeriodId) {
     return fetchRosterPeriod(sport, leagueId, year, scoringPeriodId);
 }
 
+// One scoring period's roster SNAPSHOT: every team's full roster with the lineupSlotId each player sat in that day. mRoster with an explicit scoringPeriodId returns the historical lineup for a completed season. Distilled to the shape the timeline consumes, so the pure module never sees ESPN's full playerPoolEntry payload. Any missing field drops that entry rather than throwing, and a shape mismatch yields empty snapshots and the fallback ladder.
 async function fetchRosterPeriod(sport, leagueId, year, scoringPeriodId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&scoringPeriodId=${scoringPeriodId}`;
@@ -375,12 +411,17 @@ export async function fetchEspnData() {
 
         setDebugContext('team', data);
         AppState.apiData = data;
+        AppState.leagueDataError = null;
         AppState.leagueHistoryYears = await fetchLeagueHistorySeasons(sport, leagueId);
         await browser.storage.session.set({ apiData: data, leagueHistoryYears: AppState.leagueHistoryYears });
         processCoreData();
         succeeded = true;
     } catch (error) {
-        alert(`Error: ${error.message}`);
+        // A private league read with no cookies fails outright, unlike a restrictionType NONE one. Recorded so the login watcher can retry it, and phrased as the action rather than the status, the same rule the player pool follows.
+        AppState.leagueDataError = error.authRequired ? { authRequired: true } : null;
+        alert(error.authRequired
+            ? 'Log into ESPN in this browser, then fetch again.'
+            : `Error: ${error.message}`);
     } finally {
         btn.textContent = "Fetch Data";
         btn.disabled = false;

@@ -24,6 +24,14 @@ export function statValue(v) {
     return (v && typeof v === 'object') ? v.value : v;
 }
 
+// JSON cannot write an infinite number, so ESPN sends the STRING "Infinity" for a rate whose denominator is still zero. That is a real value rather than corrupt data: a team with earned runs and no innings genuinely has an infinite ERA, which is why it turns up on a live matchup. VALIDATED in a real league mid-matchup, where stat 47 arrived as "Infinity". Every category value passes through here, so nothing downstream has to think about it. Anything that is not a number becomes null, since null already means no value everywhere in this app while NaN poisons arithmetic quietly.
+export function numericStat(v) {
+    const raw = statValue(v);
+    if (raw === null || raw === undefined || raw === '') return null;
+    const n = Number(raw);
+    return Number.isNaN(n) ? null : n;
+}
+
 export function unwrapStats(rawStats) {
     const result = {};
     Object.keys(rawStats || {}).forEach(id => { result[id] = statValue(rawStats[id]); });
@@ -196,6 +204,47 @@ export function splitByTier(team, startWeek, endWeek, getWeekVal) {
     return { reg, playoff, consolation, total: reg + playoff + consolation };
 }
 
+// ESPN's injuryStatus, mapped to what a person would call it. Every token was counted in real captures rather than taken from a reference: across eight payloads covering both sports and three seasons, baseball reports ACTIVE, DAY_TO_DAY and the four DL lengths, while hockey reports ACTIVE, OUT, INJURY_RESERVE and SUSPENSION. MLB renamed the disabled list to the injured list in 2019 and ESPN kept the old key, so the label reads IL where the key still says DL.
+export const INJURY_STATUS_LABELS = {
+    DAY_TO_DAY: 'Day to day',
+    SEVEN_DAY_DL: 'On the 7-day IL',
+    TEN_DAY_DL: 'On the 10-day IL',
+    FIFTEEN_DAY_DL: 'On the 15-day IL',
+    SIXTY_DAY_DL: 'On the 60-day IL',
+    OUT: 'Out',
+    INJURY_RESERVE: 'On injured reserve',
+    SUSPENSION: 'Suspended'
+};
+
+// Day to day is the only status in the validated set where the player is likely to play anyway, so it is the only one that reads amber. Everything else means unavailable and reads red.
+const INJURY_MINOR = new Set(['DAY_TO_DAY']);
+
+// A suspension is not an injury. It still belongs on this badge, because what the badge answers is "can I count on this player", but it gets its own glyph so the icon never claims an injury that did not happen.
+function injuryGlyph(status) {
+    return status === 'SUSPENSION' ? '!' : '✚';
+}
+
+// Anything ESPN sends that is not in the table above still gets a badge, labelled with ESPN's own word rather than a guess at what it means. Titlecasing the token is the honest fallback: a status we have never seen is a reason to show something, not to stay silent about an unavailable player.
+export function injuryLabel(status) {
+    if (!status || status === 'ACTIVE') return '';
+    return INJURY_STATUS_LABELS[status]
+        || String(status).toLowerCase().replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+}
+
+// The shared availability badge, used by the leaderboard, the roster and the drill-down so all three say the same thing in the same colour. Returns empty for a healthy player, which lets every call site interpolate it unconditionally.
+export function injuryBadgeHtml(status) {
+    const label = injuryLabel(status);
+    if (!label) return '';
+    const tier = INJURY_MINOR.has(status) ? 'minor' : 'major';
+    return `<span class="injury-icon injury-${tier}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${injuryGlyph(status)}</span>`;
+}
+
+// The one sentence every surface uses when the player pool is missing. Shared so the leaderboard and My Team cannot drift into telling the same user two different stories, and so the logged-out case reads as a thing to DO rather than as a status code. Callers escape it.
+export function playerPoolErrorText(err) {
+    if (err && err.authRequired) return 'Log into ESPN in this browser to load player data, then refresh.';
+    return `Couldn't load player data: ${(err && err.message) || 'Unknown error'}`;
+}
+
 // Escapes the five HTML-significant characters, single quotes included so a value is safe in a single-quoted attribute. Read sites that pull an escaped value back out of an attribute must use textContent, or they re-decode and re-arm the markup.
 export function escapeHtml(str) {
     return String(str)
@@ -255,6 +304,67 @@ export function layoutHoverTooltip(tooltipEl, clientX, clientY) {
     if (y < margin) y = margin;
     tooltipEl.style.left = x + 'px';
     tooltipEl.style.top = y + 'px';
+}
+
+// The explanatory hint tooltips on panel headings. They were once a second implementation, absolutely positioned inside the header and centred on the trigger, which is what made a 250px box hang past a trigger near the right edge. It still counted in the page's scrollable width while hidden, so the page scrolled sideways because of something nobody could see, and the scrollbar that raised ate 15px of height and brought vertical scroll back with it. Fixed positioning is the real fix, since a fixed element is out of flow and cannot extend the page at any width, and clamping to the viewport comes with it. Text, never markup: the hint is written as an attribute and read back with textContent, so a heading cannot smuggle HTML into the page.
+function ensureHintTooltip() {
+    let el = document.getElementById('hint-tooltip');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'hint-tooltip';
+        el.className = 'hint-tooltip';
+        el.setAttribute('role', 'tooltip');
+        document.body.appendChild(el);
+    }
+    return el;
+}
+
+function placeHintTooltip(el, anchor) {
+    const margin = 12;
+    const r = anchor.getBoundingClientRect();
+    el.style.left = '0px';
+    el.style.top = '0px';
+    const w = el.offsetWidth, h = el.offsetHeight;
+    // Centred under the trigger by preference, then pulled back inside whichever edge it crosses.
+    let x = r.left + r.width / 2 - w / 2;
+    let y = r.bottom + 8;
+    if (x + w > window.innerWidth - margin) x = window.innerWidth - margin - w;
+    if (x < margin) x = margin;
+    // Above the trigger when there is no room below, which is what the bottom row of panels needs.
+    if (y + h > window.innerHeight - margin) y = Math.max(margin, r.top - h - 8);
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+}
+
+// Delegated from the document, so hints inside re-rendered panels keep working without every render remembering to re-bind. Focus and blur are included to keep the ⓘ usable from a keyboard.
+export function setupHintTooltips() {
+    const show = (target) => {
+        const text = target.getAttribute('data-hint');
+        if (!text) return;
+        const el = ensureHintTooltip();
+        el.textContent = text;
+        el.style.display = 'block';
+        placeHintTooltip(el, target);
+    };
+    const hide = () => {
+        const el = document.getElementById('hint-tooltip');
+        if (el) el.style.display = 'none';
+    };
+    document.addEventListener('mouseover', (e) => {
+        const target = e.target.closest?.('[data-hint]');
+        if (target) show(target);
+    });
+    document.addEventListener('mouseout', (e) => {
+        if (e.target.closest?.('[data-hint]')) hide();
+    });
+    document.addEventListener('focusin', (e) => {
+        const target = e.target.closest?.('[data-hint]');
+        if (target) show(target);
+    });
+    document.addEventListener('focusout', hide);
+    // A scroll or resize moves the anchor out from under a tooltip measured against the old layout.
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
 }
 
 // Wires a floating tooltip for every [data-tooltip] element inside container. Stopping propagation means a segment's tooltip wins over an ancestor's rather than both firing.
