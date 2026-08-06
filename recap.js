@@ -1,4 +1,4 @@
-// Shareable weekly league recap: an image plus a text block summarizing one matchup week, built to be posted into a league chat. The model and text builders are unit-tested.
+// Shareable weekly "league recap" - the Phase 1 viral-loop item from ROADMAP.md: a lightly branded image + text block summarizing one matchup week (results, blowout/nail-biter, team of the week, standings with movement), built to be posted into a league group chat where every reader is a prospect. Sharing: the Web Share API (navigator.share with files) hands the image+text straight to the OS share sheet - on phones/tablets and share-capable desktops that reaches Signal, Messenger, WhatsApp, etc. directly. Browsers without it (notably desktop Firefox) get first-class fallbacks instead: copy the text, copy the image, or download the PNG and drop it into any chat app. The model/text builders are pure-ish (AppState in, plain data out) and unit-tested in tests/features.test.html; the canvas renderer and modal own the presentation.
 
 import { AppState, ESPN_STAT_MAPS, INVERSE_STATS } from './state.js';
 import { escapeHtml, orderStatIdsByRole, splitStatIdsByRole } from './utils.js';
@@ -7,7 +7,7 @@ const BRAND_NAME = 'Leaguewise';
 const BRAND_TAGLINE = 'Free fantasy league analytics';
 const FONT_STACK = '"Segoe UI", Roboto, Arial, sans-serif';
 
-// The canvas image keeps its own fixed palette on purpose, since it is exported and posted elsewhere rather than viewed inside the app under its theme.
+// The canvas recap image has its own fixed palette, on purpose. It is exported and posted into chats, not viewed inside the app, so it stays light + branded regardless of the app's light/dark theme (the DOM uses CSS tokens instead - see dashboard.css and ROADMAP theming). This is the "one source of truth" for the image's colors. `brand` is the orange used for the logo mark and wordmark; `accent` blue stays on scores/data; the header is navy.
 const P = {
     white: '#ffffff',
     navy: '#1b2b4b',
@@ -34,7 +34,7 @@ const P = {
 
 // ==== Recap model ====
 
-// The latest week where every scheduled game has a decided winner, falling back to the latest week with any activity when none has finished yet.
+// The latest week where every scheduled game has a decided winner - the natural default for a recap ("last week's results"). Falls back to the latest week with ANY activity (an in-progress current matchup, clearly labeled) when no week has fully finished yet.
 export function defaultRecapWeek() {
     const schedule = AppState.apiData?.schedule || [];
     const byWeek = new Map();
@@ -50,7 +50,7 @@ export function defaultRecapWeek() {
     return lastCompleted || AppState.maxCompletedWeek;
 }
 
-// Cumulative standings through thruWeek, sorted like the Rankings bars, built twice per recap so movement can be derived. weeklyMatchWins holds the 1/0.5/0 result in a category league but the raw points scored in a points one, whose result lives in weeklyMatchResult. Reading it the same way for both meant a points league counted a win only when a team scored exactly 1.00 in a week, so the standings were ordered by points scored rather than by matchups won and the movement arrows came off that order. A points league is decided by matchups won with points as the tiebreak, so it sorts and reads that way, keeping the points total beside the record rather than in place of it.
+// Cumulative standings through `thruWeek`, sorted like the Rankings bars (match wins, cat wins as tiebreaker) - used twice per recap (this week and the week before) to derive movement. weeklyMatchWins holds the 1/0.5/0 RESULT in a category league but the raw POINTS SCORED in a points one, whose result lives in weeklyMatchResult. This read the field the same way for both, so a points league counted a win only when a team scored exactly 1.00 in a week: every team read as winless, the standings were ordered by points-for rather than by matchups won, and the movement arrows were derived from that order. A points league is decided by matchups won, with points as the tiebreak - the owner's own league sends the most matchup wins to the playoffs - so it now sorts and reads that way, keeping the points total beside the record rather than in place of it.
 function standingsThrough(thruWeek, isPoints) {
     return AppState.teamStats.map(t => {
         let matchWins = 0, points = 0, cWins = 0, w = 0, l = 0, ties = 0;
@@ -118,11 +118,11 @@ export function buildRecapModel(week) {
 
     const decidedGames = results.filter(r => r.decided && !r.tie);
     const blowout = decidedGames.length ? decidedGames.reduce((a, b) => (b.margin > a.margin ? b : a)) : null;
-    // Only worth calling out when it is a different game than the blowout.
+    // Only worth calling out when it's a DIFFERENT game than the blowout - a one-game week has no meaningful "closest" distinct from its "biggest".
     let nailbiter = decidedGames.length > 1 ? decidedGames.reduce((a, b) => (b.margin < a.margin ? b : a)) : null;
     if (nailbiter === blowout) nailbiter = null;
 
-    // Team of the week is the best single-week production: category wins for category leagues, raw points for points leagues.
+    // Team of the week: best single-week production - category wins for category leagues (a week's cat wins can exceed the H2H result's 0/0.5/1), raw points for points leagues.
     const weekValOf = t => isPoints ? (t.weeklyMatchWins[week] || 0) : (t.weeklyCatWins[week] || 0);
     let teamOfWeek = null;
     AppState.teamStats.forEach(t => {
@@ -155,7 +155,7 @@ export function buildRecapModel(week) {
     };
 }
 
-// Dispatch by recap kind so the modal's rebuild, share, copy and download paths stay identical for both.
+// Dispatch by recap kind so the modal's rebuild/share/copy/download paths stay identical for both the whole-league recap and a single team's head-to-head.
 function recapTextOf(m) {
     return m.kind === 'team' ? buildTeamMatchupText(m) : buildRecapText(m);
 }
@@ -229,7 +229,7 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
-// The brand mark is drawn rather than loaded from a file, so the extension ships no extra asset and the canvas needs no async load.
+// The brand mark: a rising "W" sparkline (same mark as the app's top-bar lockup - see dashboard.html) in a white rounded tile so it reads like an app icon against the navy header. Drawn, not an image asset, so the extension ships no extra files and the canvas needs no async loads. Geometry mirrors the SVG's 24-unit grid.
 function drawBrandMark(ctx, x, y, size) {
     roundRect(ctx, x, y, size, size, size * 0.22);
     ctx.fillStyle = P.white;
@@ -441,7 +441,7 @@ export function renderRecapImage(m) {
     return canvas;
 }
 
-// ==== Team matchup recap: one team's head-to-head that week ====
+// ==== Team matchup recap (one team's head-to-head that week) ====
 
 function slugify(s) {
     return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'team';
@@ -452,7 +452,7 @@ function normalizeSwid(s) {
     return String(s || '').toUpperCase().replace(/[{}]/g, '');
 }
 
-// The logged-in user's own team, matched by SWID, or null when the SWID is unknown or owns no team here. Only used to pre-select a default in the picker.
+// The logged-in user's own team, matched by SWID against each team's owners - null when the SWID is unknown (dev preview, missing cookie) or doesn't own a team in this league. Only used to pre-select a friendly default in the recap's team picker; the user can pick any team.
 export function detectMyTeamId() {
     const me = normalizeSwid(AppState.userSwid);
     if (!me) return null;
@@ -468,10 +468,11 @@ function fmtCatValue(v) {
     return (n % 1 !== 0) ? n.toFixed(3) : String(n);
 }
 
-// One team's head-to-head for a week: both teams, the final score, and for category leagues a category-by-category breakdown built from the same weekly totals the Team Metrics graphs use. Returns a { noGame: true } stub for a bye.
+// One team's head-to-head result for a given matchup week: the two teams, the final category (or points) score, and - for category leagues - a category-by-category breakdown of who won each. Categories come from the same per-week per-category totals the Team Metrics graphs use (weeklyCats), compared with the league's own inverse-stat directions. Returns a { noGame:true } stub when the team had no matchup that week (a bye).
 export function buildTeamMatchupRecapModel(week, teamId) {
     const data = AppState.apiData;
     if (!data || !week || teamId == null) return null;
+    // The recap describes the LOADED matchup, so its stat maps come from the loaded league's sport rather than from the form, which the user may have moved since.
     const sport = AppState.loadedSport;
     const isPoints = AppState.isPointsLeague;
     const statMap = ESPN_STAT_MAPS[sport] || {};
@@ -526,7 +527,7 @@ export function buildTeamMatchupRecapModel(week, teamId) {
     const categories = [];
     let catsWon = 0, catsLost = 0, catsTied = 0;
     if (!isPoints) {
-        // Role-grouped like every other surface. The league's own scoringItems order interleaves the two groups.
+        // Role-grouped like every other surface (batting/skaters, then pitching/goalies) - the league's own scoringItems order, which scoredStatIds preserves, interleaves the two.
         orderStatIdsByRole(sport, Array.from(AppState.scoredStatIds)).forEach(id => {
             const myVal = me.weeklyCats[id];
             const oppVal = opp.weeklyCats[id];
@@ -538,7 +539,7 @@ export function buildTeamMatchupRecapModel(week, teamId) {
             else { winnerSide = 'opp'; catsLost++; }
             categories.push({ id, name: statMap[id] || `Stat ${id}`, myVal, oppVal, inverse, winnerSide });
         });
-        // Flag where the second role group starts so the image and the text can both mark it, and only when both groups produced categories.
+        // Flag where the second role group starts so the image and the text can both mark it. Only when BOTH groups actually produced categories, so a single-role league carries no flag and renders exactly as it did before. categories is already role-ordered, so the first secondary-group entry sits at exactly primary.length.
         const { primary, secondary } = splitStatIdsByRole(sport, categories.map(c => c.id));
         if (primary.length && secondary.length) categories[primary.length].groupBreakBefore = true;
     }
@@ -568,7 +569,7 @@ export function buildTeamMatchupText(m) {
         if (m.categories.length) {
             lines.push('');
             m.categories.forEach(c => {
-                // Blank line between the role groups, absent for a single-role league.
+                // Blank line between the role groups (the text form's divider). Absent for a single-role league, which keeps its output byte-identical to before.
                 if (c.groupBreakBefore) lines.push('');
                 const mark = c.winnerSide === 'me' ? '✅' : c.winnerSide === 'opp' ? '❌' : '➖';
                 lines.push(`${mark} ${c.name}: ${fmtCatValue(c.myVal)} vs ${fmtCatValue(c.oppVal)}`);
@@ -582,7 +583,7 @@ export function buildTeamMatchupText(m) {
 const SCOREBOARD_H = 172;
 const CAT_HEADER_H = 44;
 const CAT_ROW_H = 46;
-// Vertical room for the thin rule between role groups. Deliberately small, since it is a grouping hint rather than a section break.
+// Vertical room for the thin rule between the two role groups (see groupBreakBefore). Deliberately small - it is a grouping hint, not a section break like SECTION_GAP.
 const CAT_GROUP_GAP = 14;
 
 export function renderTeamMatchupImage(m) {
@@ -664,7 +665,7 @@ export function renderTeamMatchupImage(m) {
         y += SCOREBOARD_H + SECTION_GAP;
 
         if (hasCats) {
-            // Column header: team names label the left/right value columns
+            // Column header. Team names label the left/right value columns
             ctx.font = `700 18px ${FONT_STACK}`;
             ctx.fillStyle = P.textFaint;
             ctx.fillText(fitText(ctx, m.me.abbrev || m.me.name, 220), PAD + 8, y + CAT_HEADER_H / 2);
@@ -685,7 +686,7 @@ export function renderTeamMatchupImage(m) {
 
             m.categories.forEach((c, i) => {
                 if (c.groupBreakBefore) {
-                    // A 1px rule inset from the zebra rows and thinner than the header and footer rules, so it reads as a grouping hint.
+                    // Subtle 1px rule, inset from the zebra rows and thinner than the 2px header/footer rules, so it reads as a grouping hint rather than a new section. Skipped entirely for a single-role league (no flag set).
                     ctx.strokeStyle = P.divider;
                     ctx.lineWidth = 1;
                     ctx.beginPath();
@@ -699,12 +700,12 @@ export function renderTeamMatchupImage(m) {
                     ctx.fillStyle = P.zebra;
                     ctx.fillRect(PAD, y, IMG_W - PAD * 2, CAT_ROW_H);
                 }
-                // Category name in the center, with a down-arrow hint for lower-is-better.
+                // Category name (center) with a ↓ hint for lower-is-better
                 ctx.textAlign = 'center';
                 ctx.font = `600 21px ${FONT_STACK}`;
                 ctx.fillStyle = P.catName;
                 ctx.fillText(c.name + (c.inverse ? ' ↓' : ''), IMG_W / 2, cy);
-                // My value on the left, green and bold when I won the category.
+                // My value (left) - green + bold if I won it
                 const meWon = c.winnerSide === 'me';
                 ctx.textAlign = 'left';
                 ctx.font = `${meWon ? 700 : 400} 23px ${FONT_STACK}`;
@@ -742,7 +743,7 @@ export function renderTeamMatchupImage(m) {
     return canvas;
 }
 
-// ==== Share, copy and download actions ====
+// ==== Share / copy / download actions ====
 
 function canvasToBlob(canvas) {
     return new Promise((resolve, reject) => {
@@ -750,7 +751,7 @@ function canvasToBlob(canvas) {
     });
 }
 
-// Feature-detected once per open: navigator.share with files is what reaches chat apps through the OS share sheet. Desktop Firefox does not implement it, so copy and download are the primary path there.
+// Feature-detected once per open. navigator.share with FILES is what actually reaches phone/chat apps (Signal, Messenger, WhatsApp...) via the OS share sheet. Desktop Firefox doesn't implement it - the modal shows copy/download as the primary path there.
 function shareFilesSupported() {
     if (typeof navigator.canShare !== 'function' || typeof File === 'undefined') return false;
     try {
@@ -816,7 +817,7 @@ function setRecapStatus(text, isError = false) {
 
 export function openRecapModal() {
     if (!AppState.apiData || !AppState.teamStats.length) return;
-    // Defence in depth behind the disabled button: a recap is built from one matchup's two sides, which a roto league never has.
+    // Defence in depth behind the disabled button (see processCoreData). A recap is built from one matchup's two sides, which a roto league never has.
     if (AppState.isRotoLeague) return;
     const overlay = ensureRecapModal();
 
@@ -828,7 +829,7 @@ export function openRecapModal() {
         .map(w => `<option value="${w}"${w === defWeek ? ' selected' : ''}>Matchup ${w}</option>`)
         .join('');
 
-    // Scope picker: the whole-league recap by default, plus one option per team. The user's own team is marked and listed first among the teams.
+    // Scope picker: whole-league recap (default) plus one option per team for that team's own head-to-head. The user's own team (matched by SWID) is marked and listed first among the teams so "my matchup" is a single click, without displacing the league recap default.
     const myTeamId = detectMyTeamId();
     const teamsForPicker = [...AppState.teamStats].sort((a, b) =>
         (a.id === myTeamId ? -1 : 0) - (b.id === myTeamId ? -1 : 0) || a.name.localeCompare(b.name));
@@ -859,7 +860,7 @@ export function openRecapModal() {
 
     const shareBtn = overlay.querySelector('#recap-share-btn');
     const copyImageBtn = overlay.querySelector('#recap-copy-image-btn');
-    // Where navigator.share with files is unavailable the button is hidden, and copy or download stay as the path. Same for image-to-clipboard.
+    // navigator.share with files reaches phone/chat apps (Signal, Messenger, WhatsApp...) via the OS share sheet; where it isn't available, the button is hidden and copy/download stay as the path. Same for image-to-clipboard.
     shareBtn.style.display = shareFilesSupported() ? '' : 'none';
     copyImageBtn.style.display = clipboardImageSupported() ? '' : 'none';
 
@@ -872,7 +873,7 @@ export function openRecapModal() {
             await navigator.share({ files: [file], title: model.shareTitle, text: recapTextOf(model) });
             setRecapStatus('Shared ✓');
         } catch (err) {
-            // Closing the OS share sheet without picking a target rejects with AbortError, which is a normal user action rather than a failure.
+            // Closing the OS share sheet without picking a target rejects with AbortError - that's a normal user action, not a failure worth alarming anyone about.
             if (err.name !== 'AbortError') setRecapStatus(`Couldn't share: ${err.message}`, true);
         }
     };

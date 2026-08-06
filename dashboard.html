@@ -5,14 +5,14 @@
     <meta charset="utf-8">
     <!-- Without this, mobile browsers (incl. Firefox for Android) fall back to a virtual ~980px layout viewport and render the desktop layout shrunk-and-zoomed-out instead of at the device's real width - this is also what let window.innerWidth stay above the popup-redirect's 800px threshold pre-fix, masking the loop bug in that context. -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Pre-stylesheet theme apply. External file, not inline: extension-page CSP blocks inline scripts, so the old inline version silently never ran in the installed extension - see theme-init.js for the full why. -->
+    <!-- Pre-stylesheet theme apply. External file, not inline. Extension-page CSP blocks inline scripts, so the old inline version silently never ran in the installed extension - see theme-init.js for the full why. -->
     <script src="theme-init.js"></script>
     <link rel="stylesheet" href="dashboard.css">
 </head>
 
 <body>
     <div class="container">
-        <!-- Brand BANNER: the full wordmark with the rising-W-sparkline mark slotted in as the word's own "w" - League[W]ise. The mark doubles as the standalone LOGO (recap canvas tiles via drawBrandMark in recap.js, and icon.svg) - two official brand assets, same 24-unit geometry: banner = wordmark with embedded W (this), logo = the W alone. Tight viewBox (cropped to the glyph) + align-items:baseline on .brand-link make the mark sit on the text baseline like a letter. The accent dot is the sparkline's "now" point, ending higher than the first peak. The <a> has no href yet: it becomes the product-website link once a domain exists - add the href here only, nothing else changes. -->
+        <!-- Brand BANNER: the full wordmark with the rising-W-sparkline mark slotted in as the word's own "w" - League[W]ise. The mark doubles as the standalone LOGO (recap canvas tiles via drawBrandMark in recap.js, and icon.svg) - two official brand assets, same 24-unit geometry: banner = wordmark with embedded W (this), logo = the W alone. Tight viewBox (cropped to the glyph) + align-items:baseline on.brand-link make the mark sit on the text baseline like a letter. The accent dot is the sparkline's "now" point, ending higher than the first peak. The <a> has no href yet. It becomes the product-website link once a domain exists - add the href here (and in dev-preview.html) only, nothing else changes. -->
         <h2 class="brand-lockup" title="Leaguewise">
             <a class="brand-link" aria-label="Leaguewise">
                 <span>League</span><svg class="banner-mark" viewBox="1.4 3.6 22 15.5" aria-hidden="true">
@@ -28,26 +28,33 @@
         </div>
 
         <div class="form-row">
-            <button id="settings-toggle-btn" class="settings-toggle-btn" style="display:none;"
-                title="League settings">⚙️</button>
-            <div id="settings-bar" class="settings-bar">
-                <div id="my-leagues-wrap" style="display:none;">
-                    <label>My Leagues:</label>
+            <div class="scoreboard-hover" style="margin-left: auto; padding-bottom: 8px;">
+                <span id="week-indicator"
+                    style="color: var(--accent); font-weight: bold; font-size: 12px; cursor: help;">&nbsp;</span>
+                <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
+            </div>
+
+        <aside id="settings-bar" class="settings-bar">
+            <div class="settings-rail-head">Settings</div>
+            <div class="settings-group">
+                <span class="settings-group-label">League</span>
+                <div id="my-leagues-wrap" class="settings-field" style="display:none;">
+                    <label for="my-leagues">Saved leagues</label>
                     <select id="my-leagues"></select>
                 </div>
-                <div>
-                    <label>Sport:</label>
+                <div class="settings-field">
+                    <label for="sport">Sport</label>
                     <select id="sport">
                         <option value="fhl">Hockey</option>
                         <option value="flb" selected>Baseball</option>
                     </select>
                 </div>
-                <div>
-                    <label>League ID:</label>
+                <div class="settings-field">
+                    <label for="league-id">League ID</label>
                     <input type="text" id="league-id" placeholder="e.g. 12345678">
                 </div>
-                <div>
-                    <label>Year:</label>
+                <div class="settings-field">
+                    <label for="year">Year</label>
                     <select id="year">
                         <option value="2026">2026</option>
                         <option value="2025">2025</option>
@@ -57,17 +64,26 @@
                         <option value="2021">2021</option>
                     </select>
                 </div>
-                <div>
-                    <label>&nbsp;</label>
-                    <button id="fetch-btn">Fetch Data</button>
+                <button id="fetch-btn">Fetch data</button>
+            </div>
+            <div class="settings-group">
+                <span class="settings-group-label">Display</span>
+                <div class="settings-field">
+                    <label for="pref-theme">Theme</label>
+                    <select id="pref-theme">
+                        <option value="auto">Auto (match system)</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+                <div class="settings-pref">
+                    <label for="pref-odds"><input type="checkbox" id="pref-odds"><span>Betting lines on Schedule cards</span></label>
                 </div>
             </div>
-            <div class="scoreboard-hover" style="margin-left: auto; padding-bottom: 8px;">
-                <span id="week-indicator"
-                    style="color: var(--accent); font-weight: bold; font-size: 12px; cursor: help;">&nbsp;</span>
-                <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
-            </div>
-            <button id="theme-toggle-btn" class="theme-toggle-btn" title="Theme">🌗</button>
+        </aside>
+        <button id="settings-toggle-btn" class="settings-toggle-btn"
+            title="Settings" aria-label="Settings">&#9881;</button>
+
         </div>
 
         <div id="results" style="display:none;">
@@ -119,7 +135,7 @@
                                 <span class="hint" tabindex="0" role="button" aria-label="About these rankings"
                                     data-hint="Team Rankings shows H2H and Category Wins standings. Bars shade darker for playoffs, lighter for consolation. Each arrow swaps its bars for a pie.&#10;&#10;Category Rankings ranks teams by their total in one category. The arrows cycle every category the league scores, and Advanced Stats adds the rest.">ⓘ</span>
                             </h3>
-                            <!-- Category Rankings shows ONE category at a time and the pager arrows cycle the league's whole list, so there is no picker any more. This toggle is all that survives of it: it extends the cycle to the categories the league does not score. It sits in the header slot the Bar/Pie selector vacates in Category view, so it costs no layout. -->
+                            <!-- Category Rankings shows ONE category at a time and the pager arrows cycle the league's whole list, so there is no picker any more. This toggle is all that survives of it. It extends the cycle to the categories the league does not score. It sits in the header slot the Bar/Pie selector vacates in Category view, so it costs no layout. -->
                             <div id="cat-advanced-toggle" class="advanced-stats-toggle" style="display:none;"></div>
                         </div>
 
@@ -168,7 +184,7 @@
                     </div>
                     <div class="trends-overlay-body">
                         <div id="trends-overlay-chart" class="trends-overlay-chart"></div>
-                        <!-- Same collapsible box the heatmap pop-out docks its filters in: the shared .control-panel chrome and caret, so the two overlays present one control rather than two look-alikes. Collapsing hands the height to the chart, which is the whole point of popping it out. -->
+                        <!-- Same collapsible box the heatmap pop-out docks its filters in. The shared.control-panel chrome and caret, so the two overlays present one control rather than two look-alikes. Collapsing hands the height to the chart, which is the whole point of popping it out. -->
                         <div id="trends-overlay-filters-panel" class="control-panel overlay-filters-panel">
                             <button type="button" id="trends-filters-toggle" class="control-panel-toggle" aria-expanded="true">
                                 <span class="control-panel-caret">▸</span> Data Filters
@@ -178,7 +194,7 @@
                     </div>
                 </div>
 
-                <!-- Per-CARD pop-out: drills into ONE matchup's visual at full size with a hover readout. Deliberately generic, not race-specific - the card registers whatever visual it drew (see registerCardVisual in graphs.js) and this overlay renders it, so the cats race chart and swing meter inherit the affordance when they land. No filters dock here: a single matchup has nothing to filter. -->
+                <!-- Per-CARD pop-out. It drills into ONE matchup's visual at full size with a hover readout. Deliberately generic, not race-specific - the card registers whatever visual it drew (see registerCardVisual in graphs.js) and this overlay renders it, so the cats race chart and swing meter inherit the affordance when they land. No filters dock here, because a single matchup has nothing to filter. -->
                 <div id="card-overlay" class="trends-overlay" hidden>
                     <div class="trends-overlay-header">
                         <h3 class="trends-overlay-title" id="card-overlay-title">Matchup</h3>
@@ -198,7 +214,7 @@
                     </div>
                     <div class="trends-overlay-body">
                         <div id="heatmap-overlay-chart" class="trends-overlay-chart"></div>
-                        <!-- The docked Teams strip gets the Data Filters disclosure: collapsing it hands its whole height to the heatmap, which is the point of popping out in the first place. The toggle lives in the overlay's own markup, not on the moved #team-filters node, so the pop-out controller keeps relocating that node untouched. -->
+                        <!-- The docked Teams strip gets the Data Filters disclosure. Collapsing it hands its whole height to the heatmap, which is the point of popping out in the first place. The toggle lives in the overlay's own markup, not on the moved #team-filters node, so the pop-out controller keeps relocating that node untouched. -->
                         <div id="heatmap-overlay-filters-panel" class="control-panel overlay-filters-panel">
                             <button type="button" id="heatmap-filters-toggle" class="control-panel-toggle" aria-expanded="true">
                                 <span class="control-panel-caret">▸</span> Teams
@@ -244,6 +260,8 @@
 
     <details id="debug-panel" class="debug-console" style="display:none;">
         <summary><b>Diagnostic Data (Click to expand)</b></summary>
+        <!-- One button per captured response. Each ESPN response the app makes is kept under its own name, and this is how you choose which one the panel shows and Download takes. Populated by renderDebugPicker in utils.js, since which kinds hold a payload changes as responses land. -->
+        <div id="debug-kinds" class="debug-kinds"></div>
         <button id="debug-download-btn" class="debug-download-btn">⬇ Download as JSON</button>
         <pre id="debug-output"></pre>
     </details>

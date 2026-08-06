@@ -1,33 +1,33 @@
 import { AppState, AVERAGE_STATS, INVERSE_STATS, ESPN_STAT_MAPS } from './state.js';
-import { getZoomedFillPct, getTimeframeBounds, getNiceMax, getWeekTier, tierColor, splitByTier, escapeHtml, attachDataTooltips, percentileColor, orderStatIdsByRole, splitStatIdsByRole, statValue, layoutHoverTooltip, categoryCycleList, categoryHeaderLabel, axisUnit } from './utils.js';
-import { buildRotoRaceSeries, ensureWeeklyDataForRace, weeklyDataFailed, ensureRosterTransactionData, ensureRosterSnapshotData, activeRotoWindow, computeRotoWindow, rotoCategorySeries } from './players.js';
+import { getZoomedFillPct, getTimeframeBounds, getNiceMax, getWeekTier, tierColor, splitByTier, escapeHtml, attachDataTooltips, percentileColor, orderStatIdsByRole, splitStatIdsByRole, statValue, layoutHoverTooltip, categoryCycleList, categoryHeaderLabel, axisUnit, parseTimeframe } from './utils.js';
+import { buildRotoRaceSeries, ensureWeeklyDataForRace, weeklyDataFailed, ensureRosterTransactionData, ensureRosterSnapshotData, activeRotoWindow, computeRotoWindow, rotoCategorySeries, rotoCategoryDailySeries } from './players.js';
 
 const TIER_LABELS = { reg: 'Regular Season', playoff: 'Playoffs', consolation: 'Consolation' };
 
-// A section pie is drawn at this size and then scaled to its section's real box. The viewBox is fixed, so this placeholder only has to be sane, not right.
+// A section pie is drawn at this size and then scaled to its section's real box by sizeSectionPies. The viewBox is fixed, so the placeholder value only has to be sane, not right.
 const SECTION_PIE_BASE_SIZE = 120;
-// Breathing room between a pie and its section's edges, and the floor below which a pie is not worth drawing as anything but a token.
+// Breathing room between the pie and its section's edges, and the floor below which the pie stops being worth drawing as anything but a token (a very short section on a very short window).
 const SECTION_PIE_PAD = 12;
 const SECTION_PIE_MIN_SIZE = 48;
-// Headroom held back from the row budget: rows and borders resolve at sub-pixel sizes that round UP into the container's integer scrollHeight, so fitting exactly still produces a scrollbar.
+// Headroom held back from the row budget. Rows, borders and the header's line box all resolve at sub-pixel sizes that round UP into the container's integer scrollHeight, so fitting the box exactly still produces a scrollbar; this is the margin that keeps the total honestly under it.
 const STD_FIT_SLACK = 6;
 const STD_PITCH_TINY = 20;
-// Clear space between stacked bars. Without it the tracks butt together at a shrunk pitch and a column reads as one striped block instead of one bar per team.
+// Clear space between stacked bars. Without it the tracks butt together at a shrunk pitch and the column reads as one striped block instead of one bar per team (owner).
 const STD_ROW_GAP = 2;
 
-// One separation rule for every fitted bar ladder in the box, keyed off the PITCH rather than the tab, so the gap can only change by way of the density changing. The 1px floor is not cosmetic: at the tiny pitch the gaps cost more height than the bars do.
+// ONE separation rule for every fitted bar ladder in the box - the standings sections and the category rows alike. The owner's point is that the two tabs are the same league drawn twice, so a 20-team category column has no business butting its bars together when the 20-team standings column beside it holds a clean 1px line. Keyed off the PITCH rather than the tab, so a tab switch or a timeframe change can only alter this separation by way of altering the density, which is the only reason it should ever move. The 1px floor is not cosmetic. At the tiny pitch the gaps cost more height than the bars do (36px of gap against 20px of bar in a 131px box), and spending 2px there is what used to force a scrollbar the fit could never clear.
 function rowGapFor(pitch) {
     return pitch < STD_PITCH_TINY ? 1 : STD_ROW_GAP;
 }
 
-// The league's standard separation between bars, published by the standings ladder and adopted by the category rows so the two tabs read as one layout. The standings publishes because it is always the denser view, drawing two sections of the league where the category tab draws one. { gap, pitch, rows }: the gap is adopted unconditionally, the pitch only when both tabs are placing the same number of rows. Null until a VISIBLE standings render measures one, since a hidden container has no height.
+// The league's STANDARD separation between bars, in px, published by the standings ladder and adopted by the category rows (owner, follow-up: "where possible the gaps should be standardized... for example between team rankings and category rankings. If the available space does not permit then smaller ones can be used"). The standings ladder is the publisher because it is always the denser of the two - it draws two sections of the league where the category tab draws one - so the rhythm it can afford is a rhythm the category tab can afford too, and matching it costs the category only race height rather than costing the standings a fit. Direction matters and was decided by measurement, not taste. In the 6-team fixture the standings box is nearly full at its natural 6px rhythm (17px of slack in a 390px box), so standardizing DOWNWARD to the category's 2px would have left ~57px of the box hollow, while standardizing upward costs that league's race 20px of a 142px band. Filling the box wins. Null until a VISIBLE standings render measures one. A hidden container has no height, and a gap read off it would be the 1px famine value applied to every league. { gap, pitch, rows } - the last standings ladder's rhythm, its row height, and how many rows it had to place. The gap is adopted unconditionally; the PITCH is adopted only when the category tab is placing the same number of rows ( follow-up 2, owner: "This Matchup... both pages display the same amount of bar graphs while one is smaller vertically than the other"). Row count is the qualifier because it is what makes the two comparable. In the season view the standings ladder places two sections of the league against the category tab's one, so identical row heights there would mean the category leaving most of its box empty for no reason.
 let leagueLadder = null;
-// What an unfitted standings ladder shows, straight from `.bar-row-group { margin-bottom }`, for the case where the category tab is drawn before any standings tab has published. Keep in sync with that CSS rule.
+// What an UNFITTED standings ladder shows, straight from `.bar-row-group { margin-bottom }`. Only the two views' render order makes this necessary. The Rankings box renders one view at a time, so a league whose category tab is drawn before its standings tab has nothing published yet. Defaulting to the roomy rhythm rather than the fitted one is the right guess, because the fitted rhythm only happens in leagues dense enough that the standings tab has to be visited to get there. Keep in sync with that CSS rule.
 const STD_NATURAL_GAP = 6;
 
-// .bar-fill deliberately is not overflow:hidden, so a value label wider than its own bar spills past the bar's edge rather than being clipped. Below this width the label is not rendered inline at all, and the value moves to a hover tooltip instead.
+// .bar-fill deliberately isn't overflow:hidden (see that rule's own comment) so a value label too wide for its own bar spills out past the bar's edge instead of being silently clipped - but for a REALLY short bar (e.g. a team off to an 0-2 start), "spills out" means overlapping the team name column beside it, which isn't much better than clipping was. Below this width, a label isn't rendered inline at all - the value is exposed as a hover tooltip instead (the existing data-tooltip/attachDataTooltips mechanism used elsewhere in this file).
 
-// Renders a bar's fill as one segment per tier, each with its own tooltip. A single-tier value collapses to one segment carrying the full comparison-to-leader text.
+// Renders a bar's fill as one segment per tier present in `split`, each with its own data-tooltip so hovering a shaded portion shows that portion's own total. When the value comes from a single tier (the common case), it collapses to one segment whose tooltip is the full comparison-to-leader text instead of a redundant per-tier breakdown. The team name is left out - the bar-title label and color swatch already identify the row. Used by the single-week comparison bars and the Category Rankings graph on the right column - the left column's H2H Match Wins / Category Wins standings use buildStandingsBarRowHtml instead (linear 0-to-max scale, per-tier W-L-T records, played-tier slivers).
 function buildBarSegments(split, baseColor, overallTooltip, formatVal = (v) => v.toFixed(1), forceSolid = false) {
     const { reg, playoff, consolation, total } = split;
     const tierVals = [
@@ -37,7 +37,7 @@ function buildBarSegments(split, baseColor, overallTooltip, formatVal = (v) => v
     ];
     const parts = tierVals.filter(p => p.val > 0);
 
-    // A NEGATIVE tier component breaks the per-tier proportions: the total is the NET, so the surviving positive segments sum past 100% of a fill that does not clip, and a worse value rendered LONGER. Collapse to one solid segment coloured by the dominant positive tier, since fillPct already encodes the net correctly. forceSolid extends that to the whole block, so a block never mixes shaded and solid bars.
+    // A NEGATIVE tier component (a losing +/- stretch, say) breaks the per-tier proportions below: total is the NET, so sizing the surviving positive segments against it makes them sum to MORE than 100% of the fill, and.bar-fill deliberately doesn't clip (see its value-label note), so the colored bar drew past its own end - a worse +/- rendered LONGER. There is no honest way to show a tier split as proportions when one tier is negative, so collapse to one solid segment: fillPct already encodes the net value correctly and monotonically, and the per-tier numbers move into the tooltip. Coloured by the dominant POSITIVE tier so it still reads its context (reg when the net is all negative). forceSolid extends this to the whole block: the caller sets it when ANY team in the block has a negative tier, so an all-positive row in a +/- block goes solid too and the block never mixes shaded and solid bars.
     const hasNegative = reg < 0 || playoff < 0 || consolation < 0;
     if (forceSolid || hasNegative) {
         const domTier = parts.length ? parts.reduce((a, b) => b.val > a.val ? b : a).tier : 'reg';
@@ -58,7 +58,7 @@ function buildBarSegments(split, baseColor, overallTooltip, formatVal = (v) => v
     }).join('');
 }
 
-// THE section header for every block in the Rankings box, on both tabs. One helper and one class, so switching tabs moves neither the header nor the first row of content under it. nowrap and ellipsis are load-bearing: the category fit budget assumes this header is exactly one line tall, and a wrapped one would overrun the box by a row. `trailing` is anything pinned to the right edge, such as the standings sections' flip arrow.
+// Shared "Section Title" header for a team-block - used by both the single-week comparison bars and the Category Rankings graph, which otherwise build their block markup independently. nowrap + ellipsis is load-bearing, not cosmetic. The category fit budget (renderCategoryBlocks) assumes this header is exactly one line tall, and a category whose spelled-out name wraps to two would silently overrun the box by a row's worth of height. The full text stays on the title tooltip, so an ellipsized header never loses the answer. THE section header for every block in the Rankings box, both tabs. There used to be two: this one, a bare inline-styled h4, and the standings sections' own.std-head row - and they disagreed on the margin below (10px vs 4px), the padding above the underline (6px vs 4px), and therefore on where the underline sat and where the content under it began. Switching tabs moved the header AND shifted the first row of bars, which is exactly the jump banned everywhere else in this box. One helper, one class, so the two tabs are pixel-identical down to the first row. `trailing` is anything pinned to the header's right edge (the standings sections' bars/pie flip arrow). Passing nothing gives the plain header the category blocks want.
 function buildBlockHeaderHtml(title, trailing = '') {
     return `
         <div class="section-head">
@@ -67,12 +67,12 @@ function buildBlockHeaderHtml(title, trailing = '') {
         </div>`;
 }
 
-// Shared "nothing to show" placeholder for a box emptied by the user's own filter selection rather than by a real data problem.
+// Shared "nothing to show" placeholder - used wherever a graph box has no content to render because of the user's own current filter selection (no metric toggled on, no category checked, every team hidden), rather than a real data problem.
 function buildEmptyStateHtml(message) {
     return `<div style="color: var(--text-subtle); text-align: center; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px;">${message}</div>`;
 }
 
-// One team's row in a bar-comparison block, shared by the single-matchup bars and Category Rankings, which differ only in how they compute the value and split.
+// One team's row in a bar-comparison block - shared by renderSingleWeekBars (single-matchup Category Wins/Match Wins) and renderCategoryGraph (Category Rankings), which differ only in how they compute val/split/formatVal for their rows, not in how a row itself is built.
 function buildComparisonBarRowHtml({ name, abbrev, val, color, minVal, maxVal, leaderVal, isLeader, split, formatVal = (v) => v.toFixed(1), forceSolid = false }) {
     const fillPct = getZoomedFillPct(val, minVal, maxVal);
     const displayVal = formatVal(val);
@@ -94,7 +94,7 @@ function buildComparisonBarRowHtml({ name, abbrev, val, color, minVal, maxVal, l
     `;
 }
 
-// The row's team label. Both the full name and the league's own abbreviation ship in the markup and CSS picks one, so the two-column decision costs no rebuild, and the full name stays on the title tooltip either way.
+// The row's team label. Both the full name and the league's own abbreviation ship in the markup and CSS picks one (see.cat-2col), the same trick the matchup cards use. The two-column layout is decided per render, and carrying both means the choice costs no rebuild. The abbreviation is a real short name rather than an ellipsized long one, which is what makes a half-width row still say WHO; the full name stays on the title tooltip either way. Falls back to the full name when the league never set an abbreviation.
 function buildBarTitleHtml(name, abbrev) {
     const short = abbrev || name;
     return `<span class="bar-title" title="${escapeHtml(name)}"
@@ -102,7 +102,7 @@ function buildBarTitleHtml(name, abbrev) {
         ><span class="bar-title-abbr">${escapeHtml(short)}</span></span>`;
 }
 
-// One team's VERTICAL column in a single-matchup ranking. Rows are as tall as their own text and then stop, leaving a small league most of the box as grey, while columns fill both axes. A single-matchup window is one tier by definition, so a column is one solid fill.
+// One team's VERTICAL column in a single-matchup ranking. Horizontal rows are as tall as their own text and then stop, so a 4-team league left a third of the Rankings box as grey (88px of 264 at 2 matchups). Columns fill BOTH axes instead - the chart takes the whole available height and the columns divide the whole width. `fillPct` uses the same getZoomedFillPct scale the rows use, so switching orientation never changes what the ranking says, only how it reads. A single-matchup window is one tier by definition, so a column is one solid fill rather than the rows' tier segments.
 function buildVerticalColumnHtml({ name, val, color, minVal, maxVal, leaderVal, isLeader, formatVal }) {
     const fillPct = getZoomedFillPct(val, minVal, maxVal);
     const displayVal = formatVal(val);
@@ -119,7 +119,7 @@ function buildVerticalColumnHtml({ name, val, color, minVal, maxVal, leaderVal, 
         </div>`;
 }
 
-// W-L-T record broken down by tier, which reads better than a decimal sum of 1/0.5/0 results. Category leagues store that result in weeklyMatchWins and points leagues in weeklyMatchResult, so the caller passes the right accessor.
+// W-L-T match record, broken down by tier, for a Match Wins bar - a "record" is clearer there than a raw decimal sum of 1/0.5/0 weekly results. resultAt reads the 1/0.5/0 result for a week: category leagues store it in weeklyMatchWins, points leagues in weeklyMatchResult (weeklyMatchWins there holds points, not results - see data.js), so the caller passes the right accessor.
 function computeRecordByTier(team, startWeek, endWeek, resultAt = (t, w) => t.weeklyMatchWins[w]) {
     const rec = { reg: { w: 0, t: 0, l: 0 }, playoff: { w: 0, t: 0, l: 0 }, consolation: { w: 0, t: 0, l: 0 } };
     for (let w = startWeek; w <= endWeek; w++) {
@@ -137,12 +137,12 @@ function formatRecord(rec) {
     return `${rec.w}W-${rec.l}L-${rec.t}T`;
 }
 
-// One team's row in the Rankings standings: a single bar scaled to the team's total across the range, split into one segment per bracket tier, regular season in the team's colour with playoffs darker and consolation lighter. Every segment carries its own tooltip.
+// One team's row in the Rankings standings - a single bar scaled to the team's TOTAL across the selected range, split into one segment per bracket tier, regular season in the team's own color, playoffs shaded darker, consolation shaded lighter (the same tier-shading language the Category Rankings bars and Season Trends hover tags already use - see tierColor). Every segment carries its own tooltip with that tier's value (or W-L-T record, for H2H in category leagues), and the label baked into the bar is the range total. This replaces an older two-row design (a regular-season-only bar plus an SVG connector branching into a separate postseason sub-bar aligned at a shared x position) that showed the same data but through a lot of visual machinery - connectors, sub-tracks, per-row alignment math, and a whole separate row type for the Playoffs-only timeframe. One segmented bar per team reads the same breakdown with none of that, and Playoffs-only needs no special-casing (reg is 0 there, so no reg segment renders).
 function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallMax, recordByTier }) {
     const widthPct = overallMax > 0 ? (split.total / overallMax) * 100 : 0;
     const isChampion = teamId === AppState.championTeamId;
 
-    // With records available a tier counts as present if any weeks were PLAYED in it, since an 0-2 playoff run is real information even at 0 wins. Without records, only tiers that contributed value can be sized.
+    // With W-L-T records available, a tier counts as present if any weeks were PLAYED in it (an 0-2 playoff run is real information even though it contributes 0 wins - the old sub-bar design surfaced it too); the width floor below keeps it a visible sliver. Without records (points leagues' H2H points, Cat Wins), only tiers that contributed value can be sized.
     const tierPlayed = (tier) => recordByTier
         ? (recordByTier[tier].w + recordByTier[tier].t + recordByTier[tier].l) > 0
         : split[tier] > 0;
@@ -160,10 +160,10 @@ function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallM
         })
         : split.total.toFixed(1);
 
-    // Defensive: a team with no played weeks still renders one segment, so the row shows a nub with a tooltip instead of a blank track.
+    // Defensive: a team with no played weeks in the range still renders one segment, so the row shows.bar-fill's min-width nub with a tooltip instead of a blank track.
     if (parts.length === 0) parts = [{ tier: 'reg', val: 0, label: totalLabel }];
 
-    // Segment widths are each tier's share of the bar's own total, floored so a played-but-zero tier stays a visible sliver, then re-normalized back to 100.
+    // Segment widths are each tier's share of this bar's own total, floored so a played-but- zero-value tier stays a visible sliver, then re-normalized to sum back to 100.
     const MIN_SEGMENT_PCT = 6;
     let widths = parts.map(p => split.total > 0 ? Math.max((p.val / split.total) * 100, MIN_SEGMENT_PCT) : 100 / parts.length);
     const widthSum = widths.reduce((sum, w) => sum + w, 0);
@@ -175,7 +175,7 @@ function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallM
         return `<div class="bar-segment" style="width:${widths[i]}%; background:${tierColor(p.tier, color)};" data-tooltip="${escapeHtml(tip)}"></div>`;
     }).join('');
 
-    // The value sits in its own column at the END of the row rather than inside the fill, where a short bar had no room for it and the width guard dropped it on exactly the rows that most need reading.
+    // The value sits in its own column at the END of the row rather than inside the fill. In the fill it was invisible on exactly the rows that most need reading - a short bar has no room for its own number, so the width guard that used to live here dropped it, and at 20 teams that was most of the league. Out here it always shows, still on the bar's own line.
     return `
         <div class="bar-row-group">
             <div class="bar-row">
@@ -191,14 +191,14 @@ function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallM
     `;
 }
 
-// Incremented on every render, so a superseded deferred measurement can bail out.
+// Incremented on every renderLeftColumn() call - see its use in the deferred inline-pie placement measurement below.
 let leftColumnRenderId = 0;
 
-// The Rankings box shows one of two views, switched by its header tabs: Team Rankings (standings bars plus pies) or Category Rankings, which shows one category at a time with the arrows cycling the league's list.
+// The Rankings box (right-hand 40% column) shows one of two views, switched by its header tabs (AppState.rankingsBoxView, set in main.js): Team Rankings - the standings bars (H2H Match Wins / Category Wins) plus pie charts - or Category Rankings, which is now one category at a time with the pager arrows cycling the league's whole list. This dispatcher keeps the box's tabs/containers in sync with that state, then renders the active view.
 
 export function renderLeftColumn() {
     const isCategory = AppState.rankingsBoxView === 'category';
-    // Roto gets the same two views, built from ESPN's season standings instead of weekly matchups.
+    // Roto gets the same two views, built from ESPN's season standings instead of weekly matchups (B31-FULL): Team Rankings is the roto-points table, Category Rankings is per-category season value plus the roto points that category awarded.
     if (AppState.isRotoLeague) {
         updateRankingsBoxChrome(isCategory);
         if (isCategory) renderRotoCategoryGraph();
@@ -213,7 +213,7 @@ export function renderLeftColumn() {
     renderStandings();
 }
 
-// Point the box's chrome at the active view: which tab reads as active, which container shows, and which of the two header controls occupies the slot beside the tabs.
+// Point the Rankings box's chrome at the active view, which header tab reads as active, which of the two graph containers is shown, and which of the two header controls occupies the slot beside the tabs. The Bar/Pie dropdown belongs to Team Rankings and the Advanced Stats toggle to Category Rankings, so they swap into the same space and neither view pays for the other's control. renderStandings' deferred pass may still hide the pie dropdown when inline pies fit; this just sets the standings-mode baseline (visible) for it to start from.
 function updateRankingsBoxChrome(isCategory) {
     const tabStandings = document.getElementById('rankings-tab-standings');
     const tabCategory = document.getElementById('rankings-tab-category');
@@ -233,7 +233,7 @@ function renderStandings() {
 
     const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
-    // A single-matchup window cannot make a W-L record, since every team is its own undecided 1/0 from one week. Show the ranking that IS real for a single week instead: categories won, or points scored in a points league. No pie arrow either, since one week has no season total to divide teams against.
+    // A single-matchup window can't make a W-L record - every team is just its own undecided 1/0 from this one week, so a whole league of "1W-0L" bars says nothing. Show the one ranking that IS real for a single week instead. Category leagues rank by categories won this matchup (the head-to-head story lives in the trends box's Matchup Scoreboard - see renderScoreboardBox), points leagues by points scored this matchup. renderSingleWeekBars picks the league-appropriate block, so the same showCat=true call covers both. No pie arrow on this timeframe. A single week has no shared season total to divide teams against, so its "distribution" would be a meaningless per-team split (B53's substitution applied to the pie view). renderSingleWeekBars builds its own block without section chrome.
     if (startWeek === endWeek) {
         renderSingleWeekBars(graph, startWeek, true, false, { intro: null });
 
@@ -247,7 +247,7 @@ function renderStandings() {
         return;
     }
 
-    // Filtered by the Data Filters' visible teams, like every other box on this tab. All-hidden shows the shared empty state.
+    // Filtered by AppState.visibleTeams. This standings view used to be deliberately full- league on the reasoning that hiding a team strips the ranking/"games back" context for the rest; the owner REVERSED that on - the Data Filters now apply to every Team Metrics box, this one included. All-hidden shows the same empty state the Category Rankings use.
     const leftData = AppState.teamStats.filter(t => AppState.visibleTeams.has(t.id)).map(t => {
         let mWins = 0, cWins = 0, pointWins = 0;
         for (let w = startWeek; w <= endWeek; w++) {
@@ -263,11 +263,11 @@ function renderStandings() {
         return;
     }
 
-    // One standings section: a header plus one segmented bar per team, sorted by the section's total. valueKey picks the total to sort and size by, weekValue reads a team's per-week contribution, and a resultAt accessor renders a W-L-T record instead of a decimal sum.
+    // One standings section (a header + one segmented bar per team, sorted by the section's total). Operates on leftData, which is now the VISIBLE teams only ( reversed the old full-league convention - see the leftData comment above). valueKey picks the per-team total to sort and size by; weekValue reads that team's per-week contribution; a resultAt accessor (when given) renders a W-L-T record instead of a decimal sum.
     const buildSection = ({ key, header, valueKey, weekValue, resultAt, isLast }) => {
         const teams = [...leftData].sort((a, b) => b[valueKey] - a[valueKey]);
         const asPie = sectionPieViews.has(key);
-        // Bars are built either way: they set the section's height even when the pie is what shows.
+        // Bars are built either way. They set the section's height even when the pie is what shows.
         const splits = teams.map(tv => splitByTier(tv.team, startWeek, endWeek, w => weekValue(tv.team, w)));
         const overallMax = Math.max(...splits.map(s => s.total));
         const barsBody = teams.map((tv, i) => buildStandingsBarRowHtml({
@@ -281,7 +281,7 @@ function renderStandings() {
         });
     };
 
-    // Points leagues get Match Wins and Points For, category leagues get H2H Match Wins and Category Wins. Both lead with a records-bearing section, so the shapes stay parallel.
+    // Points leagues get Match Wins (the real W-L record from winning weeks on points) + Points For (the points totals weeklyMatchWins holds); category leagues get H2H Match Wins + Category Wins. Both lead with a records-bearing section, so the shapes stay parallel.
     const sections = AppState.isPointsLeague
         ? [
             { key: 'match', header: 'Match Wins', valueKey: 'pointWins', weekValue: (t, w) => t.weeklyMatchResult[w] || 0, resultAt: (t, w) => t.weeklyMatchResult[w] },
@@ -294,19 +294,19 @@ function renderStandings() {
 
     const sectionsHtml = sections.map((s, i) => buildSection({ ...s, isLast: i === sections.length - 1 })).join('');
 
-    // The sections column FILLS the box so a section flipped to a pie has real space to expand into, while bars sections stay content-sized inside it.
+    // The sections column FILLS the box so a section flipped to a pie has real space to expand into; bars sections stay content-sized inside it (see buildStandingsSectionHtml).
     graph.innerHTML = `<div class="std-sections">${sectionsHtml}</div>`;
 
     attachDataTooltips(graph);
     if (sections.some(sec => sectionPieViews.has(sec.key))) attachPieTooltipLogic();
     wireSectionFlips(graph, renderStandings);
 
-    // Deferred to the next animation frame: measured synchronously this reads stale or zero on the first call of a page load, as the results area flips from display:none. The render id guards against a newer render superseding this one before the frame fires.
+    // Dynamic pie placement. An early, playoff-less season (few rows, no postseason sub-bars) leaves a lot of unused grey space below the bars, while a season with playoffs active barely fits (or doesn't) - so there's no single fixed spot that works well for both. When the bars leave enough leftover room, show both pies inline right below them and hide the dropdown (nothing left to switch between - everything's already visible); otherwise leave them tucked behind the dropdown's "Pie Charts" view so they don't force scrolling. Deferred to the next animation frame - measured synchronously here, this read fine on most renders but came back stale/zero on the very FIRST call of a page load (right as #results flips from display:none to visible - see processCoreData), silently skipping the inline pies entirely until some later renderLeftColumn() call (e.g. clicking a timeframe pill) measured against a layout the browser had already fully settled by then. One frame is enough to guarantee a real layout pass has happened first. renderId guards against a newer renderLeftColumn() call superseding this one before the frame fires (e.g. clicking two timeframe pills in quick succession) - only the LATEST call's measurement gets applied.
     const renderId = ++leftColumnRenderId;
     requestAnimationFrame(() => {
         if (renderId !== leftColumnRenderId) return;
 
-        // Order matters. The fit runs FIRST because it decides which label each row shows, and sizing the column before that decision measures names that are about to become abbreviations. Pies last, since they inherit the fitted box.
+        // No-scroll guarantee. If the bars at normal density would overflow the box, step the whole column down to a compact row style (thinner tracks, tighter margins, smaller type - see.bars-compact in dashboard.css). Reset first so a previously-compacted render doesn't stay compact after a resize or timeframe change made room again. Order matters. The fit runs FIRST because it decides which label each row shows - two columns swap full names for abbreviations - and sizing the column before that decision measures names that are about to be replaced, which pinned the width at its 140px cap and left the whole gap this was meant to close. Pies last, since they inherit the fitted box.
         fitStandingsSections(graph);
         sizeBarTitles(graph);
         sizeSectionPies(graph);
@@ -314,7 +314,7 @@ function renderStandings() {
     });
 }
 
-// Roto points arrive as halves whenever ESPN split a category tie, so they take one decimal when they have one and none when they do not.
+// Roto points arrive as halves whenever ESPN split a category tie, so they need one decimal when they have one and none when they don't ("3.5 pts", "5 pts").
 function formatRotoPoints(v) {
     if (v === undefined || v === null) return '-';
     const num = Number(v);
@@ -322,18 +322,18 @@ function formatRotoPoints(v) {
     return (num % 1 !== 0) ? num.toFixed(1) : String(num);
 }
 
-// Roto Team Rankings: the classic roto table in house style, ordered by ESPN's own season total. Nothing is computed here beyond the sort.
+// Roto Team Rankings (B31-FULL): the classic roto table in house style, ordered by ESPN's own season total. Nothing is computed here beyond the sort - see the rotoPoints comment in data.js for why these numbers are rendered exactly as the payload reports them.
 function renderRotoStandings() {
     const graph = document.getElementById('left-graph-container');
     graph.innerHTML = '';
 
-    // Full Season shows ESPN's official points verbatim. A lookback pill instead re-scores the categories over only that window's started-day components, through the same pure machinery the race uses.
+    // Full Season shows ESPN's OFFICIAL points verbatim (t.rotoPoints). A "Last N weeks" pill instead re-scores the categories over ONLY that window's started-day components - the same pure machinery the Roto Race uses, so its full-season point reproduces these official finals exactly. The window is null on Full Season and whenever the started tier isn't available (the pills only ever appear once it is, so in practice a window pill always resolves here).
     const sport = AppState.loadedSport;
     const bounds = activeRotoWindow(sport);
     const win = bounds ? computeRotoWindow(sport, bounds.start, bounds.end) : null;
     const pointsFor = t => win ? (win.pointsByTeam.get(t.id) || 0) : (t.rotoPoints || 0);
 
-    // Filtered by the Data Filters' visible teams, like the H2H standings. All-hidden shows the shared empty state.
+    // Filtered by AppState.visibleTeams. Like the H2H standings, this was deliberately full- league on the reasoning that hiding a team strips the ranking context; the owner REVERSED that on so the Data Filters apply to every Team Metrics box. All-hidden shows the empty state the Category Rankings use.
     const leftData = AppState.teamStats
         .filter(t => AppState.visibleTeams.has(t.id))
         .map(t => ({ id: t.id, name: t.name, rotoPoints: pointsFor(t), team: t }))
@@ -343,12 +343,12 @@ function renderRotoStandings() {
         return;
     }
 
-    // Roto has ONE standings section, and it gets the same flip arrow the H2H sections do.
+    // Roto has ONE standings section, and it gets the same flip arrow the H2H sections do (, owner's same-day addition: "this also applies to roto points pie charts").
     const asPie = sectionPieViews.has('roto');
     const overallMax = Math.max(0, ...leftData.map(tv => tv.rotoPoints));
     const barsBody = leftData.map(tv => buildStandingsBarRowHtml({
         teamId: tv.id, name: tv.name, abbrev: tv.team?.abbrev, color: AppState.teamColorMap[tv.id],
-        // Roto has no bracket, so the bar is a single regular-season segment rather than a tier split.
+        // Roto has no bracket, so the bar is a single regular-season segment rather than a tier split - there is no postseason for it to shade differently.
         split: { reg: tv.rotoPoints, playoff: 0, consolation: 0, total: tv.rotoPoints },
         overallMax, recordByTier: null
     })).join('');
@@ -364,7 +364,7 @@ function renderRotoStandings() {
     if (asPie) attachPieTooltipLogic();
     wireSectionFlips(graph, renderRotoStandings);
 
-    // The same deferred pass the H2H standings run.
+    // Same deferred pass the H2H standings run - see renderStandings.
     const renderId = ++leftColumnRenderId;
     requestAnimationFrame(() => {
         if (renderId !== leftColumnRenderId) return;
@@ -375,12 +375,12 @@ function renderRotoStandings() {
     });
 }
 
-// Roto Category Rankings: one block per category, teams ordered by the roto points THAT category awarded. Ordering by points rather than raw value is what matches ESPN's table without a separate inverse branch, since the points already encode the direction.
+// Roto Category Rankings (B31-FULL): one block per picked category, teams ordered by the roto points THAT category awarded, with the season total behind it. Ordering by points rather than by raw value is what makes this match ESPN's own table without a separate inverse branch. An inverse category like GAA awards its points to the LOWEST value, and the points already encode that, so sorting on them is correct in both directions. The bar length follows the points for the same reason - it is the one number that is comparable across categories - and the season total rides along in the label and the hover.
 function renderRotoCategoryGraph() {
     const container = document.getElementById('cat-graph-container');
     container.innerHTML = '';
 
-    // Every category the league has, in role-grouped order, cycled one per screen. There is no selection state to pick or restore.
+    // Every category the league has, in role-grouped order - the pager cycles them one per screen. No selection state, because there is nothing to pick and nothing to restore.
     const sport = AppState.loadedSport;
     const selectedStats = categoryCycleList(sport);
     if (selectedStats.length === 0 || !AppState.teamStats.length) {
@@ -393,7 +393,7 @@ function renderRotoCategoryGraph() {
         return;
     }
 
-    // Full Season reads ESPN's official per-category points and values, while a lookback pill re-scores over the window's started-day components. The period names the timeframe in the hover so the number is never oversold.
+    // Full Season reads ESPN's official per-category points/values; a "last N weeks" pill re-scores over the window's started-day components, the same data the Team Rankings and heatmap window against. period names the timeframe in the hover so the number is never oversold.
     const bounds = activeRotoWindow(sport);
     const win = bounds ? computeRotoWindow(sport, bounds.start, bounds.end) : null;
     const period = win ? 'in this window' : 'for the season';
@@ -415,13 +415,13 @@ function renderRotoCategoryGraph() {
 
         const maxPts = Math.max(0, ...teamVals.map(tv => tv.pts || 0));
         const minPts = Math.min(...teamVals.map(tv => tv.pts || 0));
-        // Just the stat name: the box is already titled Category Rankings, so a "Rankings" suffix here would be redundant.
+        // Just the stat name - the box is already titled "Category Rankings", so "+/- Rankings" here is redundant. "+/-" heads its own block.
         const rowsHtml = [];
 
         teamVals.forEach(tv => {
             const pts = tv.pts || 0;
             const fillPct = getZoomedFillPct(pts, minPts, maxPts);
-            // Exactly one point reads "1 pt", and everything else including a half takes the plural.
+            // Exactly one point reads "1 pt", everything else (including a half) takes the plural.
             const unit = pts === 1 ? 'pt' : 'pts';
             const label = `${formatRotoPoints(pts)} ${unit}`;
             const tip = `${tv.name} · ${stat.name}: ${formatCatValue(tv.val)} ${period}, ${formatRotoPoints(pts)} roto ${unit}`;
@@ -440,7 +440,7 @@ function renderRotoCategoryGraph() {
                     <span class="bar-value">${label}</span>
                 </div>`);
         });
-        // Roto races too: the series walks the same started-day component sums the bars are scored from. On a fallback tier it returns null and the block has no race, which is the honest answer.
+        // Roto DOES race now. rotoCategorySeries walks the same started-day component sums the bars above are scored from, week by week. On a fallback tier it returns null and the block has no race, which is the honest answer - those tiers count benched days ESPN never did, so their per-week shape would be wrong.
         blocks.push({
             id: String(stat.id),
             name: stat.name,
@@ -454,13 +454,13 @@ function renderRotoCategoryGraph() {
     renderCategoryBlocks(container, blocks);
 }
 
-// One standings section: its header row with the flip arrow, plus whichever body it is currently showing. A pie section takes flex:1 so it fills the space it was given, while a bars section stays content-sized, which is what lets one section flip without moving the other.
+// One standings SECTION: its header row (title plus the flip arrow) and whichever body it is currently showing. moved the pies here from two places that no longer exist - the Bar/Pie header dropdown that swapped the WHOLE box, and the inline pies that used to be appended under the bars whenever they left enough room. The owner's ruling is that a pie is one section's alternate view, never a thing that appears beneath its bars, and each section flips on its own. The arrow is the Category Rankings chrome (.chrome-arrow), and there is no position indicator because a two-state cycle does not need one - the arrow alone says "there is another view". A pie section takes flex:1 so it FILLS the space it was given, while a bars section stays content-sized exactly as before; that is what lets one section flip without moving the other.
 function buildStandingsSectionHtml({ key, header, isLast, asPie, barsBody, pieBody }) {
     const seam = isLast
         ? 'border-bottom: none; margin-bottom: 0; padding-bottom: 0;'
         : 'border-bottom: 1px solid var(--border); margin-bottom: 4px; padding-bottom: 4px;';
     const label = asPie ? `Show ${header} as bars` : `Show ${header} as a pie chart`;
-    // The BARS are always in the markup even when the pie is on screen, and the pie is laid over them. That is what makes flipping cost zero geometry: the section's height is always the height its bars need, so neither section moves by a pixel.
+    // The BARS are always in the markup, even when the pie is the one on screen, and the pie is laid over them (see.std-section.is-pie in dashboard.css). That is what makes flipping cost zero geometry: the section's height is always the height its bars need, so the pie is exactly as big as the area the bars occupied and neither this section nor its neighbour moves by a pixel (owner, ). Sizing a pie by its own content instead made the section grow on flip - measured 191px of bars becoming a 276px pie section, shoving everything below it down.
     return `
         <div class="team-block std-section${asPie ? ' is-pie' : ''}" style="${seam}">
             ${buildBlockHeaderHtml(header, `<button type="button" class="chrome-arrow std-flip" data-section="${escapeHtml(key)}"
@@ -472,7 +472,7 @@ function buildStandingsSectionHtml({ key, header, isLast, asPie, barsBody, pieBo
         </div>`;
 }
 
-// A section's pie shows the SAME numbers its bars do, read off the same sorted rows and the same valueKey, so the two views can never disagree about who leads.
+// A section's pie: the SAME numbers its bars show, read straight off the same sorted rows and the same valueKey, so the two views can never disagree about who leads. Rendered at a placeholder size and resized once against the section's real box in sizeSectionPies below - the viewBox is fixed, so setting width/height scales it exactly with no re-render and no iteration.
 function buildSectionPieHtml(teams, valueKey) {
     const data = teams.map(t => ({
         id: t.id,
@@ -481,16 +481,16 @@ function buildSectionPieHtml(teams, valueKey) {
         color: AppState.teamColorMap[t.id]
     }));
     const pie = createPieChart(data, '', SECTION_PIE_BASE_SIZE);
-    // Every team at zero, so createPieChart draws nothing rather than a fake full circle. Say so instead of leaving the section blank.
+    // Every team at zero (an unplayed category, a filtered-down window) - createPieChart draws nothing rather than a fake full circle, so say so instead of leaving the section blank.
     if (!pie) return buildEmptyStateHtml('No totals to split for this timeframe yet.');
     return `<div class="std-pie">${pie}</div>`;
 }
 
-// Sizes every pie in the box once, after layout, under two rules: flipping moves nothing, and a pie never needs scrolling. They only disagree when the bars overflow, which is exactly the case where the second should win, since nothing is moving that the reader could have seen anyway.
+// Sizes every pie in the box, once, after layout. Two rules, from the owner's two requirements: 1. FLIPPING MOVES NOTHING. The pie is drawn over the area its own bars occupy, so a section that fits keeps exactly the height it had as bars and its neighbour never shifts. 2. A PIE NEVER NEEDS SCROLLING. A deep league's bars legitimately overflow the box and scroll; the pie is a single circle that has no reason to. So a pie section's reserved height is capped at its share of the visible box, and past that the bars underneath are clipped (they are invisible in this state anyway). On the 20-team fixture that is the difference between a pie drawn 800px down inside a scrolling section and one sitting in the visible band. The two rules only ever disagree when the bars overflow, which is exactly the case where rule 2 should win, since nothing is "moving" that the reader could have seen anyway.
 function sizeSectionPies(graph) {
     const pieSections = [...graph.querySelectorAll('.std-section.is-pie')];
     if (pieSections.length === 0) return;
-    // A couple of px per section of slack, because the header's line box and the seam borders round in ways that put two exactly-computed caps a hair over the box.
+    // A couple of px per section of slack. The header's line box and the seam borders round in ways that put two exactly-computed caps a hair over the box (4px of overflow with the arithmetic otherwise summing to exactly the box height).
     const share = Math.floor(graph.clientHeight / pieSections.length) - 3;
 
     pieSections.forEach(section => {
@@ -503,7 +503,7 @@ function sizeSectionPies(graph) {
         // Measure the bars' natural height with any previous cap lifted, so a re-render never compounds the cap on itself.
         body.style.maxHeight = '';
         const natural = bars.getBoundingClientRect().height;
-        // Everything in the section that is not the body: its header plus the seam to the next section. Built up from those parts rather than subtracted from the section's own height, because a shrinkable section measures smaller than its content and the subtraction went negative.
+        // Everything in the section that ISN'T the body, its header plus the seam (margin, padding, border) to the next section. Built up from those parts rather than subtracted from the section's own height, because sections are flex-SHRINKABLE - in a deep league the section measures smaller than its content, so the subtraction went negative and handed the cap a huge number (a 326px pie in a 388px box, overflowing by 179px).
         const headCs = section.querySelector('.section-head');
         const secCs = getComputedStyle(section);
         const seam = (parseFloat(secCs.marginBottom) || 0)
@@ -512,7 +512,7 @@ function sizeSectionPies(graph) {
         const overhead = (headCs ? headCs.getBoundingClientRect().height : 0) + seam;
         const cap = Math.max(SECTION_PIE_MIN_SIZE + SECTION_PIE_PAD, share - overhead);
 
-        // Cap ONLY when the bars actually overrun their share. Applying it unconditionally shaved a few px off sections that already fit, since a rect excludes the last row's trailing margin.
+        // Cap ONLY when the bars actually overrun their share. Applying it unconditionally shaved a few px off sections that already fit, because a rect does not include the last bar row's trailing margin - measured on the roto fixture, a 160px section became 154px on flip, with nothing overflowing to justify it. Leaving maxHeight unset in that case is what makes rule 1 exact rather than approximate.
         body.style.maxHeight = natural > cap ? `${Math.round(cap)}px` : '';
 
         // Measured after the cap decision, so it reflects the box the pie actually got.
@@ -522,9 +522,9 @@ function sizeSectionPies(graph) {
         svg.style.height = `${size}px`;
     });
 
-    // These caps land after the fit already made its corrective pass, so its arithmetic could not have accounted for them. Trim once more if the box still overruns.
+    // These caps land AFTER fitStandingsSections already made its own corrective pass, so its arithmetic could not have accounted for them. Trim once more here if the box still overruns (6px with both sections pies in a box the Data Filters bar had just shrunk).
     for (let guard = 0; guard < 6; guard++) {
-        // Converge to ZERO, not to close enough: scrollHeight and clientHeight are integers, so a single leftover pixel is a real scrollbar.
+        // Converge to ZERO, not to "close enough". scrollHeight/clientHeight are integers, so a single leftover pixel is a real scrollbar - tolerating 1px here is what left the box showing one after everything else about the fit was correct (owner).
         const over = graph.scrollHeight - graph.clientHeight;
         if (over <= 0) break;
         const trim = Math.ceil(over / pieSections.length);
@@ -543,7 +543,7 @@ function sizeSectionPies(graph) {
     }
 }
 
-// Fits EVERY standings row into the box: one column at the natural height, then two columns, then a shrunk pitch, until every team is on screen. The pitch is shared across sections so the two stay visually parallel, and content-sized sections are what stop one section's rows painting over the next.
+// Fits EVERY standings row into the box, the same ruling settled for category blocks. A team is never hidden behind a scrollbar, and the bar height yields to make that true. Ladder, in order: 1. One column at the rows' natural height (the comfortable case, left completely untouched). 2. Two columns at that height, filling DOWN then across so the ranking still reads top to bottom. 3. Shrink the pitch until every row fits; below STD_PITCH_TINY the row also sheds its value label to the hover and drops to the small type. The pitch is SHARED across the sections so Match Wins and Points For stay visually parallel. This also closes the overlap this box shipped with..std-section is content-sized, so a section can never be squeezed under its own rows. It used to be flex-shrinkable while its rows were not, which let a 514px bars list render inside a 183px section and paint straight over the section below it - measured on a 20-team league, section one's rows ran 357px into section two.
 function fitStandingsSections(graph) {
     const sections = [...graph.querySelectorAll('.std-section')];
     const barsEls = sections.map(s => s.querySelector('.std-bars')).filter(b => b && b.children.length);
@@ -559,7 +559,7 @@ function fitStandingsSections(graph) {
     const rowCounts = barsEls.map(b => b.children.length);
     const naturalPitch = Math.max(...barsEls.map((b, i) => b.getBoundingClientRect().height / rowCounts[i]));
 
-    // Everything in the box that is not a row: each section's header and the seam to the next.
+    // Everything in the box that is not a row, each section's header and the seam to the next.
     let overhead = 0;
     sections.forEach(sec => {
         const head = sec.querySelector('.section-head');
@@ -570,11 +570,11 @@ function fitStandingsSections(graph) {
             + (parseFloat(cs.borderBottomWidth) || 0);
     });
     const slotsFor = cols => rowCounts.reduce((sum, n) => sum + Math.ceil(n / cols), 0);
-    // The inter-row gaps are real height: one fewer than the rows in each section's tallest column.
+    // The inter-row gaps are real height, one fewer than the rows in each section's tallest column.
     const gapsFor = cols => barsEls.reduce((sum, _, i) => sum + Math.max(0, Math.ceil(rowCounts[i] / cols) - 1), 0);
     const availFor = (cols, gap) => graph.clientHeight - overhead - STD_FIT_SLACK - gapsFor(cols) * gap;
 
-    // The rhythm this render actually shows, published for the category rows to match. In the unfitted case it is the row group's own margin, which is why it is measured off two adjacent rows rather than assumed.
+    // The rhythm this render actually shows, published for the category rows to match. In the natural (unfitted) case it is the row group's own margin rather than anything computed here, which is why it is MEASURED off two adjacent rows instead of assumed - the category tab has no other way to know what the standings tab beside it looks like.
     const publishLadder = (g, p) => {
         if (graph.clientHeight > 0 && g > 0 && p > 0) {
             leagueLadder = { gap: g, pitch: p, rows: rowCounts.reduce((a, b) => a + b, 0) };
@@ -588,7 +588,7 @@ function fitStandingsSections(graph) {
         return Math.max(0, Math.round(b.top - a.bottom));
     })();
 
-    // Rung 1: it already fits in one column, so leave the rows exactly as they render naturally.
+    // Rung 1: it already fits in one column. Leave the rows exactly as they render naturally - the same "cap only when capping is needed" lesson the pie sizing learned, so leagues that were fine are not nudged by a pixel.
     if (slotsFor(1) * naturalPitch <= availFor(1, rowGapFor(naturalPitch))) {
         publishLadder(naturalGap, Math.round(naturalPitch - naturalGap));
         return;
@@ -599,7 +599,7 @@ function fitStandingsSections(graph) {
     let gap = rowGapFor(pitch);
     if (slotsFor(2) * naturalPitch > availFor(2, gap)) {
         pitch = Math.max(1, Math.floor(availFor(2, gap) / slotsFor(2)));
-        // Shrinking can drop the pitch into tiny territory, where the gap costs 1px instead of 2. Re-solve once with the cheaper gap so those pixels go back to the rows.
+        // Shrinking can drop the pitch into tiny territory, where rowGapFor spends 1px instead of 2; re-solve once with the cheaper gap so those pixels go back to the rows.
         if (rowGapFor(pitch) !== gap) {
             gap = rowGapFor(pitch);
             pitch = Math.max(1, Math.floor(availFor(2, gap) / slotsFor(2)));
@@ -616,15 +616,15 @@ function fitStandingsSections(graph) {
     });
     apply(pitch);
 
-    // One bounded corrective pass: the arithmetic works from a pitch measured before the grid existed, and the grid's own row boxes round differently.
+    // One bounded corrective pass. The arithmetic above works from a pitch measured BEFORE the grid existed, and the grid's own row boxes round a little differently (13px of residual overflow at a pitch the maths said fit exactly). Rather than pad the estimate and under-fill every league, re-measure the real overflow and shave the pitch by it, at most a few times.
     for (let guard = 0; guard < 6 && pitch > 1; guard++) {
-        // Same rule as the pie trim below: zero, not close enough.
+        // Same rule as the pie trim below, zero rather than "close enough".
         const over = graph.scrollHeight - graph.clientHeight;
         if (over <= 0) break;
         pitch = Math.max(1, pitch - Math.max(1, Math.ceil(over / slotsFor(cols))));
         apply(pitch);
     }
-    // The correction can cross the tiny line after the gap was picked, so re-read it off the pitch that actually shipped.
+    // The correction can cross the tiny line after the gap was picked; re-read it off the pitch that actually shipped so the published rhythm is the one on screen.
     if (rowGapFor(pitch) !== gap) {
         gap = rowGapFor(pitch);
         apply(pitch);
@@ -632,7 +632,7 @@ function fitStandingsSections(graph) {
     publishLadder(gap, pitch);
 }
 
-// Re-runs the fit whenever the box changes size, so the layout is never left holding a measurement that was true once. Observing the CONTAINER is what makes this safe from feedback: the fit only changes the height of descendants, and it clears its own previous output before measuring.
+// Re-runs the standings fit whenever the Rankings box's own box changes size, so the layout cannot be left holding a measurement that was true once and is not any more. The fit is a single measured pass inside a requestAnimationFrame, which assumes that one frame is enough for the layout to have settled. That assumption is not always safe - the box's height moves under it when the Data Filters bar opens, when a pop-out closes, when the window resizes, and on the very first paint as #results flips from display:none (the same first-paint staleness the pies-under-bars code documented before it was deleted). A fit computed against a stale height stays wrong until something unrelated happens to re-render the box, which is exactly the shape of "it looked right, then an interaction made it wrong, and it never recovered". Observing the CONTAINER is what makes this safe from feedback. The fit only ever changes the height of descendants, while this box's own height is set by the column that owns it, so re-fitting cannot resize the thing being watched. Idempotent by construction - fitStandingsSections clears its own previous output before measuring, so running it again with nothing changed is a no-op.
 let standingsFitObserver = null;
 function observeStandingsFit(graph) {
     if (standingsFitObserver || typeof ResizeObserver === 'undefined') return;
@@ -649,23 +649,23 @@ function observeStandingsFit(graph) {
     standingsFitObserver.observe(graph);
 }
 
-// Sizes the team-label column to the LONGEST label actually on screen rather than a fixed generous width, so a box showing abbreviations hands the reclaimed width to the tracks.
+// Sizes the team-label column to the LONGEST label actually on screen, instead of a fixed generous width. The fixed 140px was sized for full team names, so a box showing abbreviations left a wide grey channel between the label and the bar - the owner's "lots of grey space between the team abbreviation and the bar". The reclaimed width goes to the tracks, which is where the information is. One measurement for the whole container, applied to every row. A per-row width would make each bar start at a different x and turn a ranking into a ragged staircase. Measured off the inner label span, whose inline box is its natural text width regardless of the clipped parent, so no reflow dance is needed. Capped so one absurd name cannot eat the track, floored so the column never collapses to nothing.
 const BAR_TITLE_MIN = 34;
 const BAR_TITLE_MAX = 140;
 const BAR_TITLE_PAD = 8;
 const BAR_VALUE_MAX = 90;
 const BAR_VALUE_PAD = 4;
-// The label and value column widths the last bar view measured, so the other Rankings tab can hold its own columns open to at least the same width when both are drawing the same league.
+// The label and value column widths the last bar view measured, so the OTHER Rankings tab can hold its own columns open to at least the same width when the two are drawing the same league.
 const lastBarColumnWidths = { title: 0, value: 0 };
 
-// floorWidths lets a caller hold a column open to a width another view measured, so the tracks end at one x across the two tabs and not only within each.
+// `floorWidths` lets a caller hold a column open to a width another view measured. Only the twin case uses it (see renderCategoryBlocks). When both Rankings tabs draw the same league once, their tracks should end at one x, and each tab measuring only its own values put them 8px apart - "21W-4L-0T" reserves more room than a category total does.
 function sizeBarTitles(container, floorWidths = null) {
     const rows = [...container.querySelectorAll('.bar-row')];
     if (rows.length === 0) return;
 
     let widestLabel = 0;
     container.querySelectorAll('.bar-title').forEach(title => {
-        // Whichever of the two labels CSS is currently showing, full name or abbreviation.
+        // Whichever of the two labels CSS is currently showing (full name or abbreviation).
         [...title.children].forEach(span => {
             if (span.offsetParent === null && span.offsetWidth === 0) return;
             if (getComputedStyle(span).display === 'none') return;
@@ -674,13 +674,13 @@ function sizeBarTitles(container, floorWidths = null) {
     });
     if (widestLabel) {
         let w = Math.max(BAR_TITLE_MIN, Math.min(BAR_TITLE_MAX, Math.ceil(widestLabel) + BAR_TITLE_PAD));
-        // Only a view measuring purely its own content publishes: a follower writing its floored width back would ratchet the column wider and never let it narrow again.
+        // Only a view measuring purely its own content publishes. A follower that wrote its floored width back would ratchet the column wider and never let it narrow again.
         if (!floorWidths) lastBarColumnWidths.title = w;
         else w = Math.max(w, floorWidths.title || 0);
         container.style.setProperty('--bar-title-w', `${w}px`);
     }
 
-    // The value column is measured for the same reason the label column is. Content-sized, a long value string and a short one reserved different widths, so the flexible track beside them ended at a different x on every row.
+    // The value column gets the same treatment, and for the same reason the label column does. It is content-sized, so "21W-4L-0T" and "3W-1L-0T" reserved different widths and the TRACK beside them - the flexible element - ended at a different x on every row. The grey tracks read as a ragged right edge instead of one scale (owner). One measured width for the whole container squares them off; a per-row width is what caused the problem.
     let widestValue = 0;
     container.querySelectorAll('.bar-value').forEach(v => {
         if (getComputedStyle(v).display === 'none') return;
@@ -694,7 +694,7 @@ function sizeBarTitles(container, floorWidths = null) {
     }
 }
 
-// Wires the per-section flip arrows, re-attached on every render because the sections are rebuilt.
+// Wires the per-section flip arrows. Re-attached on every render because the sections are rebuilt.
 function wireSectionFlips(graph, rerender) {
     graph.querySelectorAll('.std-flip').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -748,7 +748,7 @@ function createPieChart(data, title, size = 80) {
     `;
 }
 
-// Pie slices get a hover-dim effect on top of the tooltip positioning attachDataTooltips already provides. This only adds the opacity change.
+// Pie slices get their own hover-dim effect on top of the tooltip positioning that attachDataTooltips already provides (every caller of this function calls attachDataTooltips against the same container first - each slice carries its own [data-tooltip] attribute, set in createPieChart) - this only adds the opacity change, it doesn't duplicate the positioning logic attachDataTooltips already handles.
 function attachPieTooltipLogic() {
     const container = document.getElementById('left-graph-container');
     if (!container) return;
@@ -759,7 +759,7 @@ function attachPieTooltipLogic() {
     });
 }
 
-// Season Trends and Category Rankings are separate always-visible panels rather than one dropdown-switched view, so both render every time.
+// Season Trends (column 2) and Category Rankings (column 3) are now separate, always-visible panels rather than one dropdown-switched view - render both every time. The trend-line metric toggles and the category picker both live in the shared, always-available Filters box at the bottom of the tab. The left "col-trends" column is now Season Trends only. Category Rankings moved into the Rankings box on the right (renderLeftColumn's category view), so this no longer touches cat-graph-container. At a single-matchup timeframe (category leagues only - see renderScoreboardBox), this column's role swaps. A season trend line needs 2+ weeks of data, so the live Matchup Scoreboard becomes the hero content instead, and the box's own header goes contextual (updateTrendsBoxChrome) so it doesn't keep reading "Season Trends" over content that has nothing to do with a trend. Points leagues are unaffected - their weeklyMatchWins IS a real single-matchup stat (raw points scored), so they keep the existing single-week bars fallback inside renderTrendGraph. The Trend Lines toggles drive the Season Trends chart's two series, whose vocabulary differs by league type. A category league toggles Cat Wins / Match Wins, a points league Points / Match Wins. The markup ships the category labels as its static default (mirror rule); this swaps the toggle-cat label to "Points" for a points league (toggle-match is "Match Wins" either way). Only the text node after the swatch is touched, so the checkbox and its swatch stay put.
 function updateTrendToggleLabels() {
     const catLabel = document.getElementById('toggle-cat')?.parentElement;
     if (catLabel && catLabel.lastChild) catLabel.lastChild.textContent = AppState.isPointsLeague ? 'Points' : 'Cat Wins';
@@ -771,7 +771,7 @@ export function renderRightColumn() {
     updateTrendToggleLabels();
 
     if (AppState.isRotoLeague) {
-        // The Roto Race: the standings reconstructed over the season from each team's roster.
+        // The Roto Race: the standings reconstructed over the season from each team's current roster. Replaces the old "nothing to plot" notice - a box explaining its own emptiness is exactly what the owner asked never to ship.
         const title = document.getElementById('trends-box-title');
         const tooltip = document.getElementById('trends-box-tooltip');
         if (title) title.textContent = 'Roto Race';
@@ -781,7 +781,7 @@ export function renderRightColumn() {
     }
 
     const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
-    // Points leagues get the scoreboard too.
+    // Points leagues get the scoreboard too now. They used to be excluded, which left them rendering the Rankings box's own Points bars a second time in this box - the same list twice, overflowing both. Their card carries the matchup race instead of a category breakdown.
     const isScoreboard = startWeek === endWeek;
     updateTrendsBoxChrome(isScoreboard);
 
@@ -792,7 +792,7 @@ export function renderRightColumn() {
     }
 }
 
-// Swaps the trends box's title and tooltip between its two roles, using a span inside the existing markup rather than a second header, so nothing shifts when the content changes.
+// Swaps the col-trends box's h3 title + tooltip between its two roles (see renderRightColumn) - a <span id> inside the existing markup rather than a second header element, so no layout shifts when the content underneath changes. Both dashboard.html and dev-preview.html carry the same "Season Trends" text/tooltip as their static default (mirror rule) - this only overwrites it at runtime for the single-matchup case.
 function updateTrendsBoxChrome(isScoreboard) {
     const title = document.getElementById('trends-box-title');
     const tooltip = document.getElementById('trends-box-tooltip');
@@ -804,28 +804,28 @@ function updateTrendsBoxChrome(isScoreboard) {
         : `${AppState.isPointsLeague ? 'Points' : 'Cat Wins'} and Match Wins over the selected timeframe. The dashed line marks the playoff start. Hover a point for the breakdown.`);
 }
 
-// The Category Heatmap is a permanent full-width band below the two columns, visible at every timeframe.
+// The Category Heatmap is now a permanent full-width band below the two columns (always visible at every timeframe, timeframe-aware - see the.heatmap-band layout in dashboard.html), rather than a right-column dropdown view. Re-rendered alongside the columns wherever the timeframe or visible-team set changes (data.js processCoreData, controls.js handleTimeframeChange / legend toggle, main.js switchTab).
 export function renderHeatmapBand() {
     const container = document.getElementById('heatmap-graph-container');
     if (!container) return;
-    // Roto reaches the same renderer, since its season totals feed the same shading, so the row cap, column sorting and pop-out all work with no roto-specific handling.
+    // Roto reaches the same renderer. Its season totals feed the same shading, so B61's row cap, column sorting and pop-out all work on it with no roto-specific handling (B31-FULL). The row cap is an inline-band concern only. While the band is docked in the pop-out overlay it has room for a whole league, so it renders every row there.
     renderDominanceHeatmap(container, { capRows: !isHeatmapPoppedOut() });
 }
 
-// True while the heatmap band is docked inside its pop-out overlay, which moves the real container node in and out.
+// True while the heatmap band is docked inside its pop-out overlay (main.js moves the real container node in and out - see setupHeatmapPopout).
 function isHeatmapPoppedOut() {
     const slot = document.getElementById('heatmap-overlay-chart');
     const container = document.getElementById('heatmap-graph-container');
     return !!(slot && container && slot.contains(container));
 }
 
-// The league's scored categories that have data anywhere in the range, role-grouped, each tagged with whether it is a rate stat and whether lower is better.
+// The league's scored categories that actually have data anywhere in a week range, ROLE-GROUPED (batting before pitching, skaters before goalies - see orderStatIdsByRole), each tagged with whether it's a rate stat (decimals, aggregated by averaging) and whether lower is better. Shared by the single-matchup Head-to-Head Scoreboard and the (timeframe-aware) Category Heatmap. The grouping is not cosmetic-only. Object.keys below returns integer-like keys in ascending NUMERIC order, which put hockey's goalie ids (0-11) ahead of every skater id, so the heatmap used to open with W/SO/GAA/SV% before a single skater category.
 function scoredCategoriesInRange(startWeek, endWeek) {
     const sport = AppState.loadedSport;
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const avgSet = AVERAGE_STATS[sport] || new Set();
     const invSet = INVERSE_STATS[sport] || new Set();
-    // Roto has no weekly spine to look through, so a category has data when any team carries a season total for it.
+    // Roto has no weekly spine to look through - a category "has data" if any team carries a season total for it (valuesByStat, landed in seasonCats by processCoreData).
     const hasData = id => AppState.isRotoLeague
         ? AppState.teamStats.some(t => t.seasonCats[id] !== undefined)
         : AppState.teamStats.some(t => {
@@ -835,16 +835,16 @@ function scoredCategoriesInRange(startWeek, endWeek) {
     const ids = Object.keys(statMap)
         .filter(id => AppState.scoredStatIds.has(id))
         .filter(hasData);
-    // isSecondary tags which role group a category belongs to, so a consumer can mark where the two groups meet without re-deriving the split.
+    // isSecondary tags which role group a category belongs to (pitching / goalies), so a consumer can mark where the two groups meet without re-deriving the split. The scoreboard uses it to draw the same thin rule between the groups that the recap image does.
     const secondaryIds = new Set(splitStatIdsByRole(sport, ids).secondary.map(String));
     return orderStatIdsByRole(sport, ids)
         .map(id => ({ id, name: statMap[id], isAvg: avgSet.has(id), inverse: invSet.has(id), isSecondary: secondaryIds.has(String(id)) }));
 }
 
-// A team's value in one category over a week range: summed for counting stats, averaged over the weeks actually played for rate stats.
+// A team's value in one category over a week range - summed for counting stats, averaged over the weeks actually played for rate stats (AVG, ERA,...). Matches renderCategoryGraph's own aggregation. undefined when the team has no data for it anywhere in the range.
 function aggregateTeamCategory(team, catId, isAvg, startWeek, endWeek) {
     if (AppState.isRotoLeague) {
-        // Full Season reads the payload's season values, which are the same numbers ESPN ranks on, and there are no weeks to aggregate.
+        // Full Season. The payload's season valuesByStat is the same number ESPN ranks on (seasonCats), and there are no weeks to aggregate. A "last N weeks" pill instead re-derives the category over ONLY that window's started-day components - rate stats from summed components, not averaged daily rates - so the heatmap and the windowed standings read the SAME sums. The startWeek/endWeek passed in are matchup-based and irrelevant here; roto windows are the race's week buckets, resolved by activeRotoWindow. computeRotoWindow is memoized, so this per-cell lookup is O(1). A team with no data in the window has no entry, so the cell renders blank.
         const sport = AppState.loadedSport;
         const bounds = activeRotoWindow(sport);
         if (!bounds) return team.seasonCats[catId];
@@ -859,8 +859,7 @@ function aggregateTeamCategory(team, catId, isAvg, startWeek, endWeek) {
     return isAvg ? sum / weeks : sum;
 }
 
-// The Category Heatmap is a permanent full-width band below the two columns, visible at every timeframe and timeframe-aware.
-// The team's best and bleeding categories, for the My Team summary. A category is bleeding when the team sits below the league's midpoint in it and winning when above, expressed as a standing percentile rather than a rank so it means the same thing at any league size. Competition ranking, inverse-aware, so it agrees with the heatmap category by category.
+// The heatmap's own machinery aimed at ONE team. It answers where that team ranks in every scored category over the current timeframe, best and worst three. Same aggregation and the same competition ranking the heatmap cells shade by, so My Team's profile and the heatmap row can never disagree. Exported rather than reimplemented, which is the whole point.
 export function teamCategoryProfile(teamId) {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     const cats = scoredCategoriesInRange(start, end);
@@ -870,11 +869,11 @@ export function teamCategoryProfile(teamId) {
             .filter(x => x.v !== undefined);
         const mine = vals.find(x => x.id === teamId);
         if (!mine) return null;
-        // Competition ranking, inverse-aware: better values rank first, ties share a rank.
+        // Competition ranking, inverse-aware. Better values rank first, ties share a rank.
         const better = vals.filter(x => cat.inverse ? x.v < mine.v : x.v > mine.v).length;
         return { id: cat.id, name: cat.name, rank: better + 1, of: vals.length };
     }).filter(Boolean);
-    // A category is BLEEDING when the team sits below the league's midpoint in it and winning when above, expressed as a standing percentile rather than a rank so it means the same at any league size. This replaces a best-three and worst-three cut, which was degenerate: with 14 categories over 4 teams a team usually holds enough firsts and lasts to fill both lists, so every chip read #1 or #4 and the middle of the table never appeared.
+    // Owner's rule ( part 2 item 4). A category is BLEEDING when the team sits below the league's midpoint in it, winning when above. Expressed as a standing percentile rather than a rank so it means the same thing at any league size, so 4 teams bleed at #3 and #4, 5 teams bleed at #4 and #5 with #3 sitting exactly on the median and counting as neither. This replaces a best-three and worst-three cut, which was degenerate. With 14 categories over 4 teams a team usually holds enough firsts and lasts to fill both lists, so every chip read #1 or #4 and the middle of the table never appeared at all. The ranks themselves were right the whole time, and still are - they agree with the heatmap category by category.
     const pctOf = (r) => (r.of <= 1 ? 50 : ((r.of - r.rank) / (r.of - 1)) * 100);
     const scored = ranked.map(r => ({ ...r, pct: pctOf(r) }));
     const best = scored.filter(r => r.pct > 50).sort((a, b) => a.rank - b.rank);
@@ -882,7 +881,7 @@ export function teamCategoryProfile(teamId) {
     return { all: ranked, best, worst };
 }
 
-// Display value for a category cell: rate stats keep decimals, counting stats show as whole numbers.
+// Display value for a category cell - rate/average stats (AVG, ERA, WHIP,...) keep decimals, counting stats show as whole numbers. Matches renderCategoryGraph's own formatVal convention. An infinite rate is a real answer, not a glitch. A team with earned runs and no innings yet has an infinite ERA, and ESPN says so by sending the string "Infinity". numericStat turns that into a real number on the way in, and this renders it as the symbol rather than the word. The guard also means a value that is somehow still not a number prints a dash instead of throwing halfway through a render, which is what took the whole timeframe update down with it.
 function formatCatValue(v) {
     if (v === undefined || v === null) return '-';
     const n = Number(v);
@@ -896,7 +895,7 @@ function formatCatScore(v) {
     return (n % 1 !== 0) ? n.toFixed(1) : n;
 }
 
-// Head-to-head scoreboard for the single-matchup timeframe, replacing bars that for one matchup were a useless all-or-nothing 1/0.
+// Head-to-Head Scoreboard (single-matchup timeframe, category leagues) - replaces the old H2H Match Wins bars, which for one matchup were a useless all-or-nothing 1/0. Each matchup is a card: the two teams and their category-win score in the header, then a per-category breakdown of both teams' totals with the winning side of each category emphasized (inverse-aware, so a lower ERA wins). Filtered by AppState.visibleTeams ( reversed the old full-league convention): a card renders when AT LEAST ONE of its two teams is visible - filtering down to your own team keeps your own matchup (the opponent is the context that makes the card readable), and a card disappears only when both sides are hidden. renderScoreboardBox shows the empty state if that leaves no cards. Returns a plain grid of cards (no block header - the col-trends box's own h3 already reads "Matchup Scoreboard" via updateTrendsBoxChrome, so a second one here would be redundant). Stays builder-based (one function assembling all card markup from data) rather than being fused into renderScoreboardBox's layout/measurement code, on purpose. The planned premium win-odds column attaches an extra row to these same cards, and needs one seam to extend, not a rewrite of the ladder logic around it. EVERY scored category renders in every card, always (owner ruling, pass 2). There used to be a last-resort ladder step that kept only the tightest-margin categories and appended a "+N more in the heatmap below" line; a card that silently drops half the matchup is not a scoreboard. The height that step used to save is now absorbed by the grid choosing its column count and the cards filling the box - see renderScoreboardBox.
 function buildH2HScoreboardHtml(week) {
     const games = (AppState.apiData?.schedule || []).filter(g =>
         g.matchupPeriodId === week && g.home && g.away && g.home.teamId != null && g.away.teamId != null);
@@ -910,7 +909,7 @@ function buildH2HScoreboardHtml(week) {
         const home = teamById[g.home.teamId];
         const away = teamById[g.away.teamId];
         if (!home || !away) return '';
-        // At least one side has to be visible, or the card is dropped.
+        // At least one side visible, or the card is dropped.
         if (!AppState.visibleTeams.has(home.id) && !AppState.visibleTeams.has(away.id)) return '';
         const hScore = home.weeklyCatWins[week] || 0;
         const aScore = away.weeklyCatWins[week] || 0;
@@ -923,7 +922,7 @@ function buildH2HScoreboardHtml(week) {
                 (c.inverse ? hv < av : hv > av) ? homeWin = true : awayWin = true;
             } else if (hv !== undefined && av === undefined) homeWin = true;
             else if (av !== undefined && hv === undefined) awayWin = true;
-            // Thin rule where the second role group starts, the same marker the recap image draws between its two groups.
+            // Thin rule where the second role group starts (batting -> pitching, skaters -> goalies), the same marker the recap image draws between its two groups. Only when a primary-role row actually precedes it, so a single-role league carries no stray divider. The list itself stays ONE vertical column. Splitting these rows into two side-by-side blocks read as though one team owned a group of stats.
             const groupBreak = c.isSecondary && i > 0 && !cats[i - 1].isSecondary;
             return `
                 ${groupBreak ? '<div class="h2h-cat-divider"></div>' : ''}
@@ -934,7 +933,7 @@ function buildH2HScoreboardHtml(week) {
                 </div>`;
         }).join('');
 
-        // Both labels ship in the markup and CSS shows one.
+        // Both labels ship in the markup and CSS shows one (see.h2h-grid.h2h-abbrev). The ladder in renderScoreboardBox only toggles classes while it measures, so carrying both is what lets it try the abbreviation without rebuilding every card's HTML mid-search.
         const headTeam = (team, cls, winning) => `
             <div class="h2h-head-team ${cls}${winning ? ' h2h-head-lead' : ''}">
                 <span class="h2h-dot" style="background:${AppState.teamColorMap[team.id]};"></span>
@@ -954,12 +953,12 @@ function buildH2HScoreboardHtml(week) {
             </div>`;
     }).join('');
 
-    // No card survived the visible-teams filter, so return empty and let the box show its empty state instead of a bare grid.
+    // No card survived the visibleTeams filter (every matchup fully hidden) - return empty so renderScoreboardBox shows the empty state instead of a bare grid.
     if (!cards) return '';
     return `<div class="h2h-grid">${cards}</div>`;
 }
 
-// The playoff series a matchup card belongs to, so during the playoffs a card says what it is FOR.
+// The playoff series a matchup card is part of ( pass 3). During the playoffs a card says what it is FOR. Reuses data.js's tier classification straight off the schedule - WINNERS_BRACKET is the championship path, every other non-NONE playoffTierType is a consolation ladder - rather than re-deriving anything from ESPN. Empty string in the regular season, so a normal-week card carries no strip. Round names (semifinal/final) are deliberately not guessed here. The winners bracket spans several weeks and nothing in the game itself says which round without inferring bracket depth, so the tier label alone is what's defensible (see the pass-3 note).
 function playoffSeriesLabelHtml(game) {
     const tier = game.playoffTierType;
     if (!tier || tier === 'NONE') return '';
@@ -967,13 +966,13 @@ function playoffSeriesLabelHtml(game) {
     return `<div class="h2h-series ${isChamp ? 'h2h-series-champ' : 'h2h-series-conso'}">${isChamp ? 'Championship' : 'Consolation'}</div>`;
 }
 
-// A points total in the vocabulary a points league uses: whole points stay whole, fractions keep one decimal.
+// A points total, in the vocabulary a points league uses. Whole points stay whole, fractions keep one decimal. Deliberately NOT formatCatValue, which is built for category values and pads rate stats to three decimals - it rendered a 163.1 score as "163.100" and a scoreboard header wide enough to cost the grid two of its columns.
 function formatPoints(v) {
     const n = Number(v) || 0;
     return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-// The Matchup Race: a points league's answer to the category breakdown.
+// The Matchup Race (B51/): a points league's answer to the category breakdown. Where a category card lists who is winning each stat, a points matchup has one number per side, so the story worth telling is HOW it got there - two cumulative lines over the matchup's scoring periods, from the payload's own pointsByScoringPeriod, with the current margin called out underneath. VALIDATED against the 20-team points capture. Each side carries pointsByScoringPeriod as a { scoringPeriodId: pointsThatDay } map, and those days sum to that side's totalPoints exactly (163.1 and 159.7 on the first matchup of period 25). Days present on one side but not the other are unioned so both lines share an x-axis, and a missing day contributes 0 to that side rather than breaking the line. The chart is drawn in a normalized 0-100 viewBox with preserveAspectRatio="none" so it stretches to whatever cell the grid ladder hands it, and non-scaling-stroke keeps the lines the same weight however far it stretches. That is what lets a points card fill its space the way a category card does without the builder knowing anything about the final pixel size.
 function buildMatchupRaceHtml(home, away, side) {
     const hPts = side.home.pointsByScoringPeriod || {};
     const aPts = side.away.pointsByScoringPeriod || {};
@@ -997,7 +996,7 @@ function buildMatchupRaceHtml(home, away, side) {
 
     const lead = hRun >= aRun ? home : away;
     const margin = Math.abs(hRun - aRun);
-    // "leads by" reads wrong for a dead heat, and a tied race is worth naming plainly.
+    // "leads by" reads wrong for a dead heat, and a tied race is worth naming plainly. The label uses the abbreviation whichever way the header is currently showing names. This line sits under the chart with one line to work with, and the full name is on its title tooltip.
     const marginText = margin === 0
         ? 'Dead even'
         : `${lead.abbrev} leads by ${formatPoints(margin)}`;
@@ -1014,7 +1013,7 @@ function buildMatchupRaceHtml(home, away, side) {
         </div>`;
 }
 
-// The points-league counterpart to the category scoreboard, sharing the card shell and grid so the whole column-count, abbreviation and density ladder applies unchanged.
+// Points-league counterpart to buildH2HScoreboardHtml - same card shell, same grid, so the whole column-count/abbreviation/density ladder in renderScoreboardBox applies unchanged. Points leagues had NO scoreboard at all before this. At a single matchup they rendered the same Points bars the Rankings box was already showing, duplicated in both boxes and overflowing both.
 function buildPointsScoreboardHtml(week) {
     const games = (AppState.apiData?.schedule || []).filter(g =>
         g.matchupPeriodId === week && g.home && g.away && g.home.teamId != null && g.away.teamId != null);
@@ -1027,7 +1026,7 @@ function buildPointsScoreboardHtml(week) {
         const home = teamById[g.home.teamId];
         const away = teamById[g.away.teamId];
         if (!home || !away) return '';
-        // At least one side has to be visible, or the card is dropped.
+        // At least one side visible, or the card is dropped.
         if (!AppState.visibleTeams.has(home.id) && !AppState.visibleTeams.has(away.id)) return '';
         const hPts = statValue(g.home.totalPoints) || 0;
         const aPts = statValue(g.away.totalPoints) || 0;
@@ -1039,7 +1038,7 @@ function buildPointsScoreboardHtml(week) {
                 <span class="h2h-abbr" title="${escapeHtml(team.name)}">${escapeHtml(team.abbrev)}</span>
             </div>`;
 
-        // The card's own race, plus a pop-out button when there is a race to enlarge. A matchup with no day-by-day data draws no chart, so it gets no button either.
+        // The card's own race, plus a pop-out button for it when there is a race to enlarge. A matchup with no day by day data draws no chart, so it gets no button either.
         const raceHtml = buildMatchupRaceHtml(home, away, g);
         const popoutBtn = raceHtml
             ? cardPopoutButtonHtml(
@@ -1063,16 +1062,16 @@ function buildPointsScoreboardHtml(week) {
             </div>`;
     }).join('');
 
-    // No card survived the visible-teams filter, so return empty for the shared empty state.
+    // No card survived the visibleTeams filter - empty so renderScoreboardBox shows the empty state.
     if (!cards) return '';
     return `<div class="h2h-grid">${cards}</div>`;
 }
 
-// Per-card pop-out. The whole-box pop-out answers "show me the week", this one answers "show me THIS matchup", which a small card in a full grid can never do properly.
+// Per-card pop-out. The scoreboard's whole-box pop-out answers "show me the week"; this one answers "show me THIS matchup", which a 154px card in a 10-card grid can never do properly. Built as a CARD-LEVEL seam rather than a race-specific button. A card registers whatever visual it drew and gets back an id, the button carries that id, and openCardPopout dispatches on the visual's `kind` to a full-size renderer. Today the only kind is 'race' (the points matchup race). The deferred cats-card visuals (category race chart, swing meter, on-pace line) inherit the whole affordance by registering their own kind and adding one renderer branch - no new button, overlay, Esc wiring, or CSS.
 let cardVisualSeq = 0;
 const cardVisuals = new Map();
 
-// Cleared at the top of every scoreboard render: the ids are positional, so stale entries would outlive the cards that own them and leak.
+// Cleared at the top of every scoreboard render. The ids are positional, so stale entries from the previous week/timeframe would outlive the cards that own them and leak.
 function resetCardVisuals() {
     cardVisuals.clear();
     cardVisualSeq = 0;
@@ -1084,13 +1083,13 @@ function registerCardVisual(visual) {
     return id;
 }
 
-// The same glyph and button class as the other pop-outs, so it reads as one family.
+// The affordance is the same glyph and button class as the trends/heatmap pop-outs, so it reads as one family. It sits absolutely inside the card and only paints on hover/focus (see.h2h-card-popout) so it never competes with the score for the card's few pixels.
 function cardPopoutButtonHtml(id, label) {
     return `<button type="button" class="h2h-card-popout trends-popout-btn" data-card-visual="${id}"
         title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">⛶</button>`;
 }
 
-// One matchup's race at full size: the card's normalized sparkline redrawn as a real chart with axes, day labels and a hover readout.
+// One matchup's race at full size. The card's normalized sparkline is redrawn as a real chart with axes, day labels, and a hover readout. Same padded-viewBox geometry as the Roto Race, including preserveAspectRatio="none" and the matching hover x-mapping (: the mapping assumes the viewBox stretches edge to edge, so the drawing has to actually stretch, and the cursor ratio has to divide by the PADDED width, not the element's).
 function renderMatchupRaceDetail(container, visual) {
     const { home, away, side } = visual;
     const hPts = side.home.pointsByScoringPeriod || {};
@@ -1125,7 +1124,7 @@ function renderMatchupRaceDetail(container, visual) {
     }
     svgStr += `<line id="card-race-hover-line" y1="${padding}" y2="${svgHeight - padding}" stroke-width="1.5" stroke-dasharray="4,2" display="none" pointer-events="none" style="stroke:var(--chart-axis)" />`;
 
-    // Days are numbered within the MATCHUP rather than by ESPN's scoringPeriodId, which is an internal season counter that means nothing to a reader looking at one week.
+    // Days are numbered within the MATCHUP (1..n), not by ESPN's scoringPeriodId - the id is an internal season counter that means nothing to a reader looking at one week.
     const maxLabels = 10;
     const labelStep = Math.max(1, Math.ceil(n / maxLabels));
     periods.forEach((p, i) => {
@@ -1140,7 +1139,7 @@ function renderMatchupRaceDetail(container, visual) {
     });
     svgStr += `</svg>`;
 
-    // The chart labels itself with each side's colour, name and final total, so the reader never needs a sentence explaining what the two lines are.
+    // The chart labels itself, with each side's colour, name and FINAL total in a legend row, so the reader never needs a sentence explaining what the two lines are.
     const legend = [[home, hRun], [away, aRun]].map(([team, total]) => `
         <span class="card-race-legend-item">
             <span class="card-race-swatch" style="background:${AppState.teamColorMap[team.id]};"></span>
@@ -1173,7 +1172,7 @@ function renderMatchupRaceDetail(container, visual) {
         hoverLine.setAttribute('x2', lineX);
         hoverLine.setAttribute('display', 'block');
 
-        // Best-first, so the readout doubles as who was ahead on this day, and .tt-rows lets the shared tooltip layout reflow and clamp it like every other hover.
+        // Best-first, so the readout doubles as "who was ahead on this day"..tt-rows lets layoutHoverTooltip reflow/clamp it exactly like every other hover in the app.
         const rows = [{ team: home, val: hSeries[i] }, { team: away, val: aSeries[i] }]
             .sort((a, b) => b.val - a.val)
             .map(r => `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
@@ -1192,7 +1191,7 @@ function renderMatchupRaceDetail(container, visual) {
     });
 }
 
-// Which full-size renderer each registered visual kind uses. A new card visual adds a line here.
+// Which full-size renderer each registered visual kind uses. New card visuals add a line here.
 const CARD_VISUAL_RENDERERS = { race: renderMatchupRaceDetail };
 
 export function isCardPopoutOpen() {
@@ -1215,11 +1214,11 @@ function openCardPopout(id) {
     if (!visual || !overlay || !chart || !renderer) return;
     document.getElementById('card-overlay-title').textContent = visual.title;
     overlay.hidden = false;
-    // Render AFTER the overlay is visible: the chart sizes to its container, and a hidden container measures zero.
+    // Render AFTER the overlay is visible. The chart sizes to its container, and a hidden container measures zero (the same reason the trends pop-out re-renders on open rather than CSS-scaling).
     renderer(chart, visual);
 }
 
-// Wires the overlay's close button once. The card buttons are wired per render, since the cards are rebuilt every time.
+// Wires the overlay's own close button once. The card buttons are wired per render (the cards are rebuilt on every scoreboard render), in wireCardPopoutButtons below.
 export function setupCardPopout() {
     const closeBtn = document.getElementById('card-popout-close');
     if (closeBtn) closeBtn.addEventListener('click', closeCardPopout);
@@ -1234,16 +1233,16 @@ function wireCardPopoutButtons(container) {
     });
 }
 
-// Incremented on every scoreboard render, guarding its deferred ladder measurement against a superseding render.
+// Incremented on every renderScoreboardBox() call - superseded-render guard for its deferred ladder measurement, same pattern as leftColumnRenderId/catGraphRenderId above.
 let scoreboardRenderId = 0;
 
-// Renders the Matchup Scoreboard into the trends box and picks the arrangement that fills it.
+// Renders the Matchup Scoreboard into the col-trends box and picks the arrangement that fills it. The grid FILLS the box by construction (height:100% with 1fr rows - see.h2h-grid), so there is no grey to measure away. The only open question is which arrangement lets every card show its full category list without clipping. That inverts the old ladder. It used to ask "does the content fit the box" and, when it didn't, degrade - compact, then drop categories behind a "+N more" line. Dropping categories is gone (owner ruling), and degrading was the wrong instinct anyway: at 2 matchups it went COMPACT while still leaving 43px of grey, because it could only ever shrink, never rearrange. So the search is over COLUMN COUNT first and density second. Fewer columns means wider cards but more rows of them, hence a taller grid; more columns means the reverse. The winner is the FEWEST columns that fit at the loosest density - biggest cards, most readable type. Normal density is tried across every column count before compact is tried at all, so type size is only sacrificed when no arrangement can hold the full list at full size. This is the same render-measure-iterate shrink-to-fit loop, just over a two-dimensional choice, and it re-runs on every render so a resize or a league switch re-decides instead of inheriting the previous answer. The fit test is per-CARD, not per-container..h2h-cats clips (overflow:hidden), so a card whose categories don't fit reports scrollHeight > clientHeight while the container itself still measures as full. Asking the container would always say "fits" once the grid fills it.
 function renderScoreboardBox(container, week) {
-    // Both league types render the same card shell into the same grid, so the column-count search, the abbreviation fallback, the density step and paging are all shared.
+    // Both league types render the same card shell into the same grid, so everything below - the column-count search, the abbreviation fallback, the density step, the scroll last resort - is shared. Only the card BODY differs, category rows for a category league, the matchup race for a points league (which has one number per side and no categories to list). Card visual ids are positional and rebuilt with the cards, so clear the registry first.
     resetCardVisuals();
     const html = AppState.isPointsLeague ? buildPointsScoreboardHtml(week) : buildH2HScoreboardHtml(week);
     if (!html) {
-        // Empty either because the week has no matchups or because every one was filtered out, so name the second case rather than showing a bare box.
+        // Empty either because the week has no matchups, or because every matchup was filtered out by the Data Filters - name the second case so the box reads like the rest of the tab.
         const anyVisible = AppState.teamStats.some(t => AppState.visibleTeams.has(t.id));
         container.innerHTML = buildEmptyStateHtml(anyVisible
             ? 'No matchups scheduled for this week.'
@@ -1269,12 +1268,12 @@ function renderScoreboardBox(container, week) {
             grid.classList.toggle('h2h-shortscore', label >= 2);
         };
 
-        // Every category row fits its card's height, and the box is not overflowing.
+        // Every category row fits its card's height, and the box isn't overflowing.
         const verticalOk = () =>
             container.scrollHeight <= container.clientHeight + 1 &&
             [...grid.querySelectorAll('.h2h-cats')].every(c => c.scrollHeight <= c.clientHeight + 1);
 
-        // The card is still READABLE at this width: the visible team label shows in full, and the value row does not clip.
+        // The card is still READABLE at this width. The visible team label shows in FULL (no ellipsis) and the value|name|value row doesn't clip. Squeezing more columns in otherwise collapses the header name toward zero pixels - a card that can't say who is playing has stopped being a scoreboard, whatever it does vertically. Measured on the elements, not a minimum card width.
         const horizontalOk = () =>
             [...grid.querySelectorAll('.h2h-card')].every(card => {
                 const label = card.querySelector(
@@ -1284,7 +1283,7 @@ function renderScoreboardBox(container, week) {
                     && (!row || row.scrollWidth <= row.clientWidth + 1);
             });
 
-        // One arrangement, tried at three header densities in order: full team names, then abbreviations, then abbreviations with the score rounded.
+        // One arrangement, tried at three header densities in order, full team names then abbreviations, then abbreviations with the score rounded to whole points. These are LABEL fallbacks INSIDE an arrangement rather than separate search axes - the cards keep the size the fit search earned them and only the header gives way, which is the owner's read that the names get too small past about three matchups. The score step exists because a points score is the widest thing in that header and does not shrink. At 154px cards "163.1-159.7" measured 88px and squeezed the team label to literally zero while the chart below it fit fine. Rounding to "163-160" gives the label its room back, and the exact totals are still on the margin line under the chart. A category score ("6.5-7.5") is already short, so this step is a no-op there.
         const HEADER_STEPS = [0, 1, 2]; // full name -> abbrev -> abbrev + rounded score
         const tryArrangement = (cols, compact) => {
             for (const label of HEADER_STEPS) {
@@ -1294,7 +1293,7 @@ function renderScoreboardBox(container, week) {
             return false;
         };
 
-        // How many cards are currently in the layout. Paging shows a slice, and the fit search asks whether a page of THIS size fits by showing exactly that many.
+        // How many of the cards are currently in the layout. Paging shows a slice; the fit search below asks "does a page of THIS size fit" by showing exactly that many.
         const showFirst = (n) => cards.forEach((c, i) => { c.style.display = i < n ? '' : 'none'; });
 
         const searchArrangement = (n) => {
@@ -1306,14 +1305,14 @@ function renderScoreboardBox(container, week) {
             return false;
         };
 
-        // Best case: every card fits at full quality, so there is nothing to page.
+        // Best case, every card fits at full quality, so there is nothing to page.
         showFirst(cardCount);
         if (searchArrangement(cardCount)) {
             renderScoreboardPager(pager, cardCount, cardCount, cards);
             return;
         }
 
-        // It does not fit, so PAGE rather than degrade to an internal scroll.
+        // It doesn't fit.: PAGE rather than degrade to an internal scroll - the last scroller on this tab. Take the largest page that DOES fit at full quality, so the cards keep their size and their full category list and the arrows reach the rest. Counting down from the full set means the answer is the most cards the box can honestly hold, never fewer.
         for (let perPage = cardCount - 1; perPage >= 1; perPage--) {
             showFirst(perPage);
             if (searchArrangement(perPage)) {
@@ -1322,17 +1321,17 @@ function renderScoreboardBox(container, week) {
             }
         }
 
-        // Even one card cannot satisfy both axes, so show it anyway at the tightest legible header. One card per page is still paging, and still not a scrollbar.
+        // Even one card cannot satisfy both axes (an absurdly short box). Show it anyway at the tightest legible header rather than an empty box; one card per page is still paging, and still not a scrollbar.
         showFirst(1);
         apply(1, true, HEADER_STEPS[HEADER_STEPS.length - 1]);
         renderScoreboardPager(pager, 1, cardCount, cards);
     });
 }
 
-// Which page of matchup cards the scoreboard is showing.
+// Which page of matchup cards the scoreboard is showing. Module state, same lifetime rule as the category cycle. It survives a re-render so the arrows advance in place, and is clamped whenever the page count shrinks under it. Reset with the rest of the Rankings-box view state on a league switch.
 let scoreboardPageIndex = 0;
 
-// Paints the page slice and its chrome. The arrows are the same chrome arrows the category pager uses, and they WRAP, so neither ever needs a disabled state.
+// Paints the page slice and its chrome. The arrows are the Category Rankings arrows (.chrome-arrow) so the two pagers on this tab are one control, and they WRAP, so neither ever needs a disabled state. No indicator when everything fits - there is nothing to report.
 function renderScoreboardPager(pager, perPage, cardCount, cards) {
     const pageCount = Math.max(1, Math.ceil(cardCount / perPage));
     if (scoreboardPageIndex >= pageCount) scoreboardPageIndex = 0;
@@ -1361,7 +1360,7 @@ function renderScoreboardPager(pager, perPage, cardCount, cards) {
     paint();
 }
 
-// Category Heatmap: a teams by categories grid, each cell aggregated over the selected timeframe and shaded by its rank among visible teams, inverse-aware so a low ERA reads green.
+// Category Heatmap - a teams x scored-categories grid, each cell a team's value aggregated over the SELECTED TIMEFRAME (see aggregateTeamCategory), shaded by its rank among the visible teams in that category (green = leading the league, red = last, inverse-aware so a low ERA reads green). A permanent full-width band at every timeframe, and where the scoreboard's row-cap "+K more" line points (it always has every category). Respects the Teams legend. capRows false renders every team row uncapped - the pop-out overlay has the height for a full league and scrolls internally if it doesn't.
 function renderDominanceHeatmap(container, { capRows = true } = {}) {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     let teams = AppState.teamStats.filter(t => AppState.visibleTeams.has(t.id));
@@ -1376,7 +1375,7 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
         return;
     }
 
-    // Aggregate every team's value in every category over the range, then rank per category by competition rank among the teams that have a value.
+    // Aggregate every team's value in every category over the range, then rank per category by competition rank (ties share) among the teams that have a value - inverse categories rank the lowest value best.
     const valByCat = {};
     const pctByCat = {};
     cats.forEach(c => {
@@ -1399,7 +1398,7 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
         pctByCat[c.id] = pct;
     });
 
-    // Column sort.
+    // Column sort. Rows order by the chosen category's RAW value - an inverse category sorts by value like any other, since the cell shading already says which end is good, and flipping the comparison as well would make one click read as two. A team with no value in that category has nothing to sort on, so it parks last in BOTH directions rather than winning an end by being undefined. The guard on valByCat also absorbs a sort left over from a league whose categories this one doesn't have.
     const sortCat = AppState.heatmapSortCat;
     const sortedVals = sortCat ? valByCat[sortCat] : null;
     if (sortedVals) {
@@ -1415,7 +1414,7 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
 
     const headCells = cats.map(c => {
         const isSorted = sortedVals && sortCat === c.id;
-        // The arrow slot is rendered in EVERY header and only hidden when that column is not the sort. Omitting it outright let the label shift sideways the moment a column became sorted.
+        // The arrow slot is rendered in EVERY header and only hidden when that column isn't the sort - omitting it outright let the label shift sideways the moment a column became sorted.
         const arrow = `<span class="dh-arrow${isSorted ? '' : ' dh-arrow-idle'}">${isSorted && AppState.heatmapSortDir === 'asc' ? '▲' : '▼'}</span>`;
         const tip = `${c.name}${c.inverse ? ' (lower is better)' : ''}. Click to sort.`;
         return `<th class="dh-sortable${isSorted ? ' dh-sorted' : ''}" data-cat="${escapeHtml(c.id)}" role="button" tabindex="0" title="${escapeHtml(tip)}">${escapeHtml(c.name)}${c.inverse ? ' <span class="dh-inv">&darr;</span>' : ''}${arrow}</th>`;
@@ -1447,7 +1446,7 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
                 </table>
             </div>
         </div>`;
-    // The same affordances the player table's sortable headers use, plus Enter and Space so the sort is reachable without a mouse.
+    // Same affordances the player table's sortable headers use (pointer, hover colour, a title saying what a click does), plus Enter/Space so the sort is reachable without a mouse.
     container.querySelectorAll('th.dh-sortable').forEach(th => {
         const activate = () => cycleHeatmapSort(th.dataset.cat);
         th.addEventListener('click', activate);
@@ -1459,7 +1458,7 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
     attachDataTooltips(container);
 }
 
-// Three-state cycle per column: descending, then ascending, then back to the league's default team order.
+// Three-state cycle per column, descending then ascending, then back to the league's default team order. Re-renders through renderHeatmapBand so the same path serves the inline band and the pop-out overlay (the container node is the same one either way).
 function cycleHeatmapSort(catId) {
     if (!catId) return;
     if (AppState.heatmapSortCat !== catId) {
@@ -1474,10 +1473,10 @@ function cycleHeatmapSort(catId) {
     renderHeatmapBand();
 }
 
-// Past this many teams the band stops growing and scrolls internally instead.
+// Past this many teams the band stops growing and scrolls internally instead. A 20-team league's heatmap was eating the vertical budget and squeezing the trends/rankings row above it, which is the same squeeze the trends pop-out was built to relieve.
 const HEATMAP_MAX_VISIBLE_ROWS = 10;
 
-// Caps the band by measuring where the last visible row actually ends rather than guessing a pixel height, since row height moves with font size, padding and border-spacing.
+// Caps the band at HEATMAP_MAX_VISIBLE_ROWS rows by measuring where the last visible row actually ends, rather than guessing a pixel height - row height moves with font size, padding and border-spacing, and an approximate cap would show 9 or 11 rows instead of 10. Applied SYNCHRONOUSLY, which is load-bearing. Every caller renders the two columns before the band (processCoreData, switchTab, handleTimeframeChange), and those columns defer their own compact/pie fitting to a requestAnimationFrame. Shrinking the band here, in the same synchronous pass, means those deferred measurements run against the already-reclaimed height and hand the freed space to the graphs above - no second render, and no chance of them fitting to a height the band is about to give back.
 function applyHeatmapRowCap(container) {
     const wrap = container.querySelector('.dh-wrap');
     const table = wrap && wrap.querySelector('.dominance-heatmap');
@@ -1491,7 +1490,7 @@ function applyHeatmapRowCap(container) {
     wrap.classList.add('dh-capped');
 }
 
-// intro is the italic explainer above the bars. The Rankings box reuses this builder where that framing does not apply and the block header already says enough, so it passes null.
+// intro is the italic explainer line above the bars - defaults to the "no trend line" framing this was originally written for (renderTrendGraph's points-league single-week fallback below), but renderStandings' single-matchup Category Wins branch reuses this same builder inside the Rankings box, where that framing doesn't apply (that box never shows a trend line) and the block header ("Category Wins - Matchup N") already says enough - pass intro: null there. Superseded-render guard for renderSingleWeekBars' deferred orientation measurement. Keyed BY CONTAINER rather than a single module counter, because two different boxes render single-week bars in the same tick, renderLeftColumn (the Rankings box) and then renderRightColumn (the trends box, for points leagues). A shared counter meant the second render cancelled the first one's measurement, so the Rankings box kept whatever orientation it was painted with and never got to flip - it looked like it had decided when it had been skipped.
 const singleWeekRenderTokens = new WeakMap();
 
 function renderSingleWeekBars(container, week, showCat, showMatch, { intro = 'Single-matchup timeframe selected, so this shows a direct comparison instead of a trend line.' } = {}) {
@@ -1521,7 +1520,7 @@ function renderSingleWeekBars(container, week, showCat, showMatch, { intro = 'Si
             })).join('');
             html += `<div class="vcol-chart">${cols}</div>`;
         } else {
-            // Wrapped so the fit has one grid per block to drive, the same shape the season standings use.
+            // Wrapped so fitSingleWeekBars has one grid per block to drive, the same shape.std-bars gives the season standings.
             html += '<div class="swk-rows">';
             rows.forEach((r, idx) => {
                 const split = splitByTier(r.team, week, week, w => r.team[mapKey][w]);
@@ -1538,7 +1537,7 @@ function renderSingleWeekBars(container, week, showCat, showMatch, { intro = 'Si
 
     const specs = [];
     if (AppState.isPointsLeague) {
-        // A points league's single-week view is the Points comparison only, since a Match Wins bar for one game is a degenerate 1/0 per team.
+        // A points league's single-week view is the Points comparison only - a Match Wins bar for one game is a degenerate 1/0 per team. Points is driven by its own toggle, the toggle-cat slot relabeled "Points" for points leagues.
         if (showCat) specs.push(['Points', 'weeklyMatchWins']);
     } else {
         if (showCat) specs.push(['Category Wins', 'weeklyCatWins']);
@@ -1561,7 +1560,7 @@ function renderSingleWeekBars(container, week, showCat, showMatch, { intro = 'Si
         attachDataTooltips(container);
     };
 
-    // Adaptive orientation: columns are tried FIRST because they fill both axes, and rows are the fallback for when there are too many teams to give each column a usable width.
+    // ADAPTIVE ORIENTATION. Columns are tried FIRST because they're the shape that fills both axes; rows are the fallback for when there are too many teams to give each column a usable width. Which side of that line a league falls on is MEASURED, not a hardcoded team count. The columns are laid out, then each one is asked whether its own VALUE LABEL fits the width it got. The value is the one thing that can't degrade - a team name truncates to an ellipsis and keeps its title tooltip (the same treatment.bar-title already gives long names), but a number that doesn't fit makes the column meaningless, so that is the flip test. Same render-measure-adjust shrink-to-fit loop, re-run on every render, so a resize or a legend toggle that changes the team count re-decides instead of staying stuck on the previous shape.
     paint(specs.length > 0);
     if (specs.length === 0) return;
 
@@ -1577,12 +1576,12 @@ function renderSingleWeekBars(container, week, showCat, showMatch, { intro = 'Si
             if (!tooThin) return;
             paint(false);
         }
-        // Rows, either by choice or because the columns were too thin, get the same fit-all ladder the category blocks and season standings use.
+        // Rows, either by choice or because the columns were too thin. They get the same fit-all ladder the category blocks and the season standings use. At This Matchup a 20-team league is 20 rows in a box that never held them, and internal scrolling was the last place on Team Metrics that still happened.
         fitSingleWeekBars(container);
     });
 }
 
-// The fit-all ladder applied to the single-matchup blocks: one column at the natural height, two columns at that height, then a shrunk pitch, until every team is on screen.
+// The fit-all ladder applied to the single-matchup ranking blocks, one column at the rows' natural height, two columns at that height, then a shrunk pitch, until every team is on screen. Shares the standings constants and the same row grid, so a 20-team This Matchup view reads exactly like the same league's season standings rather than inventing a third density.
 function fitSingleWeekBars(container) {
     const blocks = [...container.querySelectorAll('.single-week-wrap .team-block')];
     const rowSets = blocks.map(b => [...b.querySelectorAll('.bar-row')]).filter(r => r.length);
@@ -1603,7 +1602,7 @@ function fitSingleWeekBars(container) {
     const counts = wraps.map(w => w.children.length);
     const naturalPitch = Math.max(...wraps.map((w, i) => w.getBoundingClientRect().height / counts[i]));
 
-    // Everything in the container that is not a row: the intro line, each block's header and its seam.
+    // Everything in the container that is not a row, the intro line, each block's header and seam.
     let overhead = 0;
     const wrapEl = container.querySelector('.single-week-wrap');
     if (wrapEl) {
@@ -1624,7 +1623,7 @@ function fitSingleWeekBars(container) {
     const gapsFor = cols => counts.reduce((sum, n) => sum + Math.max(0, Math.ceil(n / cols) - 1), 0);
     const availFor = (cols, gap) => container.clientHeight - overhead - STD_FIT_SLACK - gapsFor(cols) * gap;
 
-    // This ladder publishes the league standard exactly as the season one does, so the box's other tab has a rhythm to match.
+    // This ladder publishes the league standard exactly as the season one does. It was the miss that made This Matchup show two densities. The box's other tab was matching a rhythm this path never took part in, so the same 20 teams came out 19px here and 21px there.
     const publishLadder = (g, p) => {
         if (container.clientHeight > 0 && g > 0 && p > 0) {
             leagueLadder = { gap: g, pitch: p, rows: counts.reduce((a, b) => a + b, 0) };
@@ -1662,14 +1661,14 @@ function fitSingleWeekBars(container) {
     });
     apply(pitch);
 
-    // The same bounded correction the standings fit makes, for the same reason: the estimate predates the grid, whose row boxes round differently.
+    // Same bounded correction the standings fit makes, for the same reason. The estimate predates the grid, whose row boxes round differently.
     for (let guard = 0; guard < 6 && pitch > 1; guard++) {
         const over = container.scrollHeight - container.clientHeight;
         if (over <= 0) break;
         pitch = Math.max(1, pitch - Math.max(1, Math.ceil(over / slotsFor(cols))));
         apply(pitch);
     }
-    // The corrective loop can shave the pitch under the tiny line after the gap was chosen, so the published rhythm is re-read from the pitch that actually shipped.
+    // The corrective loop above can shave the pitch under the tiny line after the gap was chosen, so the published rhythm is re-read from the pitch that actually shipped rather than the one the arithmetic predicted. A 20px estimate corrected to 19px was still showing a 2px gap.
     if (rowGapFor(pitch) !== gap) {
         gap = rowGapFor(pitch);
         apply(pitch);
@@ -1687,7 +1686,7 @@ function renderTrendGraph() {
     const tfVal = AppState.timeframe;
     const { start: startWeek, end: endWeek } = getTimeframeBounds(tfVal, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
-    // A line trend needs at least two weeks to plot, or a single-week timeframe would draw one isolated dot.
+    // A line "trend" needs at least two weeks to plot - a single-week timeframe would otherwise draw a single isolated dot. Category leagues never reach renderTrendGraph at a single matchup at all - renderRightColumn dispatches those straight to the Matchup Scoreboard instead (see renderScoreboardBox) - so the only way this branch is reached with startWeek === endWeek is a points league, which has no scoreboard equivalent (its weeklyMatchWins IS the real single-matchup stat: raw points scored) and keeps the single- week Points bar comparison it always has.
     if (startWeek === endWeek) {
         renderSingleWeekBars(container, startWeek, showCat, showMatch);
         return;
@@ -1697,7 +1696,7 @@ function renderTrendGraph() {
     const svgHeight = 350;
     const padding = 45;
 
-    // Two cumulative series, each with its own toggle, axis, line style and vocabulary. Channel A is the solid line on the left axis, channel B the dashed line on the right.
+    // Two cumulative series, each with its own toggle, axis, line style, and vocabulary. Channel A is the SOLID line on the LEFT axis (toggle-cat); channel B the DASHED line on the RIGHT (toggle-match). Category leagues plot Cat Wins + Match Wins; points leagues plot Points (the cumulative point total that already rendered, now correctly labeled instead of wearing the Match Wins label) + Match Wins (the real 1/0.5/0 record from weeklyMatchResult, B52/). Both toggles now drive a real line in both league types, so neither is dead.
     const chanA = AppState.isPointsLeague
         ? { show: showCat, field: 'weeklyMatchWins', label: 'PTS' }
         : { show: showCat, field: 'weeklyCatWins', label: 'CAT' };
@@ -1720,7 +1719,7 @@ function renderTrendGraph() {
     maxA = getNiceMax(maxA);
     maxB = getNiceMax(maxB);
 
-    // preserveAspectRatio="none" makes the viewBox stretch edge to edge instead of letterboxing, which the hover mapping depends on.
+    // preserveAspectRatio="none" makes the viewBox stretch edge-to-edge instead of letterboxing. The mousemove-to-week mapping below assumes the drawing fills the element's full width; without this the svg centres its 800-wide viewBox with "meet" scaling, so in the wide pop-out the cursor-to-week ratio is off by the letterbox margin and the last matchup is unreachable. The h2h race cards already do this for the same reason (see buildMatchupRaceHtml).
     let svgStr = `<svg id="trend-svg" width="100%" height="100%" viewBox="0 0 ${svgWidth} ${svgHeight}" preserveAspectRatio="none" style="display: block; cursor: crosshair; flex: 1;">`;
     const numWeeks = endWeek - startWeek;
     const formatTick = (val) => val % 1 === 0 ? val.toFixed(0) : val.toFixed(1);
@@ -1746,7 +1745,7 @@ function renderTrendGraph() {
     }
 
     if (numWeeks > 0) {
-        // A label per week crams together once a long range spans 20-plus weeks, so thin them to a fixed max, evenly spaced, always including the last week.
+        // A label per week works fine for a short range, but crams together and overlaps once "Regular Season + Playoffs" spans 20+ weeks - thin them out to a fixed max count, evenly spaced, always including the last week so the range's end is clear.
         const maxLabels = 10;
         const labelStep = Math.max(1, Math.ceil((numWeeks + 1) / maxLabels));
         for (let w = startWeek; w <= endWeek; w++) {
@@ -1759,7 +1758,7 @@ function renderTrendGraph() {
     const hoverData = {};
     for (let w = startWeek; w <= endWeek; w++) hoverData[w] = [];
 
-    // The line keeps one consistent style throughout: the dashed boundary marker is enough to show where the playoffs start.
+    // The line itself stays one consistent style throughout - the dashed "Playoffs" boundary marker above is enough to show where the playoffs start. The week's tier is still tracked in hoverData so the tooltip can tag (Playoff)/(Consolation) on hover.
     AppState.teamStats.forEach((t) => {
         if (!AppState.visibleTeams.has(t.id)) return;
         const color = AppState.teamColorMap[t.id];
@@ -1849,7 +1848,7 @@ function renderTrendGraph() {
             hoverLine.setAttribute('display', 'block');
         }
 
-        // Header plus one row per team, wrapped in .tt-rows so the shared tooltip layout can reflow the rows into columns rather than clipping a deep league. The data is sorted best-first, so the reflow reads as a mini-standings.
+        // Header + one row per team, wrapped in.tt-rows so layoutHoverTooltip can reflow the rows into columns when a 20-team league would otherwise run past the chart and clip. data is already sorted best-first, so the reflow reads as a mini-standings.
         let rows = '';
         data.forEach(d => {
             const tierTag = d.tier === 'playoff' ? ' <span style="color:#ffb84d;font-size:9px;font-weight:normal;">(Playoff)</span>'
@@ -1874,18 +1873,18 @@ function renderTrendGraph() {
     });
 }
 
-// The Roto Race: one cumulative roto-points line per team over the season, in the same visual language as the trends chart.
+// The Roto Race: one cumulative-roto-points line per team over the season, drawn in the trends box with the same visual language as renderTrendGraph (team colors, the Teams legend controlling which lines show, a hover column of standings at each week, and the pop-out). The series come from buildRotoRaceSeries (players.js), which owns the impure reconstruction; this function is purely presentation.
 function renderRotoRaceGraph(container) {
     const sport = AppState.loadedSport;
 
-    // Kick every source the race needs BEFORE deciding what to draw, since the series holds a loading state until they land and starting them afterwards would wait forever.
+    // Kick every source the race needs BEFORE deciding what to draw - buildRotoRaceSeries holds a loading state until they land, so starting them after that check would wait forever. All three are no-ops once loaded, in flight, or failed, and each one's completion re-renders this box through setWeeklyProgressHook. No timeframe pills exist for roto, so this is the only trigger path. The two roster harvests are the daily snapshots for started-accurate crediting and the draft + transaction log for the rostered fallback tier plus B66/.
     if (!weeklyDataFailed()) ensureWeeklyDataForRace(sport);
     ensureRosterSnapshotData(sport);
     ensureRosterTransactionData(sport);
 
     const race = buildRotoRaceSeries(sport);
 
-    // One loading line held until the best expected tier is complete, then exactly one chart.
+    // One loading line held until the best expected tier is complete, then exactly one chart. Drawing each tier as it arrived repainted a visibly different race two or three times on a cold load; the ladder below it degrades on harvest FAILURE, never on latency.
     if (race.loading) {
         container.innerHTML = buildEmptyStateHtml('Building the Roto Race...');
         return;
@@ -1902,13 +1901,13 @@ function renderRotoRaceGraph(container) {
     const numPoints = weeks.length;
     const xAt = (i) => padding + (numPoints <= 1 ? 0 : (i / (numPoints - 1)) * (svgWidth - padding * 2));
 
-    // The axis is scaled to every team's peak, not just the visible ones, so toggling a line never rescales the chart under the remaining lines.
+    // Axis scaled to every team's peak (not just the visible ones) so toggling a line in the legend never rescales the chart under the remaining lines.
     let maxPts = 0;
     race.seriesByTeam.forEach(series => series.forEach(v => { if (v > maxPts) maxPts = v; }));
     maxPts = getNiceMax(maxPts);
     const yAt = (v) => svgHeight - padding - (v / maxPts) * (svgHeight - padding * 2);
 
-    // preserveAspectRatio="none" for the same reason as the trends chart: the hover mapping assumes the viewBox fills the element edge to edge.
+    // preserveAspectRatio="none" for the same reason as #trend-svg. The hover mapping assumes the viewBox fills the element edge-to-edge, so the drawing must actually stretch, not letterbox.
     let svgStr = `<svg id="roto-race-svg" width="100%" height="100%" viewBox="0 0 ${svgWidth} ${svgHeight}" preserveAspectRatio="none" style="display:block; cursor:crosshair; flex:1;">`;
     const formatTick = (val) => val % 1 === 0 ? val.toFixed(0) : val.toFixed(1);
     for (let i = 0; i <= 4; i++) {
@@ -1918,7 +1917,7 @@ function renderRotoRaceGraph(container) {
     }
     svgStr += `<line id="roto-hover-line" y1="${padding}" y2="${svgHeight - padding}" stroke-width="1.5" stroke-dasharray="4,2" display="none" pointer-events="none" style="stroke:var(--chart-axis)" />`;
 
-    // Thin the x labels to around ten so a full season does not crowd, always keeping the last.
+    // Thin the x labels to at most ~10 so a full season's weeks don't crowd, always keeping the last.
     const maxLabels = 10;
     const labelStep = Math.max(1, Math.ceil(numPoints / maxLabels));
     weeks.forEach((wk, i) => {
@@ -1926,7 +1925,7 @@ function renderRotoRaceGraph(container) {
         svgStr += `<text x="${xAt(i)}" y="${svgHeight - 10}" font-size="12" text-anchor="middle" style="fill:var(--chart-axis)">${axisUnit().short}${wk}</text>`;
     });
 
-    // The standings column at each week, sorted best-first for the tooltip.
+    // hoverData[i] = the standings column at week i, sorted best-first for the tooltip.
     const hoverData = weeks.map(() => []);
     const colorFor = (id) => AppState.teamColorMap[id];
     race.teams.forEach(team => {
@@ -1941,7 +1940,7 @@ function renderRotoRaceGraph(container) {
     hoverData.forEach(col => col.sort((a, b) => b.pts - a.pts));
     svgStr += `</svg>`;
 
-    // The subtitle names the crediting source so the accuracy is never oversold, one line per rung of the fallback ladder: daily started lineups, then the transaction roster history, then current rosters.
+    // The subtitle names the crediting source so the accuracy is never oversold, one line per rung of the fallback ladder (see buildRotoRaceSeries), the daily started lineups when we have them, the transaction roster history while those load, current rosters as the last resort.
     const subtitle = {
         started: "Started lineups from the league's daily rosters",
         rostered: 'Roster history from the league transactions',
@@ -1974,7 +1973,7 @@ function renderRotoRaceGraph(container) {
         hoverLine.setAttribute('x2', lineX);
         hoverLine.setAttribute('display', 'block');
 
-        // The same reflow-to-fit treatment as the trends hover, so a tall roster of teams breaks into columns instead of clipping.
+        // Same reflow-to-fit treatment as the Season Trends hover..tt-rows lets layoutHoverTooltip break a tall roster of teams into columns instead of clipping. col is already sorted best-first, so it reads as a mini-standings. Hidden teams are DROPPED from the readout now ( - the Data Filters apply here too), not listed with a dimmed swatch.
         let rows = '';
         col.filter(d => AppState.visibleTeams.has(d.id)).forEach(d => {
             rows += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
@@ -1994,29 +1993,42 @@ function renderRotoRaceGraph(container) {
     });
 }
 
-// Incremented on every category render, guarding its deferred measurement against a superseding render.
+// Incremented on every renderCategoryGraph() call - superseded-render guard for its deferred compaction measurement, same pattern as leftColumnRenderId above.
 let catGraphRenderId = 0;
 
-// Which category the box is showing. Module state rather than AppState, because it is pure view position.
+// Which category the box is showing (, reworked in; the row-page half of this state was deleted in when the row pager went). Module state rather than AppState because it is pure view position. Keyed by STAT ID, not index. Every re-render rebuilds the block list from scratch (a timeframe click, a Data Filters toggle, the Advanced Stats toggle changing its length and order), and an index would quietly land on a different category each time. Only a league switch resets it - a new league's categories are a different list entirely.
 let catViewedStatId = null;
 
-// Which standings sections are currently drawn as a pie, by section key. A Set rather than one flag, because the sections flip independently.
+// Which STANDINGS sections are currently drawn as a pie instead of bars, by section key. A Set rather than one flag because the sections flip INDEPENDENTLY - either, both, or neither. Same lifetime rule as the category cycle above. It survives every re-render (timeframe pills, Data Filters, a legend toggle) so a flipped section stays flipped, and only a league switch clears it.
 const sectionPieViews = new Set();
 
 export function resetRankingsViewState() {
     catViewedStatId = null;
     sectionPieViews.clear();
     scoreboardPageIndex = 0;
-    // A new league has its own density, so its standard rhythm is measured afresh rather than inherited from whatever the last one could afford.
+    // A new league has its own density, so its standard rhythm has to be measured afresh rather than inherited from whatever the last one could afford.
     leagueLadder = null;
 }
 
-// The canonical Category Rankings row pitch lives in CSS now, as one pitch everywhere rather than a cap that only engaged when the fill would stretch past it.
+// The canonical Category Rankings row pitch (B74's 28px, from the 6-team density the owner called good) lives in CSS now (.cat-capped.bar-row height) - made that the ONE pitch everywhere rather than a cap that only engaged when the flex-fill would stretch past it.
 
-// One category's RACE: each team's cumulative value in that category, week by week, under its ranking bars.
+// One category's RACE, each team's cumulative value in that category, week by week, under its ranking bars. introduced it as an unlabeled sparkline to fill reclaimed space; makes it a real part of the block - a divider seams it to the bars, it labels ITSELF with data (the week span at the ends, each line's end value in its team colour), and it answers a hover with exact values. buildCategoryRaceSeries produces the data for BOTH league families off whichever source is honest: H2H: teamStats.weeklyCats, accumulated across the selected timeframe's weeks. Roto: rotoCategorySeries (players.js) - the same started-day component sums the roto standings and heatmap use, so a category's race and its bar agree by construction. Rate categories come back already derived from summed components at each week, never averaged. Returns null when there is nothing honest to draw, fewer than two weeks to race across (This Matchup), or a roto league on a fallback tier, where per-week shape would be wrong because those tiers count benched days ESPN never did. A block with no race just gives the height to its bars.
 function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
     if (AppState.isRotoLeague) {
         const sport = AppState.loadedSport;
+        // At Current the week itself is the window, so the race runs across its DAYS. Same started-day crediting, same cumulative and rate handling, one bucket smaller.
+        if (parseTimeframe(AppState.timeframe).window === 1) {
+            const daily = rotoCategoryDailySeries(sport);
+            if (daily) {
+                const points = teams.map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    values: (daily.byTeam.get(t.id) || []).map(v => v[catId])
+                })).filter(p => p.values.some(v => v !== undefined));
+                if (points.length) return { weeks: daily.periods, points, dayAxis: true };
+            }
+            return null;
+        }
         const series = rotoCategorySeries(sport);
         if (!series) return null;
         const points = teams.map(t => ({
@@ -2028,6 +2040,7 @@ function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
         return { weeks: series.weeks, points };
     }
 
+    // H2H at a single matchup has no race to draw. A CATEGORY league carries no per-day team values anywhere in the payload to build one from. pointsByScoringPeriod exists but is all zeros in every H2H_MOST_CATEGORIES capture checked, in both sports, because such a league scores categories rather than points, and cumulativeScore.scoreByStat is per MATCHUP, not per day ( audit). Building it would mean summing started players' daily lines the way roto does, which needs daily roster snapshots and pool-wide per-day player data - the memory the entry rules out. The block gives the height to its bars instead.
     if (endWeek - startWeek < 1) return null;
     const weeks = [];
     for (let w = startWeek; w <= endWeek; w++) weeks.push(w);
@@ -2042,15 +2055,17 @@ function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
     return { weeks, points };
 }
 
-// Registry of the race data behind each rendered block, keyed by render id, so the hover can answer with exact values without re-deriving anything. Cleared per render.
+// Registry of the race data behind each rendered block, keyed by the block's render id, so the hover handler can answer with exact values without re-deriving anything. Cleared per render.
 let catRaceSeq = 0;
 const catRaceData = new Map();
 
-// The race markup.
+// The race markup. The chart is a normalized 0-100 viewBox with preserveAspectRatio="none" so it stretches to whatever height the block hands it, and non-scaling-stroke keeps the line weight constant however far it stretches (B75's lesson). Every LABEL is HTML positioned over the plot, never SVG text. A non-uniformly stretched viewBox would squash text along with the drawing. Percentage positions survive the stretch exactly because they are resolved against the final box, not the viewBox. Inverse categories (ERA, GAA) are drawn as-is - the line is the real accumulated value, and the bars above already encode which end is good. Flipping the plot would make the same number read two different ways in one block.
 function buildCategoryRaceHtml(series, isInverse) {
     if (!series) return '';
     const { weeks, points } = series;
     const n = weeks.length;
+    // A day race counts its own days from one; a week race names the league's real unit. axisUnit is untouched either way. It names matchup and week axes, and Day is neither.
+    const dayAxis = !!series.dayAxis;
     const flat = points.flatMap(p => p.values).filter(v => v !== undefined && Number.isFinite(v));
     if (flat.length === 0) return '';
     const peak = Math.max(...flat), floor = Math.min(...flat, 0);
@@ -2058,8 +2073,10 @@ function buildCategoryRaceHtml(series, isInverse) {
     const yPct = (v) => 100 - ((v - floor) / span) * 100;
     const xPct = (i) => n === 1 ? 50 : (i / (n - 1)) * 100;
 
-    // The race indexes whatever the league's own timeline is: matchups in H2H, weeks in roto.
+    // The race indexes whatever the league's own timeline is, matchups in H2H and weeks in roto.
     const unit = axisUnit();
+    const axisFrom = dayAxis ? 'Day 1' : `${unit.short}${weeks[0]}`;
+    const axisTo = dayAxis ? `Day ${n}` : `${unit.short}${weeks[n - 1]}`;
     const id = `cr${++catRaceSeq}`;
     catRaceData.set(id, series);
 
@@ -2068,7 +2085,7 @@ function buildCategoryRaceHtml(series, isInverse) {
         return pts ? `<polyline points="${pts}" fill="none" vector-effect="non-scaling-stroke" stroke="${AppState.teamColorMap[p.id]}" stroke-width="1.5" opacity="0.9" />` : '';
     }).join('');
 
-    // End-value labels, best-first so the leaders win any collision. The deferred pass hides labels that would overlap, which is what keeps this readable as the team count climbs.
+    // End-value labels, best-first so the leaders win any collision (the rAF pass in renderCategoryBlocks hides labels that would overlap, which is what keeps this readable as the team count climbs instead of turning into a stack of unreadable numbers).
     const ends = points
         .map(p => {
             const last = [...p.values].reverse().find(v => v !== undefined);
@@ -2086,11 +2103,11 @@ function buildCategoryRaceHtml(series, isInverse) {
                 <span class="cat-race-hairline" hidden></span>
                 ${ends}
             </div>
-            <div class="cat-race-axis"><span>${unit.short}${weeks[0]}</span><span>${unit.short}${weeks[n - 1]}</span></div>
+            <div class="cat-race-axis"><span>${axisFrom}</span><span>${axisTo}</span></div>
         </div>`;
 }
 
-// Hover on a category race: teams and their exact cumulative values at the hovered week, best-first, through the shared tooltip layout.
+// Hover on a category race shows teams and their exact cumulative values at the hovered week, best-first, through the shared layoutHoverTooltip so it reflows and clamps like every other hover.
 function wireCategoryRaceHovers(container) {
     const tooltip = document.getElementById('cat-race-tooltip');
     if (!tooltip) return;
@@ -2104,7 +2121,7 @@ function wireCategoryRaceHovers(container) {
         plot.addEventListener('mousemove', (e) => {
             const rect = plot.getBoundingClientRect();
             const n = series.weeks.length;
-            // The viewBox stretches edge to edge, so the cursor ratio maps straight onto the index with no letterbox correction.
+            // The viewBox stretches edge to edge (preserveAspectRatio="none"), so the cursor ratio maps straight onto the index with no letterbox correction.
             const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
             const i = n <= 1 ? 0 : Math.round(ratio * (n - 1));
 
@@ -2122,7 +2139,7 @@ function wireCategoryRaceHovers(container) {
                 </div>`).join('');
             if (!rows) return;
 
-            tooltip.innerHTML = `<div class="tt-header" style="font-weight:bold; margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:6px; font-size:13px; color:#ddd;">${escapeHtml(raceEl.dataset.cat || '')} thru ${axisUnit().long} ${series.weeks[i]}</div><div class="tt-rows">${rows}</div>`;
+            tooltip.innerHTML = `<div class="tt-header" style="font-weight:bold; margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:6px; font-size:13px; color:#ddd;">${escapeHtml(raceEl.dataset.cat || '')} thru ${series.dayAxis ? `Day ${i + 1}` : `${axisUnit().long} ${series.weeks[i]}`}</div><div class="tt-rows">${rows}</div>`;
             tooltip.style.display = 'block';
             layoutHoverTooltip(tooltip, e.clientX, e.clientY);
         });
@@ -2134,27 +2151,27 @@ function wireCategoryRaceHovers(container) {
     });
 }
 
-// Row pitch and the smallest race worth drawing, in px, both read here so the layout can decide what fits before anything is painted.
+// Row pitch (see.cat-capped.bar-row) and the smallest race worth drawing, in px. Both are read here to compute how much of a block actually fits before anything is painted, which is what lets the layout below decide by construction instead of measuring and then degrading.
 const CAT_ROW_PITCH = 28;
-// Race band heights INCLUDING the race's own chrome, since budgeting the band without it turns an advertised band into a fraction of one.
+// Race band heights, INCLUDING the race's own chrome (6px margin, 6px padding, 1px divider, and the ~13px week-span axis). Budgeting the band without its chrome is what made a "38px race" render a 12px plot, so the chrome was most of the allowance. Below CAT_RACE_MIN the band drops the axis (.cat-race-tight) and hands those 13px to the plot, because a readable line with the weeks in the hover beats an unreadable line with the weeks printed under it.
 const CAT_RACE_MIN = 74;
 const CAT_RACE_FLOOR = 33;
-// The block header's full occupied height, margin included, because the margin is as real to the layout as the text.
+// The block header's full occupied height. The h4 measures 24px and carries a 10px bottom margin, and the margin is just as real to the layout as the text. Budgeting the 24 alone is what let the race collapse to 12px when the arithmetic said it had 72. The shared.section-head block, a 16px title line, 4px to the underline, the 2px underline, and the 6px margin beneath it. One number now, because both tabs use one header - the shrunk variant that used to tighten this margin is gone, since it moved the category tab's content off the standings tab's baseline.
 const CAT_HEADER_H = 28;
 const CAT_HEADER_SHRUNK_H = 28;
-// The category pager's own chrome, where the page indicator sits. The container's own padding is measured rather than assumed.
+// The category pager's own chrome,.cat-paged's bottom padding, where the "n / m" indicator sits. The container's own padding is measured rather than assumed - see renderCategoryBlocks.
 const CAT_PAGER_PAD = 12;
-// There is deliberately no minimum-pitch constant: clamping the pitch UP to a readable floor overflows the very box the shrink exists to fit inside, which clips the last team.
+// NOTE on why there is no minimum-pitch constant here. Clamping the pitch UP to a readable floor overflows the very box the shrink exists to fit inside. A 9px floor against an 87px track for 10 rows overflowed the block by 3px and clipped the last team, which is the exact failure this rung exists to prevent. Fitting every team is the ruling, so the arithmetic wins. Under this pitch the row sheds everything that isn't the bar itself. The value label moves to the hover (the segments already carry it) and the type drops to the small size.
 const CAT_PITCH_SHRUNK = 22;
 
-// Lays the Category Rankings box out, from data rather than finished markup, because the layout decides how the rows are arranged.
+// Lays the Category Rankings box out. Shared by the H2H (renderCategoryGraph) and roto (renderRotoCategoryGraph) renderers, which each hand over DATA - { id, name, inverse, rowsHtml, race } - rather than finished markup, because the layout decides how the rows are arranged. made the pager the whole interface. The box shows exactly ONE category at full width and height and the arrows cycle the league's entire list, wrapping, with a "n / m" indicator. There is no picker and no selection state. One category owning the whole box is also what makes the two-column row layout below possible. settled what happens when a category's teams do not fit. They always fit. The row pager is GONE - not a last resort, deleted - because "scroll down to see the rest of the league" is not an acceptable answer to "who is winning this category". Fitting every team now outranks the canonical 28px pitch that B76/B79/ held fixed, and the ladder yields in this order: 1. One column at the canonical pitch, with the race taking the leftover. 2. Two columns at the canonical pitch, rows filling DOWN then across so the ranking still reads top to bottom, race spanning the full width below. 3. Drop the RACE - the ranking is the content, the race is the enrichment. 4. Shrink the PITCH to whatever the box demands. Under CAT_PITCH_SHRUNK the row also sheds its value label to the hover and drops to the small type. Shrinking is measured and only ever the last rung. The pitch returns to canonical the moment the space allows, so nothing that fits comfortably today gets tighter.
 function renderCategoryBlocks(container, blocks) {
-    // clientHeight INCLUDES the container's own padding, which the block never gets to use.
+    // clientHeight INCLUDES the container's own padding, which the block never gets to use. Measured rather than hardcoded so a padding change in CSS can't silently re-introduce the overflow this budget exists to prevent.
     const cs = getComputedStyle(container);
     const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     const height = Math.max(0, (container.clientHeight || 240) - pad);
 
-    // The viewed category is remembered by STAT ID rather than index, because the Advanced Stats toggle changes the list's length and order and an index would land on a different category.
+    // The viewed category is remembered by STAT ID, not index. The Advanced Stats toggle changes the length and order of the list, and a timeframe click rebuilds it entirely, so an index would silently land on a different category. Falls back to the first when the remembered one is gone.
     let viewIndex = blocks.findIndex(b => b.id === catViewedStatId);
     if (viewIndex < 0) viewIndex = 0;
     catViewedStatId = blocks[viewIndex]?.id ?? null;
@@ -2164,14 +2181,14 @@ function renderCategoryBlocks(container, blocks) {
     const rowCount = block.rowsHtml.length;
     const hasRace = !!block.race;
 
-    // The height budget has to include the pager's chrome, or the block overruns the box by exactly that much.
+    // The height budget has to include the pager's own chrome, or the block overruns the box by exactly that much. The "n / m" indicator sits in.cat-paged's bottom padding. Measured symptom of getting this wrong was a 149px box scrolling by exactly that padding.
     const chrome = blocks.length > 1 ? CAT_PAGER_PAD : 0;
     const avail = Math.max(0, height - chrome);
-    // Rows per column and the height left for the race, for a given column count at a given pitch. The gaps between rows are real height, so the leftover the race bids against is net of them.
+    // Rows per column and the height left over for the race, for a given column count at a given pitch. The gaps between rows are real height, exactly as they are on the standings side. Budgeting the pitch alone and then letting the grid add separation is how the box would overflow by the gap total. So the leftover the race bids against is net of them. The standard is whatever the standings tab is showing this league, so the two tabs read as one layout; the tiny pitch is the one thing allowed to undercut it, because at that density the gaps cost more height than the bars and the ruling is that every team fits.
     const standardGap = leagueLadder ? leagueLadder.gap : STD_NATURAL_GAP;
     const gapFor = pitch => (pitch < STD_PITCH_TINY ? Math.min(rowGapFor(pitch), standardGap) : standardGap);
 
-    // When the standings tab is placing the SAME number of rows, both tabs are drawing the same picture and have no business drawing it at two heights. Only ever downward, since a pitch the standings could place is one this tab can place too.
+    // When the standings tab is placing the SAME number of rows in this box - the single-matchup view, where both tabs rank the league once - the two are drawing the same picture and have no business drawing it at two heights. The category's canonical pitch becomes the standings' pitch for this render. Only ever downward. A pitch taller than canonical would be the category inventing a density of its own, and a pitch the standings could place is one this tab can place too.
     const twinLadder = !!leagueLadder && leagueLadder.rows === rowCount && leagueLadder.pitch > 0;
     const canonicalPitch = twinLadder ? Math.min(CAT_ROW_PITCH, leagueLadder.pitch) : CAT_ROW_PITCH;
 
@@ -2182,7 +2199,7 @@ function renderCategoryBlocks(container, blocks) {
         return { cols, perCol, pitch, gap, leftover: avail - (CAT_HEADER_H + perCol * pitch + gaps) };
     };
 
-    // The ladder in preference order. Fewest columns wins and a full-height race beats a short one, but EVERY rung shows every team: none of them drops or pages a single one.
+    // The ladder, in preference order. Fewest columns wins, and a full-height race beats a short one, but EVERY rung here shows every team - none of them drops or pages a single one. Columns are capped at 2: a third would leave each row about a third of 432px, not enough for a name plus a readable bar track, and shrinking the pitch keeps more of the row legible than that would.
     let chosen = null;
     const candidates = [
         { fit: fitFor(1), race: hasRace, need: CAT_RACE_MIN },
@@ -2205,13 +2222,13 @@ function renderCategoryBlocks(container, blocks) {
         pitch = chosen.fit.pitch;
         gap = chosen.fit.gap;
     } else {
-        // Nothing holds every team at the canonical pitch, so the pitch yields: divide the real track height by the rows that must sit in it. Floored at 1px only to stay positive, and deliberately not clamped up to a readable minimum, which would overflow the box.
+        // Nothing holds every team at the canonical pitch, even in two columns with the race dropped. So the PITCH yields. Divide the real track height by the rows that must sit in it. The header also tightens here (.cat-shrunk), which is worth ~8px of track at exactly the moment 8px matters. The pitch is floored at 1px only to stay positive - it is deliberately NOT clamped up to a readable minimum, because a floor that exceeds the space overflows the box and clips the last team, which is the exact failure this whole rung exists to prevent.
         cols = 2;
         showRace = false;
         rowsPerCol = Math.ceil(rowCount / cols);
         const track = avail - CAT_HEADER_SHRUNK_H;
         const gaps = Math.max(0, rowsPerCol - 1);
-        // Solve for the pitch with the gaps already paid for, then once more if that pitch is tiny enough for the cheaper gap, the same two-step the standings fit uses.
+        // Solve for the pitch with the gaps already paid for, then once more if that pitch turns out to be tiny enough for the cheaper 1px gap - the same two-step the standings fit uses, so both ladders land on the same density from the same height.
         gap = standardGap;
         pitch = Math.max(1, Math.floor((track - gaps * gap) / rowsPerCol));
         if (gapFor(pitch) !== gap) {
@@ -2224,13 +2241,13 @@ function renderCategoryBlocks(container, blocks) {
     catRaceData.clear();
     catRaceSeq = 0;
 
-    // A band under the minimum goes tight: the week-span axis is dropped and its height goes to the plot.
+    // A band under CAT_RACE_MIN goes tight. The week-span axis is dropped so its 13px go to the plot.
     const tightRace = showRace && chosen && chosen.fit.leftover < CAT_RACE_MIN;
     const raceHtml = showRace ? buildCategoryRaceHtml(block.race, block.inverse) : '';
     const race = raceHtml
         ? raceHtml.replace('<div class="cat-race" ', `<div class="cat-race${tightRace ? ' cat-race-tight' : ''}" data-cat="${escapeHtml(block.name)}" data-inverse="${block.inverse ? 1 : 0}" `)
         : '';
-    // Two-column mode clamps the team name to its short form, since at half width a full-width title would leave the track nothing to say. The shrunk class is the sub-canonical pitch: tighter type and no value labels.
+    // cat-2col clamps the team name to its short form. At half width a 140px title would leave the bar track nothing to say (the full name stays on the row's title tooltip either way). cat-shrunk is the sub-canonical pitch, with tighter type, no value labels, tighter header.
     const shrunk = pitch < CAT_ROW_PITCH;
     const rowsCls = 'cat-rows' + (cols > 1 ? ' cat-2col' : '') + (pitch < CAT_PITCH_SHRUNK ? ' cat-rows-tiny' : '');
     const blockCls = 'team-block cat-block' + (shrunk ? ' cat-shrunk' : '');
@@ -2263,11 +2280,11 @@ function renderCategoryBlocks(container, blocks) {
     container.querySelector('.cat-page-next')?.addEventListener('click', () => advance(1));
     container.querySelector('.cat-page-prev')?.addEventListener('click', () => advance(-1));
 
-    // One measured pass over the end labels. It only ever clamps a label inside the plot or hides one that would collide, so it cannot move the box.
+    // One measured pass over the end labels. It only ever CLAMPS a label inside the plot or HIDES one that would collide - it never changes a pitch or a size, so it cannot move the box (the paging above already guaranteed the fit). Clamping matters at the extremes. The leader's line ends at 0% and the label is translateY(-50%), so half of it would sit above the plot and be clipped by the overflow:hidden that keeps the stretched viewBox in bounds.
     const renderId = ++catGraphRenderId;
     requestAnimationFrame(() => {
         if (renderId !== catGraphRenderId) return;
-        // The label column is measured here too, so the category bars close the same grey channel the standings bars do. Width-only, so it cannot disturb the fit decided above.
+        // The label column is measured here too, so the category bars close the same grey channel the standings bars do. Cheap and width-only, so it cannot disturb the fit decided above. In the twin case the columns also hold open to whatever the standings tab measured, so the tracks END at one x across the two tabs and not just within each.
         sizeBarTitles(container, twinLadder ? { ...lastBarColumnWidths } : null);
         container.querySelectorAll('.cat-race-plot').forEach(plot => {
             const h = plot.getBoundingClientRect().height;
@@ -2295,7 +2312,7 @@ function renderCategoryGraph() {
     const avgStatsForSport = AVERAGE_STATS[sport] || new Set();
     const inverseStatsForSport = INVERSE_STATS[sport] || new Set();
 
-    // Every category the league has, in role-grouped order, cycled one per screen.
+    // Every category the league has, in role-grouped order - the pager cycles them one per screen. No selection state, because there is nothing to pick and nothing to restore.
     const selectedStats = categoryCycleList(sport);
     if (selectedStats.length === 0 || !AppState.teamStats.length) {
         container.innerHTML = buildEmptyStateHtml('No category data for this league yet.');
@@ -2311,7 +2328,7 @@ function renderCategoryGraph() {
     const tfVal = AppState.timeframe;
     const { start: startWeek, end: endWeek } = getTimeframeBounds(tfVal, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
-    // One ranking block per category. Exactly one shows at a time and the arrows cycle the rest, so every block is built at full width and height.
+    // One ranking block per category. renderCategoryBlocks shows exactly one of them at a time and the arrows cycle the rest, so every block is built at full width and height.
     const blocks = [];
 
     selectedStats.forEach(stat => {
@@ -2341,12 +2358,12 @@ function renderCategoryGraph() {
         const maxVal = Math.max(...teamVals.map(tv => tv.val));
         const leaderVal = teamVals[0].val;
 
-        // Just the stat name, since the box title already says Category Rankings.
+        // Just the stat name - the box is already titled "Category Rankings", so the suffix is redundant.
         const rowsHtml = [];
 
         const formatVal = (v) => (v % 1 !== 0) ? v.toFixed(3) : v;
 
-        // The solid-bar decision is per BLOCK, not per team: if any team's tier component is negative the whole block renders solid, so a block never mixes shaded and solid rows.
+        // The solid-bar decision is per BLOCK, not per team. If ANY team's tier component for this stat is negative, the whole block renders solid bars, so a +/- block never mixes shaded and solid rows. All-positive blocks (the counting-stat norm) keep their tier shading.
         const rows = teamVals.map((tv, idx) => ({
             tv, idx, split: splitByTier(tv.team, startWeek, endWeek, w => (tv.team.weeklyCats[w] ? tv.team.weeklyCats[w][stat.id] : 0))
         }));

@@ -1,4 +1,4 @@
-// CSV and clipboard export of the standings, category totals and player leaderboard, each written as currently configured rather than as a fixed dump.
+// CSV/clipboard export of the dashboard's core tables - the Phase 1 "small delighters" item from ROADMAP.md. Three datasets, each exported as-configured rather than as a fixed dump: - League Standings: records/match wins/cat wins over the CURRENT shared timeframe - Category Totals: per-team category production over that same timeframe - Player Leaderboard: exactly what the Player Metrics table currently shows (group tab, search, position filter, sort, Minimum Games toggle, timeframe) - see buildLeaderboardExportModel in players.js Formats: CSV file download, CSV to clipboard, or TSV to clipboard (pastes straight into Excel/Google Sheets as columns). The builders are pure-ish (AppState in, plain rows out) and unit-tested in tests/features.test.html.
 
 import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS } from './state.js';
 import { getTimeframeBounds, splitScoredAdvanced, escapeHtml, orderStatIdsByRole, axisUnit, parseTimeframe } from './utils.js';
@@ -6,7 +6,7 @@ import { buildLeaderboardExportModel } from './players.js';
 
 // ==== Pure text builders ====
 
-// RFC 4180 quoting generalized to any delimiter: a cell is quoted only when it contains the delimiter, a quote or a line break, and embedded quotes double. Null becomes an empty cell.
+// RFC-4180-style quoting, generalized to any delimiter. A cell is quoted only when it contains the delimiter, a quote, or a line break; embedded quotes double. undefined/null become empty cells rather than the strings "undefined"/"null".
 export function delimitedCell(value, delimiter) {
     const s = (value === undefined || value === null) ? '' : String(value);
     return (s.includes(delimiter) || s.includes('"') || s.includes('\n') || s.includes('\r'))
@@ -14,22 +14,23 @@ export function delimitedCell(value, delimiter) {
         : s;
 }
 
-// CRLF, the line ending RFC 4180 specifies and every spreadsheet app accepts.
+// CRLF line endings - the one line-break convention every spreadsheet app on every platform accepts for CSV, and what RFC 4180 specifies.
 export function buildDelimitedText(headers, rows, delimiter = ',') {
     return [headers, ...rows]
         .map(row => row.map(cell => delimitedCell(cell, delimiter)).join(delimiter))
         .join('\r\n');
 }
 
-// Human-readable timeframe label with its resolved range. The unit follows the league type, so a roto export covers weeks rather than matchups.
+// Human-readable name for the current shared timeframe selection, with the resolved range - goes in the export modal's subtitle and the downloaded file's name. The unit follows the league type like every graph axis does. A roto export covers WEEKS, and calling them matchups in the file name would contradict the pills the user picked them with.
 export function timeframeLabel() {
     const tf = AppState.timeframe;
     const { start, end } = getTimeframeBounds(tf, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     const unit = axisUnit();
     const names = { all: 'Regular Season + Playoffs', reg: 'Regular Season', p_all: 'Playoffs' };
-    // Both halves get named, so an export of the last four of the regular season says exactly that rather than picking one and hiding the other. The span is named only when it narrows things, since a bare lookback already means the last four of the season.
+    // Both halves get named, so an export of "the last 4 of the regular season" says exactly that rather than picking one of the two and hiding the other.
     const { span, window: n } = parseTimeframe(tf);
     const spanName = names[span] || span;
+    // The span is named only when it narrows things. "Last 4 Matchups" already means the last four of the season, and repeating "Regular Season + Playoffs" after it says nothing.
     const qualifier = span === 'all' ? '' : `, ${spanName}`;
     const base = n === 1 ? `Current ${unit.long}${qualifier}`
         : n ? `Last ${n} ${unit.plural}${qualifier}`
@@ -37,7 +38,7 @@ export function timeframeLabel() {
     return `${base} (${unit.plural} ${start}-${end})`;
 }
 
-// Whole numbers stay whole and fractions show 3 decimals. Numbers stay numbers so spreadsheets treat them as values.
+// Same display convention the dashboard's tables use. Whole numbers stay whole, anything fractional shows 3 decimals. Numbers stay numbers (not strings) so spreadsheets treat them as values; only undefined becomes an empty cell.
 function exportNumber(val) {
     if (val === undefined || val === null) return '';
     const num = Number(val);
@@ -45,9 +46,9 @@ function exportNumber(val) {
     return (num % 1 !== 0) ? +num.toFixed(3) : num;
 }
 
-// ==== Dataset builders, each returning { title, headers, rows } ====
+// ==== Dataset builders - each returns { title, headers, rows } ====
 
-// weeklyMatchWins holds the 1/0.5/0 result in a category league but raw points in a points one, whose real per-week result lives in weeklyMatchResult, so both league types get a genuine record here.
+// Sums a team's weekly values over the current timeframe: a real W-L-T match record and match-win count for every league, plus points-for (points leagues) or category wins (category leagues). weeklyMatchWins holds the 1/0.5/0 result in a category league but raw points in a points one, whose real per-week result lives in weeklyMatchResult - so both league types get a genuine record here instead of the points total being mistaken for a win count.
 function summarizeTeam(t, start, end) {
     const isPoints = AppState.isPointsLeague;
     let matchWins = 0, points = 0, cWins = 0, w = 0, l = 0, ties = 0;
@@ -65,9 +66,9 @@ function summarizeTeam(t, start, end) {
     return { matchWins, points, cWins, w, l, ties };
 }
 
-// Sorted the way the Rankings standings sort them: match wins, then the secondary section's total as a tiebreaker.
+// Teams sorted the same way the Rankings standings sort them (match wins, then the secondary section's total - points for a points league, cat wins otherwise - as a tiebreaker so equal-record teams don't order arbitrarily).
 function sortedTeamSummaries(start, end) {
-    // Roto has no matchups to summarize, so every weekly total is 0 and the order would collapse to alphabetical. Rank by ESPN's own season roto points instead.
+    // Roto has no matchups to summarize, so every weekly total is 0 and the order would collapse to alphabetical - rank by ESPN's own season roto points instead, matching the standings view.
     if (AppState.isRotoLeague) {
         return AppState.teamStats
             .map(t => ({ team: t, matchWins: 0, points: 0, cWins: 0, w: 0, l: 0, ties: 0 }))
@@ -83,7 +84,7 @@ function sortedTeamSummaries(start, end) {
 export function buildStandingsExport() {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
-    // Two columns per category, because the season value alone does not say what it earned and the points alone do not say what produced them.
+    // Roto standings are ESPN's own numbers rendered as-is (B31-FULL): the season total, then each scored category's season value alongside the roto points it awarded. Two columns per category rather than one, because the value alone doesn't say what it earned and the points alone don't say what produced them.
     if (AppState.isRotoLeague) {
         const sport = AppState.loadedSport;
         const statMap = ESPN_STAT_MAPS[sport] || {};
@@ -100,7 +101,7 @@ export function buildStandingsExport() {
         };
     }
 
-    // A single-matchup window cannot make a record, since one game is 1-0 or 0-1 for everyone. Rank by the one number that is real for a single week.
+    // A single-matchup window can't make a record - one game is 1-0 or 0-1 for everyone, the same substitution the standings bars make. Rank by the one number that's real for a single week: categories won (category leagues) or points scored (points leagues), no W-L columns.
     if (start === end) {
         const week = start;
         const isPoints = AppState.isPointsLeague;
@@ -130,7 +131,7 @@ export function buildStandingsExport() {
     };
 }
 
-// One column per category, one row per team: sums over the timeframe, except rate stats which average across weeks played. Names are deduped as the category checkboxes are.
+// One column per category, one row per team - the same values Category Rankings plots: sums over the timeframe, except rate stats (AVERAGE_STATS) which average across weeks played. Same name-dedup as the Team Metrics category checkboxes (controls.js), so a name reused across ids (see ESPN_STAT_MAPS) doesn't become two identical columns.
 export function buildCategoryTotalsExport(sport, includeAdvanced) {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     const statMap = ESPN_STAT_MAPS[sport] || {};
@@ -146,7 +147,7 @@ export function buildCategoryTotalsExport(sport, includeAdvanced) {
     });
     const { scored, advanced } = splitScoredAdvanced(allStats.map(s => s.id));
     const visibleIds = new Set(includeAdvanced ? [...scored, ...advanced] : scored);
-    // Role-grouped columns, batters and skaters before pitchers and goalies, matching the heatmap. availableStatsSet's own order interleaves the two.
+    // Role-grouped columns (batting/skaters before pitching/goalies), matching the heatmap and every other surface - availableStatsSet's own order interleaves the two.
     const visibleStats = allStats.filter(s => visibleIds.has(s.id));
     const statById = new Map(visibleStats.map(s => [String(s.id), s]));
     const stats = orderStatIdsByRole(sport, visibleStats.map(s => s.id)).map(id => statById.get(String(id)));
@@ -155,7 +156,7 @@ export function buildCategoryTotalsExport(sport, includeAdvanced) {
     const rows = summaries.map(({ team }) => {
         const cells = [team.name];
         stats.forEach(stat => {
-            // A roto total is already season-long, with no weeks to sum and no rate stats to average across.
+            // A roto total is already season-long (valuesByStat -> seasonCats), with no weeks to sum or rate stats to average across - it IS the number ESPN ranks the category on.
             if (AppState.isRotoLeague) {
                 cells.push(exportNumber(team.seasonCats[stat.id]));
                 return;
@@ -181,14 +182,14 @@ export function buildLeaderboardExport(includeAdvanced) {
     return { title: 'Player Leaderboard', headers: model.headers, rows: model.rows };
 }
 
-// ==== Delivery: file download and clipboard ====
+// ==== Delivery: file download / clipboard ====
 
 function slugify(s) {
     return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'export';
 }
 
 function downloadCsv(text, filenameBase) {
-    // BOM so Excel opens the file as UTF-8, since names carry accents and emoji.
+    // BOM so Excel opens the file as UTF-8 (team/player names carry accents and emoji).
     const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -202,7 +203,7 @@ function downloadCsv(text, filenameBase) {
 
 // ==== Modal UI ====
 
-// Appended to the body so no column's overflow can clip it.
+// Same overlay pattern as the rank explainer (players.js). Built once, appended to <body> so no column's overflow can clip it, shown via the shared.rank-modal-overlay classes.
 function ensureExportModal() {
     let overlay = document.getElementById('export-modal-overlay');
     if (overlay) return overlay;
@@ -243,7 +244,7 @@ function setExportStatus(text, isError = false) {
 export function openExportModal() {
     if (!AppState.apiData) return;
     const overlay = ensureExportModal();
-    // Both describe the league being exported, so both come off the loaded payload rather than the form: a dropdown the user has moved since would otherwise label this export, and the file it downloads, with a sport and season the rows do not belong to.
+    // Both describe the league being exported, so both come off the loaded payload rather than the form. A dropdown the user has moved since would otherwise label this export, and the file it downloads, with a sport and season the rows do not belong to.
     const sport = AppState.loadedSport;
     const year = String(AppState.apiData.seasonId || document.getElementById('year').value);
     const leagueName = AppState.apiData.settings?.name || 'league';
@@ -251,7 +252,7 @@ export function openExportModal() {
     overlay.querySelector('#export-modal-subtitle').textContent =
         `${leagueName} • ${year} • ${timeframeLabel()}`;
 
-    // Leaderboard availability is re-checked on every open, because the pool loads in the background even if the Player tab was never clicked.
+    // Leaderboard availability is re-checked on every open - the pool loads in the background (prefetchPlayerData), so it's usually ready even if the Player tab was never clicked.
     const leaderboardReady = !!buildLeaderboardExportModel();
     const datasets = [
         { key: 'standings', label: 'League Standings', note: 'Records and match/category wins over the selected timeframe.', enabled: true },
@@ -293,7 +294,7 @@ export function openExportModal() {
         }
     };
 
-    // Re-wired on every open with onclick, so reopening never stacks duplicate handlers on the same buttons.
+    // Re-wired on every open via onclick (not addEventListener) so reopening the modal never stacks duplicate handlers on the same buttons.
     overlay.querySelector('#export-download-btn').onclick = () => {
         const data = buildSelected();
         if (!data) return setExportStatus('That dataset isn\'t available yet.', true);
@@ -301,7 +302,7 @@ export function openExportModal() {
             `${slugify(leagueName)}-${slugify(data.title)}-${year}-${slugify(AppState.timeframe)}`);
         setExportStatus(`Downloaded ${data.rows.length} rows ✓`);
     };
-    // Copies TAB-separated text, the one clipboard format that pastes as real columns into Excel, Sheets and chat apps alike. Download still produces a proper .csv.
+    // One Copy button (was two: "Copy CSV" + "Copy for Excel/Sheets"). Copies TAB-separated text, which is the one clipboard format that pastes cleanly as real columns into Excel, Google Sheets, and chat apps alike - comma-separated text pastes into a single column there. The Download button still produces a proper.csv file for anyone who wants the file.
     overlay.querySelector('#export-copy-btn').onclick = () => {
         const data = buildSelected();
         if (!data) return setExportStatus('That dataset isn\'t available yet.', true);

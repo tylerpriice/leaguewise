@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 (2026-08-05)
+- Schedule: a calendar of your pitchers' projected starts for the matchup, one card per start, with the opponent and the day. Flip between it and your category lines from the same header.
+- Every start carries a difficulty read, and the evidence sits one click away: the opposing lineup's strength category by category, and the ballpark, with its run index and where it sits among the 30.
+- Park factors come from Baseball Savant's published run index, so a start at Coors and a start in a pitcher's park stop reading the same.
+- Betting lines are opt-in and off by default. Left off, nothing is fetched and the cards read exactly as they did.
+- My Team's roster is laid out from the league's roster size rather than from the team on screen, so switching teams no longer resizes the text. Rows fill the space they are given, and the two role groups keep their columns aligned.
+- An unranked player says why. A player below the minimum games shows the reason instead of a rank, and a closer is ranked against pitchers wherever you open him from.
+- Fixed: the roster's category columns and the leaderboard's answered the same question two different ways, so one league's categories rendered at two widths on two tabs.
+- Fixed: switching to a league with more categories and back left the roster scrolling sideways.
+
 ## 1.2.1 (2026-07-28)
 - Projected starts: a pitcher column on My Team counting the starts each of your pitchers is projected to make in the current matchup, with the day and opponent of every one of them behind the number. Projections, not promises, and they move as lineups are posted.
 - An availability icon next to any player who is day to day, on the IL, out or suspended. It shows on the leaderboard, on your roster and in the player drill-down, with the exact status on hover.

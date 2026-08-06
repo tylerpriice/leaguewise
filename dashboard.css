@@ -1,4 +1,4 @@
-/* =========================================================================== Design tokens, the single source of truth for color (see ROADMAP "theming"). Light is the default in :root. Dark applies two ways: automatically via prefers-color-scheme (unless the user forced light), and explicitly when the Settings toggle stamps data-theme="dark" on <html> (which always wins). The canvas recap image has its own JS palette (recap.js) and stays light on purpose. Orange (--brand) is a restrained secondary accent; blue (--accent) stays the primary interactive color. =========================================================================== */
+/* Design tokens - the single source of truth for color (see ROADMAP "theming"). Light is the default in:root. Dark applies two ways. Automatically via prefers-color-scheme (unless the user forced light), and explicitly when the Settings toggle stamps data-theme="dark" on <html> (which always wins). The canvas recap image has its own JS palette (recap.js) and stays light on purpose. Orange (--brand) is a restrained secondary accent; blue (--accent) stays the primary interactive color. */
 :root {
     color-scheme: light;
 
@@ -23,13 +23,13 @@
     --text-subtle: #888888;
     --text-faint: #aaaaaa;
 
-    /* Primary accent. Blue, interactive controls */
+    /* Primary accent - blue, interactive controls */
     --accent: #007bff;
     --accent-hover: #0b5ed7;
     --accent-strong: #0056b3;
     --accent-contrast: #ffffff;
 
-    /* Brand accent. Orange, used sparingly for identity/warmth */
+    /* Brand accent - orange, used sparingly for identity/warmth */
     --brand: #e8792e;
     --brand-strong: #cf6a22;
     --brand-soft: #fdf1e7;
@@ -63,6 +63,16 @@
     /* Shadows */
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.35);
+
+    /* ---- Category column geometry ------------------------------------------------------ ONE rule for both tables that show a row of categories, the Player Metrics leaderboard and My Team's roster: a column's pitch is clamp(available / N, FLOOR, CAP). They ran opposite algorithms before this - the leaderboard split the remainder equally with nothing to stop it, My Team divided its own measured room - so the same league's categories came out at two different widths on two tabs. The constants live here, once, so the two cannot drift again. Every number below is a COLUMN ADVANCE, width plus its own padding, because that is what the eye reads as the pitch and the two tables pad their cells differently (10px against 6px). The heatmap is deliberately not part of this - gave it its own layout. */
+    --cat-pitch-cap: 90px;
+    /* Taken off the remainder split before the clamp, so a table with room to spare still reads as a row of numbers rather than as islands. Does not apply to the floor: tightening can close a gap, never clip a value. */
+    --cat-pitch-tighten: 5px;
+    /* The floor's value allowance. Measured from the HEADINGS, which are a property of the league, plus this for the figures underneath - never measured from the values on screen, because the pool changes with every search, filter and Minimum Games click and is the rule that no pool change may move a column. 34px clears a 3-decimal rate and a 4-digit total. */
+    --cat-value-min: 34px;
+    /* How far the leaderboard's text columns yield before anything scrolls sideways. They are the give in the system: at a narrow window the fixed 175/160 plus the stat floors used to exceed the viewport and the table scrolled while the category gaps stayed generous. */
+    --cat-name-min: 120px;
+    --cat-team-min: 96px;
 }
 
 /* Dark token values, shared by the auto (system) and explicit (toggle) paths. */
@@ -151,7 +161,7 @@ html, body {
     margin: 0;
 }
 
-/* A flex column, so the container and the debug console SHARE the viewport instead of stacking past the bottom of it. The container used to be height:100% with the console a sibling below, which meant the page scrolled by exactly the console's height the moment anything made it visible - and something always does, since every league fetch captures a diagnostic context (setDebugContext in api.js). That was 42px of scroll at 1280x800, against golden rule 2, on every tab and for every user. The container flexing absorbs the console the way the rule says to absorb anything else: the boxes shrink, the page does not scroll. */
+/* A flex column, so the container and the debug console SHARE the viewport instead of stacking past the bottom of it. The container used to be height:100% with the console a sibling below, which meant the page scrolled by exactly the console's height the moment anything made it visible - and something always does, since every league fetch captures a diagnostic context (setDebugContext in api.js). That was 42px of scroll at 1280x800, against golden rule 2, on every tab and for every user. The container flexing absorbs the console the way the rule says to absorb anything else. The boxes shrink, the page does not scroll. */
 body {
     font-family: Arial, sans-serif;
     background: var(--bg);
@@ -285,20 +295,30 @@ h2 {
     flex: 0 0 auto;
 }
 
-/* The collapsible sport/league/year/fetch group (see collapseSettingsBar in controls.js) - its children carry the flex:1 field sizing the old flat .form-row>div layout provided. Collapse is a class (not display:none) so it can ease shut: the box squashes to zero height while fading, instead of vanishing in one frame. */
+/* The collapsible sport/league/year/fetch group (see collapseSettingsBar in controls.js) - its children carry the flex:1 field sizing the old flat.form-row>div layout provided. Collapse is a class (not display:none) so it can ease shut. The box squashes to zero height while fading, instead of vanishing in one frame. A RAIL down the right edge, not a row across the top. Horizontally these fields fought for width they did not have - the Fetch button overflowed its box, values clipped, and a group label sat to the LEFT of a field whose own label sat ABOVE it, which reads as two competing names for one control. Stacked, each field gets the full width of the rail and one label in one place, and the empty margin beside the container is where it lives. Fixed, so it is out of flow. It can never take width from the data containers, and it cannot contribute to the document's preferred width - which is the number that clamps a popup. */
 .settings-bar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    width: 268px;
+    box-sizing: border-box;
     display: flex;
-    gap: 15px;
-    align-items: flex-end;
-    flex: 1;
-    overflow: hidden;
-    max-height: 64px;
-    opacity: 1;
-    transition: max-height 0.5s ease, opacity 0.35s ease;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 38px 16px 16px;
+    overflow-y: auto;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 14px rgba(0, 0, 0, 0.18);
+    transform: translateX(0);
+    transition: transform 0.32s ease, opacity 0.22s ease;
 }
 
+/* Slides out rather than collapsing to zero height. The old max-height animation belonged to a row and left the rail's own scrollbar flickering on the way. */
 .settings-bar.collapsed {
-    max-height: 0;
+    transform: translateX(100%);
     opacity: 0;
     pointer-events: none;
 }
@@ -308,63 +328,49 @@ h2 {
     position: relative;
 }
 
-/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. */
+/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. */
 .settings-toggle-btn {
-    flex: 0 0 auto;
-    width: auto;
-    height: 34px;
-    padding: 0 12px;
-    font-size: 16px;
+    position: fixed;
+    right: 0;
+    top: 50%;
+    margin-top: -32px;
+    z-index: 61;
+    width: 22px;
+    height: 64px;
+    padding: 0;
+    font-size: 13px;
     line-height: 1;
     background: var(--surface-2);
     border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    border-right: none;
+    border-radius: 6px 0 0 6px;
     cursor: pointer;
-    color: var(--text-body);
+    color: var(--text-subtle);
+    transition: background 0.15s ease, color 0.15s ease;
 }
+
+/* The handle does NOT move. It is pinned to the viewport edge and the rail slides out from BEHIND it, which is why the rail carries padding-right for the handle's width. Two earlier versions had it travel with the rail - first animating `right`, then `transform` - and both produced a handle that sat in the wrong place in at least one state while every rule involved was demonstrably correct in isolation. A control that never moves has no wrong place to be, and it is also the more conventional drawer. The tab stays put, the drawer comes to it. */
 
 .settings-toggle-btn:hover {
     background: var(--surface-accent);
     border-color: var(--accent);
+    color: var(--accent);
 }
 
-/* Theme cycle button (Auto → Light → Dark), pinned to the far right of the top row. Small, square, quiet - it's a set-and-forget control, not a primary action. */
-.theme-toggle-btn {
-    flex: 0 0 auto;
-    width: auto;
-    height: 34px;
-    margin-left: 10px;
-    padding: 0 12px;
-    font-size: 16px;
-    line-height: 1;
-    background: var(--surface-2);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
-    color: var(--text-body);
-    cursor: pointer;
-}
 
-.theme-toggle-btn:hover {
-    background: var(--surface-accent);
-    border-color: var(--accent);
-}
-
-/* A couple of quick hops played the first time the settings collapse (see collapseSettingsBar in controls.js), so it's obvious where the fields went. */
+/* A couple of quick hops played the first time the settings collapse (see collapseSettingsBar in controls.js), so it's obvious where the fields went. A colour pulse, not a movement. The handle's transform is what positions it against the rail, so an animation that touched transform would fight the thing it is trying to point at. */
 @keyframes settings-jump {
 
     0%,
-    40%,
-    80%,
     100% {
-        transform: translateY(0);
+        background: var(--surface-2);
+        color: var(--text-subtle);
     }
 
-    20% {
-        transform: translateY(-7px);
-    }
-
-    60% {
-        transform: translateY(-4px);
+    35%,
+    65% {
+        background: var(--surface-accent);
+        color: var(--accent);
     }
 }
 
@@ -422,7 +428,7 @@ button:hover {
     flex-direction: column;
 }
 
-/* One single row, always - tabs pinned left, Export/Recap pinned right, and the timeframe pills take the middle and scroll horizontally if they don't all fit (see .timeframe-toggle). nowrap is deliberate: a season with many "Last N Matchups" pills used to wrap the row and shove the share buttons onto an ugly second line. */
+/* One single row, always - tabs pinned left, Export/Recap pinned right, and the timeframe pills take the middle and scroll horizontally if they don't all fit (see.timeframe-toggle). nowrap is deliberate. A season with many "Last N Matchups" pills used to wrap the row and shove the share buttons onto an ugly second line. */
 .tabs-container {
     display: flex;
     align-items: center;
@@ -441,7 +447,7 @@ button:hover {
     flex-direction: column;
 }
 
-/* Segmented pill row, living directly in .tabs-container in .tabs-container rather than a tab, since one control drives all three tabs. It takes the middle of the tab bar so tabs, pills and utilities hold one line. "safe flex-end" hugs the right edge but falls back to a reachable start-aligned row if the pills ever overflow, which plain flex-end would push off the left with no way to scroll back. The plain line below it is the fallback for browsers that ignore the keyword. */
+/* Segmented pill row, living directly in.tabs-container (see dashboard.html) so it's always visible regardless of which tab is active - one shared control now drives Team Metrics graphs, the Player Metrics leaderboard, and the player drill-down chart all at once (AppState.timeframe, see rebuildTimeframeOptions in controls.js). A handful of short, mutually-exclusive options reads better as always-visible clickable chips than as something hidden behind a dropdown. It takes the whole middle of the tab bar (flex:1) between the tabs on the left and the share buttons on the right, so everything (tabs + pills + share buttons) always stays on one line instead of wrapping. Compact padding/font (see.timeframe-chip) mean the full option set fits without scrolling at any realistic window width - overflow-x stays on purely as a silent safety net for a pathologically narrow window, and its scrollbar is hidden (an ugly, always-different-looking scrollbar was worse than just letting wheel/trackpad scroll silently in that rare case). Pills hug the right edge (next to the share buttons) via justify-content. Plain flex-end alone has a known flexbox bug. If the pills ever DO overflow, flex-end can push the excess off the START (left) side with no way to scroll back to it. "safe flex-end" (CSS Box Alignment's overflow-position keyword) is the fix built for exactly this - it hugs right normally, but automatically falls back to a reachable start-aligned layout the moment overflow would otherwise clip content. The plain flex-end line is a fallback for browsers that don't understand "safe" yet - an invalid value is ignored, leaving the still-valid line above it in effect, so those browsers get ordinary (if theoretically clippable) right-hugging instead of silently reverting to left-aligned. */
 .timeframe-toggle {
     display: flex;
     gap: 5px;
@@ -481,7 +487,7 @@ button:hover {
     background: var(--surface-2);
 }
 
-/* Solid blue, matching .tab-button.active/.group-toggle-btn.active/.rank-chip-selected - the "this one is the active mode" color used consistently elsewhere in this file - rather than the light-tint #eef6ff .filter-flex label:has(input:checked) uses for "this one is included", which is a different, multi-select kind of selected state. */
+/* Solid blue, matching.tab-button.active/.group-toggle-btn.active/.rank-chip-selected - the "this one is the active mode" color used consistently elsewhere in this file - rather than the light-tint #eef6ff.filter-flex label:has(input:checked) uses for "this one is included", which is a different, multi-select kind of selected state. */
 .timeframe-chip.active {
     background: var(--accent);
     border-color: var(--accent);
@@ -568,14 +574,14 @@ button:hover {
     flex-direction: column;
     flex: 0 1 auto;
     min-height: 0;
-    /* min-width:0 for the same reason min-height:0 is here. A flex item defaults to min-width:auto, which refuses to shrink below its content, so the band grew to the heatmap table's full intrinsic width and pushed the PAGE sideways - .dh-wrap's overflow-x never got the chance to scroll internally. Measured on a 12-team league at 1024px: 13px of horizontal overflow, whose scrollbar then cost 15px of height and put the vertical scroll back. */
+    /* min-width:0 for the same reason min-height:0 is here. A flex item defaults to min-width:auto, which refuses to shrink below its content, so the band grew to the heatmap table's full intrinsic width and pushed the PAGE sideways -.dh-wrap's overflow-x never got the chance to scroll internally. Measured on a 12-team league at 1024px: 13px of horizontal overflow, whose scrollbar then cost 15px of height and put the vertical scroll back. */
     min-width: 0;
     max-height: 55%;
     margin-top: 8px;
 }
 
 .heatmap-band #heatmap-graph-container {
-    /* Override .graph-viewport's flex:1 - hug the table so any leftover height rolls up to the columns above rather than padding out the band. */
+    /* Override.graph-viewport's flex:1 - hug the table so any leftover height rolls up to the columns above rather than padding out the band. */
     flex: 0 1 auto;
     min-height: 0;
 }
@@ -626,7 +632,7 @@ button:hover {
     transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-/* background repeated on :hover - the global button:hover (higher specificity than a lone class) would otherwise paint these with the solid accent fill. */
+/* background repeated on:hover - the global button:hover (higher specificity than a lone class) would otherwise paint these with the solid accent fill. */
 .rankings-tab:hover {
     background: none;
     color: var(--text-body);
@@ -650,7 +656,7 @@ button:hover {
     height: auto;
 }
 
-/* Category Rankings layout. The blocks divide the box WIDTH in one row (cat-fill); inside each block the rows sit at ONE canonical pitch everywhere (cat-capped, always on now), never flex-stretched to fill, and the leftover height above them goes to the per-category race sparkline. Scoped to these classes so the Team Rankings bars, which share .team-block/.bar-row, are untouched. */
+/* Category Rankings layout ( pass 3, uniform-pitch rework in - see renderCategoryBlocks). The blocks divide the box WIDTH in one row (cat-fill); inside each block the rows sit at ONE canonical pitch everywhere (cat-capped, always on now), never flex-stretched to fill, and the leftover height above them goes to the per-category race sparkline. Scoped to these classes so the Team Rankings bars, which share.team-block/.bar-row, are untouched. */
 .cat-fill {
     display: flex;
     height: 100%;
@@ -661,7 +667,7 @@ button:hover {
 .cat-fill .cat-block {
     flex: 1 1 0;
     min-width: 0;
-    /* min-height:0 is load-bearing: without it a flex item's min-height is its content's min-content, so the block refused to shrink to the box and the race SVG (a viewBox with no intrinsic height) grew to its aspect ratio and spilled ~76px below the box. Zeroing it lets the block be exactly the box height, so the race's flex:1 gets the real leftover under the rows (0 when they already fill). */
+    /* min-height:0 is load-bearing. Without it a flex item's min-height is its content's min-content, so the block refused to shrink to the box and the race SVG (a viewBox with no intrinsic height) grew to its aspect ratio and spilled ~76px below the box. Zeroing it lets the block be exactly the box height, so the race's flex:1 gets the real leftover under the rows (0 when they already fill). */
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -670,14 +676,14 @@ button:hover {
     padding-bottom: 0;
 }
 
-/* One row pitch across every league size and category count - the row height IS the pitch (no margin), fixed, never divided-to-fill. The 6-team density holds everywhere, and the leftover is the race's job, not extra air between the bars. The rows live inside .cat-rows, which gave deep leagues two columns, so this targets that grid's children - as a DIRECT child of .cat-block it silently stopped matching and the pitch fell back to the text height (measured 22px). */
+/* : one row pitch across every league size and category count - the row height IS the pitch (no margin), fixed, never divided-to-fill. The owner wanted the 6-team density everywhere; the leftover is the race's job, not extra air between the bars. The rows live inside.cat-rows since gave deep leagues two columns, so this targets that grid's children - as a DIRECT child of.cat-block it silently stopped matching and the pitch fell back to the text height (measured 22px). */
 .cat-capped .cat-rows > .bar-row {
     flex: 0 0 auto;
     height: var(--cat-pitch, 28px);
     margin-bottom: 0;
 }
 
-/* The track takes the ROW's height, not its own fixed 20px. Without this a shrunk category pitch (8px at 20 teams) left a 20px track hanging 12px out of its row and over its neighbour - the same defect fixed on the standings side, which these rows never inherited because that fix was scoped to .std-fit. */
+/* The track takes the ROW's height, not its own fixed 20px. Without this a shrunk category pitch (8px at 20 teams) left a 20px track hanging 12px out of its row and over its neighbour - the same defect fixed on the standings side, which these rows never inherited because that fix was scoped to.std-fit. */
 .cat-capped .cat-rows > .bar-row > .bar-track {
     height: 100%;
     align-self: center;
@@ -694,7 +700,7 @@ button:hover {
     border-top: 1px solid var(--border-soft);
 }
 
-/* The plot is the positioning context for every label: they are HTML over the chart, not SVG text, because a preserveAspectRatio="none" viewBox would squash text along with the drawing. */
+/* The plot is the positioning context for every label. They are HTML over the chart, not SVG text, because a preserveAspectRatio="none" viewBox would squash text along with the drawing. */
 .cat-race-plot {
     position: relative;
     flex: 1 1 0;
@@ -762,14 +768,14 @@ button:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* PAGING, not scrolling. The pager fills the box at a fixed rect and never changes size with the selection or the page - the arrows swap what is inside it. Padding on the paged state reserves the arrow gutters so blocks never sit under an arrow. */
+/* PAGING, not scrolling. The pager fills the box at a fixed rect and never changes size with the selection or the page - the arrows swap what is inside it (the B59/ stability). Padding on the paged state reserves the arrow gutters so blocks never sit under an arrow. */
 .cat-pager {
     position: relative;
     height: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* Same reason as .h2h-pager. This one happens not to overflow today only because it never sets an explicit width, so its auto width already accounts for the gutters - stating the box model means that stays true if a width is ever added. */
+    /* Same reason as.h2h-pager. This one happens not to overflow today only because it never sets an explicit width, so its auto width already accounts for the gutters - stating the box model means that stays true if a width is ever added. */
     box-sizing: border-box;
 }
 
@@ -782,7 +788,7 @@ button:hover {
     min-height: 0;
 }
 
-/* The shared arrow affordance: flat, muted, no chrome of its own. Used by the Category Rankings pager (positioned in the box's gutters) and by each standings section's bars/pie flip, so both read as the same control rather than two look-alikes. Overrides the global input/select/button height/width hard-lock. */
+/* The shared arrow affordance is flat and muted, with no chrome of its own. Used by the Category Rankings pager (positioned in the box's gutters) and by each standings section's bars/pie flip (, inline in the section header), so both read as the same control rather than two look-alikes. Overrides the global input/select/button height/width hard-lock. */
 .chrome-arrow {
     background: none;
     border: none;
@@ -818,8 +824,7 @@ button:hover {
     transform: translateY(-50%);
 }
 
-/* Standings sections. The column FILLS the box so a section flipped to a pie has somewhere to expand into; a bars section stays content-sized, which is what lets one section flip without moving the other. */
-/* The same 16px side inset the category pager reserves for its arrows. This box has no gutter arrows and does not need the room, but matching it is what puts the two tabs' headers - and every bar under them - at the same x. */
+/* Standings sections. The column FILLS the box so a section flipped to a pie has somewhere to expand into; a bars section stays content-sized, which is what lets one section flip without moving the other. The same 16px side inset the category pager reserves for its arrows. This box has no gutter arrows and does not need the room, but matching it is what puts the two tabs' headers - and every bar under them - at the same x, which is what the owner asked for. */
 .std-sections {
     display: flex;
     flex-direction: column;
@@ -830,7 +835,7 @@ button:hover {
     box-sizing: border-box;
 }
 
-/* The single-matchup ranking blocks get that same inset. They are the Team Rankings tab in the This Matchup timeframe, so they answer to the same no-jump standard - without this their header and every bar under it sat 16px left of the Category Rankings tab's, which is exactly the sideways shift that rule exists to remove. */
+/* The single-matchup ranking blocks get that same inset. They are the Team Rankings tab in the This Matchup timeframe, so they answer to B86's no-jump standard too - without this their header and every bar under it sat 16px left of the Category Rankings tab's, which is exactly the sideways shift that rule exists to remove. */
 .single-week-wrap {
     padding: 0 16px;
     box-sizing: border-box;
@@ -843,14 +848,13 @@ button:hover {
     flex: 0 0 auto;
 }
 
-/* Rows stack normally until a fit is actually needed. The column-flow grid is applied ONLY by fitStandingsSections (.std-fit, which always comes with an explicit grid-template-rows): a grid-auto-flow:column with no row template puts every row in its own COLUMN, which turned a 20-team section into a 20-column strip the first time this was left on by default. */
-/* Keyed off .std-fit rather than .std-bars so the single-matchup blocks (.swk-rows) get the identical fitted grid: same columns, same pitch variable, same tiny-mode shedding. A 20-team This Matchup view should read exactly like that league's season standings, not a third density. */
+/* Rows stack normally until a fit is actually needed. The column-flow grid is applied ONLY by fitStandingsSections (.std-fit, which always comes with an explicit grid-template-rows): a grid-auto-flow:column with no row template puts every row in its own COLUMN, which turned a 20-team section into a 20-column strip the first time this was left on by default. Keyed off.std-fit rather than.std-bars so the single-matchup blocks (.swk-rows, ) get the identical fitted grid: same columns, same pitch variable, same tiny-mode shedding. A 20-team This Matchup view should read exactly like that league's season standings, not a third density. */
 .std-fit {
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
     column-gap: 14px;
-    /* Bars must never touch: at a shrunk pitch the tracks butt edge to edge and read as one striped block rather than one bar per team. fitStandingsSections subtracts this from the height budget, so the gap is real space rather than something borrowed back from the rows. */
+    /* Bars must never touch. At a shrunk pitch the tracks butt edge to edge and read as one striped block rather than one bar per team. fitStandingsSections subtracts this from the height budget, so the gap is real space rather than something borrowed back from the rows. */
     row-gap: var(--std-row-gap, 2px);
 }
 
@@ -871,7 +875,7 @@ button:hover {
     align-self: center;
 }
 
-/* The single-matchup blocks put .bar-row directly in the grid (no .bar-row-group wrapper), so they need the same pitch and track rules one level up. */
+/* The single-matchup blocks put.bar-row directly in the grid (no.bar-row-group wrapper), so they need the same pitch and track rules one level up. */
 .std-fit > .bar-row {
     height: var(--std-pitch);
     margin-bottom: 0;
@@ -892,7 +896,7 @@ button:hover {
     display: inline;
 }
 
-/* No width here: sizeBarTitles measures the abbreviation that this mode actually shows and drives --bar-title-w. A hardcoded width outranked that var (0,2,0 beats 0,1,0) and left the title 58px wide while the track offset by the measured 34px, overlapping them by 24px. */
+/* No width here. sizeBarTitles measures the abbreviation that this mode actually shows and drives --bar-title-w. A hardcoded width outranked that var (0,2,0 beats 0,1,0) and left the title 58px wide while the track offset by the measured 34px, overlapping them by 24px. */
 .std-2col .bar-title {
     font-size: 11px;
 }
@@ -901,7 +905,7 @@ button:hover {
     font-size: 10px;
 }
 
-/* Past the tiny pitch the row is only the bar: the number moves to the segment hover it already carries, and the type drops so the name still fits its line box. */
+/* Past the tiny pitch the row is only the bar. The number moves to the segment hover it already carries, and the type drops so the name still fits its line box. */
 .std-tiny .bar-title {
     font-size: 9px;
 }
@@ -950,13 +954,13 @@ button:hover {
     padding: 0 3px;
 }
 
-/* The section body is the positioning context for the pie overlay. The BARS always occupy it, in both states, which is what fixes the section's height: flipping to a pie then costs zero geometry because the pie is drawn over exactly the area the bars already had. */
+/* The section body is the positioning context for the pie overlay. The BARS always occupy it, in both states, which is what fixes the section's height. Flipping to a pie then costs zero geometry because the pie is drawn over exactly the area the bars already had (owner ruling, ). */
 .std-body {
     position: relative;
     flex: 0 0 auto;
 }
 
-/* Showing the pie: the bars stay in the layout but go invisible (visibility, NOT display, so they keep reserving their height and stop taking pointer events), and the pie covers that same box. */
+/* Showing the pie. The bars stay in the layout but go invisible (visibility, NOT display, so they keep reserving their height and stop taking pointer events), and the pie covers that same box. */
 .std-section.is-pie .std-bars {
     visibility: hidden;
 }
@@ -975,8 +979,7 @@ button:hover {
     overflow: hidden;
 }
 
-/* Compact position indicators. Deliberately just "n / m" and "a-b of c" - the arrows are self evident, and an explanatory sentence is exactly what this box is not allowed to grow. */
-/* Reserved width + tabular figures so the indicator does not move as the numbers change: "1 / 21" is narrower than "12 / 21", and being centre-anchored that shifted its own left edge 6px on every other press. 8ch covers the widest form a real league produces. */
+/* Compact position indicators. Deliberately just "n / m" and "a-b of c" - the arrows are self evident, and an explanatory sentence is exactly what this box is not allowed to grow. Reserved width + tabular figures so the indicator does not move as the numbers change. "1 / 21" is narrower than "12 / 21", and being centre-anchored that shifted its own left edge 6px on every other press (B69's rule - a control that reports position must not itself move). 8ch covers the widest form a real league produces. */
 .cat-page-dots {
     position: absolute;
     bottom: 0;
@@ -1027,8 +1030,7 @@ button:hover {
     font-size: 10px;
 }
 
-/* Sub-canonical pitch. When even two columns at 28px cannot hold every team, the PITCH yields rather than the team list: fitting everyone outranks the fixed pitch held everywhere else. The row sheds what it can spare as it tightens - the header's margin first, then at .cat-rows-tiny the value label (the bar segments already carry the number in their hover) and the type size. The bar track itself is the last thing standing, because a short bar still ranks. */
-/* The header keeps its shared margin even in shrunk mode. Tightening it here reclaimed a few px of row space, but it did so by making the category tab's content start at a different y than the standings tab's - which is the exact jump this header treatment exists to remove. The fit computes a slightly smaller pitch instead. */
+/* Sub-canonical pitch. When even two columns at 28px cannot hold every team, the PITCH yields rather than the team list. Fitting everyone outranks the fixed pitch that B76/B79/ held. The row sheds what it can spare as it tightens - the header's margin first, then at.cat-rows-tiny the value label (the bar segments already carry the number in their hover) and the type size. The bar track itself is the last thing standing, because a short bar still ranks. The header keeps its shared margin even in shrunk mode. Tightening it here reclaimed a few px of row space, but it did so by making the category tab's content start at a different y than the standings tab's - which is the exact jump this header treatment exists to remove. The fit computes a slightly smaller pitch instead. */
 
 .cat-rows-tiny .bar-title {
     font-size: 9px;
@@ -1173,7 +1175,7 @@ button:hover {
 
 /* ---- Single-matchup views (see buildH2HScoreboardHtml / renderDominanceHeatmap in graphs.js) ---- */
 
-/* Vertical column chart for a single-matchup ranking. The horizontal rows it replaces are as tall as their own text and then stop, leaving the rest of the Rankings box grey - a third of it on a 4-team league. These fill BOTH axes: the wrapper is a flex column that claims all the height the block has left, and the columns divide the whole width between them. renderSingleWeekBars measures whether each column can still fit its value label and flips the block back to rows when it can't, so the shape adapts to the league instead of being chosen by a hardcoded team count. */
+/* Vertical column chart for a single-matchup ranking. The horizontal rows it replaces are as tall as their own text and then stop, leaving the rest of the Rankings box grey - a third of it on a 4-team league. These fill BOTH axes. The wrapper is a flex column that claims all the height the block has left, and the columns divide the whole width between them. renderSingleWeekBars measures whether each column can still fit its value label and flips the block back to rows when it can't, so the shape adapts to the league instead of being chosen by a hardcoded team count. */
 .swk-vertical {
     display: flex;
     flex-direction: column;
@@ -1243,7 +1245,7 @@ button:hover {
     color: var(--accent);
 }
 
-/* A name always has an ellipsis and a title tooltip to fall back on (same treatment .bar-title gives long names), which is why the orientation flip measures the VALUE label instead. */
+/* A name always has an ellipsis and a title tooltip to fall back on (same treatment.bar-title gives long names), which is why the orientation flip measures the VALUE label instead. */
 .vcol-name {
     font-size: 10px;
     color: var(--text-subtle);
@@ -1258,7 +1260,7 @@ button:hover {
 .bars-compact .vcol-name { font-size: 9px; line-height: 11px; }
 .bars-compact .vcol-chart { gap: 4px; }
 
-/* Matchup Scoreboard grid. The column count is MEASURED, not declared: renderScoreboardBox writes --h2h-cols after trying arrangements and keeping the fewest columns that still show every category. An auto-fit minmax decides from width alone and knows nothing about height, which wrapped three matchups onto two rows where one row of three fits. height:100% with 1fr rows makes the cards fill the box rather than float in it. */
+/* Matchup Scoreboard grid - the col-trends box's hero content at a single-matchup timeframe (see renderRightColumn/renderScoreboardBox). The column count is set by MEASUREMENT, not by the CSS: renderScoreboardBox writes --h2h-cols after trying arrangements and keeping the fewest columns that still show every category. It used to be repeat(auto-fit, minmax(300px, 1fr)), which decided the count from width alone and knew nothing about height - in a 673px box that is always 2 columns, so three matchups wrapped to 2 rows and overflowed where 3x1 fits comfortably. height:100% + 1fr rows are what make the cards FILL the box rather than float in it. The grid claims the whole trends box and the card rows divide it evenly, so there is no grey left to measure away and the ladder only has to ask whether the content fits the cells it got. */
 .h2h-grid {
     display: grid;
     grid-template-columns: repeat(var(--h2h-cols, 1), minmax(0, 1fr));
@@ -1270,7 +1272,7 @@ button:hover {
     align-content: stretch;
 }
 
-/* Matchup Race (see buildMatchupRaceHtml) - the points-league card body. A flex column so the chart takes the room and the margin line sits under it at its natural height. The min-height is the legibility floor for a two-line race: below it the chart stops reading as two paths and the card is better off in a taller arrangement, which is exactly what the grid ladder does when this overflows .h2h-cats. */
+/* Matchup Race (see buildMatchupRaceHtml) - the points-league card body. A flex column so the chart takes the room and the margin line sits under it at its natural height. The min-height is the legibility floor for a two-line race. Below it the chart stops reading as two paths and the card is better off in a taller arrangement, which is exactly what the grid ladder does when this overflows.h2h-cats. */
 .h2h-race {
     display: flex;
     flex-direction: column;
@@ -1279,7 +1281,7 @@ button:hover {
     gap: 4px;
 }
 
-/* The normalized viewBox is what stretches the chart to the cell, and the polylines carry non-scaling-stroke so the lines keep their weight at any stretch. height:0 with flex-basis 0 is load-bearing: an SVG WITH a viewBox has an intrinsic aspect ratio, so width:100% and no explicit height made it lay out as a SQUARE - a 204px-wide card got a 204px chart, cards ballooned to 236px tall and ten matchups needed 999px of scrolling. Zeroing the height takes the aspect ratio out of layout entirely: the chart then grows only as flex gives it room, filling the cell where the box has a definite height and collapsing to the legibility floor where it doesn't. */
+/* The normalized viewBox is what stretches the chart to the cell, and the polylines carry non-scaling-stroke so the lines keep their weight at any stretch. height:0 with flex-basis 0 is load-bearing. An SVG WITH a viewBox has an intrinsic aspect ratio, so width:100% and no explicit height made it lay out as a SQUARE - a 204px-wide card got a 204px chart, cards ballooned to 236px tall and ten matchups needed 999px of scrolling. Zeroing the height takes the aspect ratio out of layout entirely. The chart then grows only as flex gives it room, filling the cell where the box has a definite height and collapsing to the legibility floor where it doesn't. */
 .h2h-race-svg {
     flex: 1 1 0;
     height: 0;
@@ -1368,7 +1370,7 @@ button:hover {
     display: inline;
 }
 
-/* Score step of the same header ladder: a points score is the widest, least compressible thing in the header, so when it costs the team label its room the totals round to whole points. The exact figures stay on the margin line under the chart. Category scores are already short and carry no short variant, so this class does nothing to them. */
+/* Score step of the same header ladder. A points score is the widest, least compressible thing in the header, so when it costs the team label its room the totals round to whole points. The exact figures stay on the margin line under the chart. Category scores are already short and carry no short variant, so this class does nothing to them. */
 .h2h-score-short {
     display: none;
 }
@@ -1381,7 +1383,7 @@ button:hover {
     display: inline;
 }
 
-/* The scoreboard pager. The internal-scroll last resort is gone: when the cards cannot all fit at full quality the arrows page through them in place, the same chrome and the same wrapping rule as the Category Rankings cycle. The pager fills the box at a fixed rect so paging never moves it, and the gutters are only reserved once there is actually more than one page. */
+/* The scoreboard pager. The internal-scroll last resort is gone. When the cards cannot all fit at full quality the arrows page through them in place, the same chrome and the same wrapping rule as the Category Rankings cycle. The pager fills the box at a fixed rect so paging never moves it, and the gutters are only reserved once there is actually more than one page. */
 .h2h-pager {
     position: relative;
     display: flex;
@@ -1389,7 +1391,7 @@ button:hover {
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;
-    /* Load-bearing with the width:100% above. This element is NOT covered by the global border-box rule, so under content-box the arrow gutters were ADDED to a full-width box: the pager measured 32px wider than the viewport that holds it and the next arrow landed outside its right edge, reachable only by scrolling the box sideways. */
+    /* Load-bearing with the width:100% above. This element is NOT covered by the global border-box rule, so under content-box the arrow gutters were ADDED to a full-width box. The pager measured 32px wider than the viewport that holds it and the next arrow landed outside its right edge, reachable only by scrolling the box sideways, seen at This Matchup in a 20-team league. */
     box-sizing: border-box;
 }
 
@@ -1426,7 +1428,598 @@ button:hover {
 }
 
 
-/* Mobile keeps the single vertically-scrolling column established: one card per row, each as tall as its own content. The measured column count is a desktop no-scroll answer to a question mobile does not ask, and height:100% has no meaning in a column that scrolls. */
+
+/* Matchup schedule, the pitching group's second face. Days across, because the question it answers is "what is happening on Thursday" and a daily lineup is set a day at a time. Days also keep the column count fixed. Two starts or eleven produce the same grid, so the band's height does not chase the roster the way a pitcher-per-row layout would. */
+
+.settings-rail-head {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-body);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.settings-group + .settings-group {
+    padding-top: 12px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.settings-group-label {
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+}
+
+/* One label, above its own field, full width. Both of the owner's layout complaints were this: a label beside a label, and controls too narrow for what they hold. */
+.settings-field label {
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11px;
+    color: var(--text-subtle);
+}
+
+.settings-bar select,
+.settings-bar input[type="text"],
+.settings-bar button {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* The box sits on the FIRST LINE of the text, not on the block. The label wraps to two lines at the rail's width, so centring against the whole block floats the box into the gap between them. The span is what gives the text its own box to align against. */
+.settings-pref label {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--text-subtle);
+    cursor: pointer;
+}
+
+.settings-pref label span {
+    line-height: 16px;
+}
+
+/* The base sheet stretches every input to 100%; a checkbox is the one control that must not. The height matches the line box above so the two centre on each other rather than on their boxes. */
+.settings-pref input[type="checkbox"] {
+    width: 13px;
+    height: 16px;
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+.mt-view-tabs {
+    display: inline-flex;
+    align-items: center;
+    height: var(--mt-face-tab-h);
+    gap: 2px;
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
+/* height and line-height are undoing the base sheet, not decorating. `input, select, button` are locked there to display:block and height:35px, which a <button> used as an inline pill inherits in full - so these sat 35px tall inside an 18px group head and spilled 19px over the table below it (owner, screenshot). It only became visible when pinned the head to a constant; before that the head had no height of its own and grew to swallow them. */
+.mt-view-tab {
+    font: inherit;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    box-sizing: border-box;
+    height: var(--mt-face-tab-h);
+    line-height: calc(var(--mt-face-tab-h) - 2px);
+    padding: 0 7px;
+    cursor: pointer;
+}
+
+.mt-view-tab:hover { color: var(--text-body); }
+
+.mt-view-tab.active {
+    color: var(--accent);
+    border-color: var(--border);
+    background: var(--surface-accent);
+}
+
+/* Both groups behave the SAME WAY in both pitching faces, which is what makes a Categories/Schedule flip move nothing. These rules used to apply only while the calendar was showing, so a flip re-dealt both heights under a fit decided for the other layout: 27 of 27 measured rects moved. Batting is sized to its roster and scrolls inside itself under its sticky header, the answer the leaderboard already gives. Pitching takes everything left over in BOTH faces, with a floor reserved for its larger one (layoutRosterBand writes --mt-pitch-h) - so the calendar can never be squeezed out by a tall batting table, which is what the old min-height was defending against, and the group's outer height is the same number whichever face is inside it, which is what makes the flip move nothing. */
+.mt-group[data-role="primary"] {
+    /* Sized to its ROSTER, not to the room going spare. Growing left a band of empty table between the last batter and the pitching header whenever the roster was short of the space available, which is most leagues (owner, both baseball and hockey). It still SHRINKS first and scrolls inside itself when the two together cannot fit, which is the yield order the tab has always had - pitching does not shrink. */
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* Reserved whether or not the bar is showing, so clientWidth is the same number in both faces. sizeRosterColumns measures against that width and only ever grows, so a scrollbar appearing on a flip left the remembered columns 12px too wide for the group holding them - a sideways scrollbar on the batting table, measured. This is the cure for it. */
+    scrollbar-gutter: stable;
+}
+
+/* A HEIGHT, not a floor, and it already includes whatever batting left over - so the calendar takes the room the owner asked it to take, and nothing that happens inside the group afterwards can change the group. A floor was tried first and an opening breakdown grew past it, pushing batting 54px up the band. That is the same "opening a thing moves the page" this entry exists to end. */
+.mt-group[data-role="secondary"] {
+    flex: 0 0 auto;
+    height: var(--mt-pitch-h, auto);
+    min-height: 0;
+    /* auto, never hidden. If a share ever falls short - a rotation past the cap, a viewport the fit did not see - hidden CUTS THE LAST PITCHERS OFF with nothing on screen to say so, which is the one thing this tab is built not to do. A scrollbar is the honest failure, the same one the density ladder falls back to. */
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.mt-cal {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+}
+
+/* One equal column per day of the matchup. A long playoff matchup makes them narrow rather than making the band scroll sideways, which is the same yield the standings rows make. flex:1 is what makes the calendar USE the band. Without it the grid was content-sized and left the rest of the pitching group empty, however tall the window was. */
+.mt-cal-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 3px;
+    /* The grid is the point of this view, so it grows and shrinks only to its own floor. With free shrink an open breakdown squeezed the day columns to 19px and the calendar stopped being readable. It no longer has to share with one at all (see.mt-cal-reading), so the floor is now only defending against a short window. */
+    flex: 1 1 auto;
+    min-height: 84px;
+}
+
+/* Reading a start trades the grid for the arithmetic, inside the same reserved height. The two together left the breakdown 34px to show 230px of content. */
+.mt-cal-reading .mt-cal-grid,
+.mt-cal-reading .mt-cal-total {
+    display: none;
+}
+
+/* The breadcrumb trail, which IS the navigation. One 12px line: earlier crumbs are click targets in the accent colour, the tail is where you are and is the panel's title, and there is no button anywhere. What the stacked back buttons could not do is why this replaced them. A one-step control can only undo the last click, so leaving a drill-in for the calendar took two of them and nothing on screen said how deep you were. "Schedule" is one click from any depth. */
+.mt-diff-crumbs {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+
+/* A crumb is a word in a sentence, so it has to stop being a CONTROL-shaped box. The base sheet hard-locks every input, select and button to `display: block; width: 100%; height: 35px` so the settings form's rows line up, and a button used as inline text inherits all three - which is why the back control this replaces was a 35px block sitting in a 12px line, reading as part of the heading rather than as something to click ( item 1). Undone explicitly, height included. */
+.mt-crumb {
+    display: inline;
+    width: auto;
+    height: auto;
+    font: inherit;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+    text-align: left;
+}
+
+.mt-crumb:hover { text-decoration: underline; }
+
+/* The tail is the title, so it carries the weight a title would have carried. */
+.mt-crumb-here { font-weight: 700; color: var(--text-body); }
+.mt-crumb-sep { color: var(--text-faint); }
+
+/* Complete and No read say which they are under the trail, because the trail names the START rather than the panel's state. */
+.mt-diff-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+/* How many bats the lineup drew from, beside the players it left out rather than in the header sentence, where it was a parenthetical nobody could act on. */
+.mt-diff-outn { margin-left: 6px; color: var(--text-faint); }
+
+.mt-cal-day {
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.mt-cal-today { border-color: var(--accent); }
+.mt-cal-past { opacity: 0.55; }
+
+.mt-cal-head {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-subtle);
+    padding: 3px 5px;
+    border-bottom: 1px solid var(--border-soft);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mt-cal-date {
+    display: block;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-subtle);
+}
+
+.mt-cal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 3px;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* A start is a button because it does something. It opens its own arithmetic below. Left border carries the difficulty band, so the colour reads without becoming the whole card. Difficulty is a COLOUR, not a word. --diff carries the 0-100 score and the two mixes below turn it into one continuous ramp, green at ease, through a neutral middle, to red at hard. color-mix keeps it in the theme's own tokens, so it re-tints in dark mode with everything else instead of freezing a light-mode swatch. */
+.mt-cal-start {
+    font: inherit;
+    text-align: left;
+    background: var(--surface-accent);
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    cursor: pointer;
+    min-width: 0;
+    /* flex-shrink:0 is the fix for names clipping. As a flex child in a column the card was being compressed below the height of its own text once a day held more than one start, cutting the name off rather than letting the day scroll. */
+    flex: 0 0 auto;
+    /* And this is what makes a WRAPPED name fit. flex-basis:auto defers to height:auto, which a flex item resolves from its MAX-CONTENT size - the name on one line, before the 90px column has forced it to wrap. So the card was sized for one line and the wrapped name spilled 29px past the bottom of it, taking the opponent line with it, strictly worse than the truncation it replaced. fit-content measures the card against the width it actually gets, which is the only height that can be right. */
+    min-height: fit-content;
+}
+
+.mt-cal-scored {
+    --diff-hue: color-mix(in oklab,
+        var(--danger) calc(max(0%, (var(--diff) - 50) * 2%)),
+        color-mix(in oklab, var(--success) calc(max(0%, (50 - var(--diff)) * 2%)), var(--text-subtle)));
+    border-left-color: var(--diff-hue);
+    background: color-mix(in oklab, var(--diff-hue) 12%, var(--surface-accent));
+}
+
+.mt-cal-done { opacity: 0.7; }
+
+.mt-cal-start:disabled { cursor: default; }
+.mt-cal-start:hover:not(:disabled) { border-color: var(--accent); }
+.mt-cal-start.open { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.mt-cal-opp {
+    display: block;
+    font-size: 10px;
+    line-height: 1.3;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The name WRAPS rather than truncating. A day column is 90px wide in the narrow desktop range, which cut the longest names by up to 49px - and the name is the one thing a card exists to say, so "Yoshinobu Yam..." is a worse answer than two short lines. Width-adaptive by nature. At a wide viewport the column is roomy and almost nothing wraps, so the cards a manager usually sees are unchanged. A taller card is affordable because.mt-cal-body already scrolls inside its own day, which is the roster band's rule applied one level down. break-word, NOT anywhere. The two behave the same when a word will not fit, but `anywhere` also feeds into min-content sizing, which let the flex layout shrink the cards to 51px and broke ordinary names mid-word across three lines. `break-word` leaves the column its natural width and only splits a token that genuinely cannot fit. */
+.mt-cal-name {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--text-body);
+    overflow-wrap: break-word;
+}
+
+/* A start with no read keeps the neutral edge. Completed ones are handled by.mt-cal-done. The moneyline sits after the opponent on the same line, so a card WITHOUT one is not a card with a hole in it - which matters more than usual here, because odds cover today's slate only and most cards on a matchup week will never have one. Muted and tabular. It is context beside the read, not a second headline competing with it. */
+.mt-cal-ml {
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+}
+
+.mt-cal-noread { border-left-color: var(--border); }
+
+.mt-cal-total {
+    font-size: 10px;
+    color: var(--text-subtle);
+    padding: 4px 2px 0;
+}
+
+.mt-cal-hint {
+    font-size: 11px;
+    color: var(--text-subtle);
+    padding: 6px 2px 0;
+}
+
+/* The same shape the drill-down uses to justify a rank score: what it was compared against, what each line means, then the table that demonstrates it. Deliberately not a <details>, because here the breakdown IS the answer to the click rather than an optional extra. Capped and self-scrolling. Unbounded, an opened breakdown grew the roster band past the tab, and the batting group above it scrolled UNDER the sticky header instead of staying put. The cap is a share of the viewport rather than a fixed height so it still reads on a short window. No max-height of its own any more. The pitching group's reserved share IS the cap, and a viewport fraction on top of it could only ever disagree with the room actually available. */
+.mt-diff-breakdown {
+    margin-top: 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.mt-diff-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12px;
+}
+
+.mt-diff-table th {
+    text-align: left;
+    color: var(--text-subtle);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.mt-diff-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-body);
+}
+
+.mt-diff-table tfoot td {
+    font-weight: 700;
+    border-top: 2px solid var(--border);
+    border-bottom: none;
+    color: var(--accent);
+}
+
+/* ---- The compact card ------------------------------------------------------------------ The panel used to open with four methodology bullets, a mixed-unit table and two prose paragraphs, every time. What a reader wants first is the verdict, and what they want after it is which component put it there - so the verdict is the headline, each component is one row, and the prose moved into the drill-ins the rows open, where it is read by someone who asked for it. */
+
+/* The score wears the same --diff ramp the calendar cards do, so the number and the card that led here are the same colour. The mix is duplicated from.mt-cal-scored rather than shared, because that rule tints a BACKGROUND from the hue and this one needs the hue itself as text. */
+.mt-diff-verdict {
+    --diff-hue: color-mix(in oklab,
+        var(--danger) calc(max(0%, (var(--diff) - 50) * 2%)),
+        color-mix(in oklab, var(--success) calc(max(0%, (50 - var(--diff)) * 2%)), var(--text-subtle)));
+}
+
+.mt-diff-vline {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.mt-diff-score {
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--diff-hue);
+    font-variant-numeric: tabular-nums;
+}
+
+.mt-diff-vlabel {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--diff-hue);
+}
+
+/* 0-100, and thin on purpose. It restates the score positionally, which is the one thing a number alone cannot do: 77 means nothing until you can see where 77 sits. */
+.mt-diff-meter {
+    margin-top: 5px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface-accent);
+    overflow: hidden;
+}
+
+.mt-diff-meter > span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--diff-hue, var(--accent));
+}
+
+.mt-diff-sub {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.mt-diff-rows {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Label, visual, value - one grid so the three columns line up down the stack whatever each row is showing in the middle. A row that opens something is a real button; short rest, which has nothing to open, uses the same grid and none of the affordances. */
+.mt-diff-row {
+    display: grid;
+    grid-template-columns: minmax(96px, 1fr) minmax(60px, 1.1fr) 46px;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 6px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: var(--text-body);
+}
+
+.mt-diff-row[data-drill] { cursor: pointer; }
+.mt-diff-row[data-drill]:hover { border-color: var(--accent); background: var(--surface-accent); }
+.mt-diff-row-flat { cursor: help; }
+
+.mt-diff-rlabel {
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 0;
+}
+
+/* The chevron IS the affordance. The approved mock carries no per-row hint icon, because a row that opens its own explanation does not also need one hovering over it. */
+.mt-diff-chev {
+    margin-left: 4px;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.mt-diff-rnote {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-subtle);
+}
+
+.mt-diff-rval {
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.mt-diff-track {
+    position: relative;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-accent);
+}
+
+.mt-diff-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+}
+
+/* The park bar grows from the CENTRE, because its number is a deviation and a bar that starts at the left would read as a magnitude. The centreline is the 100-neutral the drill-in explains. */
+.mt-diff-diverge::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    bottom: -2px;
+    width: 1px;
+    background: var(--border);
+}
+
+.mt-diff-dev {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-radius: 3px;
+}
+
+.mt-diff-up { left: 50%; background: var(--danger); }
+.mt-diff-down { right: 50%; background: var(--success); }
+
+/* Both credits on one line, pushed apart. Rule 4 asks for the source to be visible wherever the number renders, not for a sentence about it. */
+.mt-diff-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border);
+    font-size: 10px;
+    color: var(--text-subtle);
+}
+
+/* The credit rides the method line in the park panel, so rule 4 is satisfied without spending a bordered footer row on six words. */
+.mt-diff-dnote .mt-diff-credit { margin-left: 6px; color: var(--text-subtle); }
+
+/* What the panel said beforehand, on a completed start. A chip rather than the sentence it replaces, in the colour that forecast was, so it reads beside the title instead of under it. */
+.mt-diff-chip {
+    --diff-hue: color-mix(in oklab,
+        var(--danger) calc(max(0%, (var(--diff) - 50) * 2%)),
+        color-mix(in oklab, var(--success) calc(max(0%, (50 - var(--diff)) * 2%)), var(--text-subtle)));
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--diff-hue);
+    color: var(--diff-hue);
+}
+
+/* The bats the healthy set leaves out. Muted, because it is context under the table rather than more table - but present, because one hitter moving in or out is the largest single mover of the score above it and this is the only place a reader can see that happen. */
+.mt-diff-out {
+    margin-top: 6px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-soft);
+    font-size: 10px;
+    color: var(--text-subtle);
+    line-height: 1.7;
+}
+
+.mt-diff-outp { margin-left: 6px; white-space: nowrap; }
+
+/* The one line of method, at the top of the panel that needed it. This is where the four bullets went: split up, and each one shown only to a reader who opened the thing it explains. */
+.mt-diff-dnote {
+    margin: 4px 0 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+/* A drill-in is the third panel on the same stack, inside the SAME reserved height. It scrolls internally rather than growing the card, which is what keeps every rect outside the pitching group where it was. */
+.mt-diff-drill {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* THE DRILL-IN HAS TO FIT THE FLOOR, not hope for spare band. --mt-sched-min was set in, before put drill-ins on this stack, and the lineup breakdown came to 229px inside the 200px that floor leaves - a permanent scroll on a panel that is only four categories and a total. Feeding it the band's spare space helped where there was spare space and left the scroll everywhere else, so the 29px comes out of the panel instead. Raising the floor was the alternative and it is the worse one: it would take 30px from the batting rows of every roster, always, to pay for a panel that is open occasionally. Scoped to the drill so the card's own views keep the spacing they were designed with. */
+.mt-diff-drill .mt-diff-table th,
+.mt-diff-drill .mt-diff-table td {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.mt-diff-drill .mt-diff-dnote { margin: 2px 0 4px; }
+
+/* Every park on screen at once. The due diligence is worth nothing behind a scrollbar, so the list is TWO columns filled column-major - the ranking runs down the left and continues down the right - and the rows share whatever height the card's reserved share leaves. minmax(0, 1fr) rather than 1fr is what lets them compress: a plain 1fr floors at min-content and would push the last parks out of the box at the tightest viewport, which is the one place this must not fail. */
+.mt-park-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(var(--park-rows, 15), minmax(0, 1fr));
+    grid-auto-columns: 1fr;
+    column-gap: 10px;
+    overflow: hidden;
+}
+
+.mt-park-row {
+    display: grid;
+    grid-template-columns: minmax(52px, 1fr) minmax(40px, 1.1fr) 22px;
+    align-items: center;
+    gap: 6px;
+    padding: 0 3px;
+    border-radius: 3px;
+    font-size: 10px;
+    /* Compressed, never scrolled. A row's natural height is its type plus its bar; without these it holds that height, overflows its 1fr cell and the list gains a scrollbar - the one thing this panel exists not to have. line-height 1 lowers the natural height and the clip makes the cell the last word. */
+    min-height: 0;
+    line-height: 1;
+    overflow: hidden;
+}
+
+/* A club whose park has no published factor. Present and greyed, because a reader counting parks has to find all thirty - an omission reads as a shorter table, not as missing data. */
+.mt-park-unlisted { color: var(--text-faint); cursor: help; }
+.mt-park-unlisted .mt-diff-track { background: none; }
+
+.mt-park-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-park-idx { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-subtle); }
+
+/* Today's venue, marked in place rather than pulled to the top, so its position in the ranking is the thing the highlight points at. */
+.mt-park-here {
+    background: var(--surface-accent);
+    outline: 1px solid var(--accent);
+}
+
+.mt-park-here .mt-park-name { font-weight: 700; }
+.mt-park-here .mt-park-idx { color: var(--text-body); font-weight: 700; }
+
+
+/* Mobile keeps the single vertically-scrolling column established, one card per row, each as tall as its own content. The measured column count is a desktop no-scroll answer to a question mobile does not ask, and height:100% has no meaning in a column that scrolls. */
 @media (max-width: 700px) {
     .h2h-grid {
         grid-template-columns: 1fr;
@@ -1435,7 +2028,7 @@ button:hover {
     }
 }
 
-/* No-scroll ladder step (b) - see renderScoreboardBox: tighter padding/type on every card, tried before resorting to reflowing rows into columns (step c) or dropping rows (step d). */
+/* No-scroll ladder step (b) - see renderScoreboardBox. Tighter padding and type on every card, tried before resorting to reflowing rows into columns (step c) or dropping rows (step d). */
 .h2h-grid.h2h-compact .h2h-card {
     margin-bottom: 0;
 }
@@ -1468,7 +2061,7 @@ button:hover {
     min-height: 0;
 }
 
-/* Playoff series strip - a small caption at the top of a card during the playoffs saying which bracket the matchup is FOR. Only rendered for playoff games, so a regular-season card never carries it. Championship reads in the accent; a consolation ladder is deliberately quieter. */
+/* Playoff series strip ( pass 3, see playoffSeriesLabelHtml) - a small caption at the top of a card during the playoffs saying which bracket the matchup is FOR. Only rendered for playoff games, so a regular-season card never carries it. Championship reads in the accent; a consolation ladder is deliberately quieter. */
 .h2h-series {
     font-size: 10px;
     font-weight: 700;
@@ -1546,7 +2139,7 @@ button:hover {
     text-overflow: ellipsis;
 }
 
-/* Takes the card's leftover height under the header, and CLIPS rather than growing the card. The clip is what renderScoreboardBox measures: scrollHeight > clientHeight here means this arrangement can't show every category, so it tries the next one. Without the clip the card would just grow and every arrangement would "fit". */
+/* Takes the card's leftover height under the header, and CLIPS rather than growing the card. The clip is what renderScoreboardBox measures. scrollHeight > clientHeight here means this arrangement can't show every category, so it tries the next one. Without the clip the card would just grow and every arrangement would "fit". */
 .h2h-cats {
     padding: 4px 10px 6px 10px;
     flex: 1;
@@ -1593,8 +2186,7 @@ button:hover {
     min-width: 42px;
 }
 
-/* Marks where the second role group starts in a card's single vertical list (batting -> pitching, skaters -> goalies). Same convention as the recap image's group rule: a thin line, inset from the row edges so it reads as a quiet grouping cue rather than a hard section break, with a little air either side. Only emitted when both role groups are actually present (see buildH2HScoreboardHtml). */
-/* Rank cell for a row the engine won't score - only the zero-games cohort, and only visible with Minimum Games Played off. Muted so it reads as "nothing to rank on" rather than a value. */
+/* Marks where the second role group starts in a card's single vertical list (batting -> pitching, skaters -> goalies). Same convention as the recap image's group rule, a thin line inset from the row edges so it reads as a quiet grouping cue rather than a hard section break, with a little air either side. Only emitted when both role groups are actually present (see buildH2HScoreboardHtml). Rank cell for a row the engine won't score - only the zero-games cohort, and only visible with Minimum Games Played off. Muted so it reads as "nothing to rank on" rather than a value. */
 .rank-unranked {
     color: var(--text-faint);
 }
@@ -1620,7 +2212,7 @@ button:hover {
     overflow-y: auto;
 }
 
-/* Keep the category headers in view while those rows scroll. Safe here because .dominance-heatmap is border-collapse: separate - the sticky-thead rendering bug the player table documents only affects border-collapse: collapse. */
+/* Keep the category headers in view while those rows scroll. Safe here because.dominance-heatmap is border-collapse: separate - the sticky-thead rendering bug the player table documents only affects border-collapse: collapse. */
 .dh-wrap.dh-capped .dominance-heatmap thead th {
     position: sticky;
     top: 0;
@@ -1628,7 +2220,7 @@ button:hover {
     z-index: 1;
 }
 
-/* table-layout: fixed is what makes the sort emphasis free. With the default auto layout the table sizes to its CONTENT, so both emphasis cues grew the sorted column - bold glyphs are wider than regular ones, and the direction arrow added a glyph the other headers didn't have. The table got wider, the band got wider, and the trends/rankings row above it reflowed on every sort click. Fixed layout takes column widths from the header row alone and ignores cell content, so weight and arrow changes move nothing. Same fix used on the leaderboard. */
+/* table-layout: fixed is what makes the sort emphasis free. With the default auto layout the table sizes to its CONTENT, so B61's two emphasis cues both grew the sorted column - bold glyphs are wider than regular ones, and the direction arrow added a glyph the other headers didn't have. The table got wider, the band got wider, and the trends/rankings row above it reflowed on every sort click. Fixed layout takes column widths from the header row alone and ignores cell content, so weight and arrow changes move nothing. Same fix used on the leaderboard. */
 .dominance-heatmap {
     border-collapse: separate;
     border-spacing: 2px;
@@ -1750,7 +2342,7 @@ button:hover {
     padding: 5px 5px;
 }
 
-/* One team's standings row (see buildStandingsBarRowHtml in graphs.js). A long team name used to grow .bar-row itself (flex sizes to its tallest child), making rows uneven heights - fixing the row at exactly .bar-track's height and taking .bar-title out of flow (see below) makes every row the same height regardless of name length. */
+/* One team's standings row (see buildStandingsBarRowHtml in graphs.js). A long team name used to grow.bar-row itself (flex sizes to its tallest child), making rows uneven heights - fixing the row at exactly.bar-track's height and taking.bar-title out of flow (see below) makes every row the same height regardless of name length. */
 .bar-row-group {
     margin-bottom: 6px;
 }
@@ -1761,7 +2353,7 @@ button:hover {
     height: 20px;
 }
 
-/* Taken out of flow and vertically centered on .bar-row's own fixed height, clamped to a single ellipsized line - rows sit at a tight fixed pitch now (no sub-bar below reserving safe space), so a wrapped multi-line name would overflow straight into its neighbors' titles. The full name is still available as a native title="" tooltip. */
+/* Taken out of flow and vertically centered on.bar-row's own fixed height, clamped to a single ellipsized line - rows sit at a tight fixed pitch now (no sub-bar below reserving safe space), so a wrapped multi-line name would overflow straight into its neighbors' titles. The full name is still available as a native title="" tooltip. */
 .bar-row-group .bar-title {
     position: absolute;
     left: 0;
@@ -1772,7 +2364,7 @@ button:hover {
     text-overflow: ellipsis;
 }
 
-/* Follows the MEASURED label column. This was a hardcoded 140px, which is the whole of the grey channel between the team abbreviation and the bar: the title is absolutely positioned in these rows, so this margin - not the title's own width - is what holds the track off. At 38px of measured abbreviation it was leaving 82px of empty channel. */
+/* Follows the MEASURED label column. This was a hardcoded 140px, which is the whole of the owner's "lots of grey space between the team abbreviation and the bar". The title is absolutely positioned in these rows, so this margin - not the title's own width - is what holds the track off. At 38px of measured abbreviation it was leaving 82px of empty channel. */
 .bar-row-group .bar-track {
     margin-left: var(--bar-title-w, 140px);
 }
@@ -1814,7 +2406,7 @@ button:hover {
     margin-bottom: 6px;
 }
 
-/* Fixed-width, single-line, ellipsized - the same treatment the standings rows already got via .bar-row-group .bar-title below. The width was always fixed, but the title used to wrap (white-space: normal + word-break: break-word), so a long team name became a two-line title, which made ITS row taller than the others and opened a visibly bigger gap to the next bar. Truncating instead keeps every row exactly one track tall no matter how long the name is; both bar-row builders in graphs.js already carry the full name in a native title="" tooltip for the hover. */
+/* Fixed-width, single-line, ellipsized - the same treatment the standings rows already got via.bar-row-group.bar-title below. The width was always fixed, but the title used to wrap (white-space: normal + word-break: break-word), so a long team name became a two-line title, which made ITS row taller than the others and opened a visibly bigger gap to the next bar (: reported on Category Rankings, which builds plain.bar-row rows). Truncating instead keeps every row exactly one track tall no matter how long the name is; both bar-row builders in graphs.js already carry the full name in a native title="" tooltip for the hover. */
 .bar-title {
     /* Measured per container by sizeBarTitles; the fallback is the old fixed width, used only before that first measurement lands. */
     width: var(--bar-title-w, 140px);
@@ -1832,7 +2424,7 @@ button:hover {
 
 /* The value, on the bar's own line at the end of the row. It used to sit INSIDE the fill, where a short bar had no room for it and it was dropped entirely - at 20 teams that silenced most of the league. Out here every row states its number. */
 .bar-value {
-    /* A MEASURED fixed width, not auto: a content-sized value column made the flexible track beside it end at a different x on every row, so the grey tracks read as a ragged right edge rather than one shared scale. sizeBarTitles measures the widest value in the container. */
+    /* A MEASURED fixed width, not auto. A content-sized value column made the flexible track beside it end at a different x on every row, so the grey tracks read as a ragged right edge rather than one shared scale. sizeBarTitles measures the widest value in the container. */
     flex: 0 0 var(--bar-value-w, 52px);
     width: var(--bar-value-w, 52px);
     margin-left: 6px;
@@ -1849,7 +2441,7 @@ button:hover {
     border-radius: 4px;
     height: 20px;
     position: relative;
-    /* Kept from when titles could wrap to two lines and float the track mid-row (see .bar-title, which is single-line and ellipsized as of, so no title is taller than this track any more). Harmless now - the track is the tallest child, so flex-end and center land in the same place - and it keeps the bottom edge pinned if a row ever does grow a taller child. */
+    /* Kept from when titles could wrap to two lines and float the track mid-row (see.bar-title, which is single-line and ellipsized as of, so no title is taller than this track any more). Harmless now - the track is the tallest child, so flex-end and center land in the same place - and it keeps the bottom edge pinned if a row ever does grow a taller child. */
     align-self: flex-end;
 }
 
@@ -1858,13 +2450,13 @@ button:hover {
     display: flex;
     height: 100%;
     border-radius: 4px;
-    /* NOT overflow:hidden. The value label that used to live in here moved out to its own column, but this still matters: .bar-segment children (see below) are not clipped to this element's rounded corners, so a segment sitting exactly at the far edge can show a square corner instead of following the rounded one - a minor cosmetic wrinkle next to what being readable. */
+    /* NOT overflow:hidden. The value label that used to live in here moved out to its own column, but this still matters..bar-segment children (see below) are not clipped to this element's rounded corners, so a segment sitting exactly at the far edge can show a square corner instead of following the rounded one - a minor cosmetic wrinkle next to what being readable. */
     box-sizing: border-box;
     min-width: 30px;
     transition: width 0.4s ease-in-out;
 }
 
-/* Set only on .bar-fill itself when it's too small to show its own value label inline (see isBarTooSmallForLabel in graphs.js) and carries a data-tooltip instead - the cursor is the hover affordance telling you there's a value to find, since there's no visible label prompting it anymore. */
+/* Set only on.bar-fill itself when it's too small to show its own value label inline (see isBarTooSmallForLabel in graphs.js) and carries a data-tooltip instead - the cursor is the hover affordance telling you there's a value to find, since there's no visible label prompting it anymore. */
 .bar-fill[data-tooltip] {
     cursor: help;
 }
@@ -1940,7 +2532,7 @@ button:hover {
     position: relative;
 }
 
-/* Small icon buttons: the pop-out trigger in the trends header and the overlay's minimize button. Override the global input/select/button height:35px/width:100% hard-lock (see CONVENTIONS). The :hover re-declares background because global button:hover sets --accent-hover and would win. */
+/* hover re-declares background because global button:hover sets --accent-hover and would win. */
 .trends-popout-btn {
     height: 26px;
     width: 26px;
@@ -2015,7 +2607,7 @@ button:hover {
 }
 
 
-/* BOTH pop-outs dock their filters in the real Data Filters box: the panel carries .control-panel and .control-panel-body in the markup, so its border, radius, background, header row, caret rotation and collapse behaviour all come from those one set of rules rather than look-alike variants. Only the overlay-specific sizing lives here - the panel hugs its content at the bottom of the overlay instead of taking a share of a column's height, and it drops .control-panel's top margin because .trends-overlay-body already gaps its children. */
+/* BOTH pop-outs dock their filters in the real Data Filters box ( chrome, parity, trends joined in ): the panel carries.control-panel and.control-panel-body in the markup, so its border, radius, background, header row, caret rotation and collapse behaviour all come from those one set of rules rather than look-alike variants. Only the overlay-specific sizing lives here - the panel hugs its content at the bottom of the overlay instead of taking a share of a column's height, and it drops.control-panel's top margin because.trends-overlay-body already gaps its children. */
 .overlay-filters-panel {
     flex: 0 0 auto;
     max-height: 45%;
@@ -2156,7 +2748,7 @@ button:hover {
 }
 
 
-/* Never shrinks and never grows: it is a fixed cost the container flexes around, and its own <pre> already scrolls internally once opened. */
+/* Never shrinks and never grows. It is a fixed cost the container flexes around, and its own <pre> already scrolls internally once opened. */
 .debug-console {
     max-width: 1400px;
     width: 100%;
@@ -2186,6 +2778,39 @@ button:hover {
     margin-top: 10px;
     border-top: 1px solid #444;
     padding-top: 10px;
+}
+
+/* The response picker. Deliberately in the debug console's own green-on-black idiom rather than the app's tokens. This panel is a terminal, and the exception is already documented in docs/CONVENTIONS.md. */
+.debug-kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.debug-kind {
+    font-family: inherit;
+    font-size: 11px;
+    padding: 3px 8px;
+    background: #222;
+    color: #0f0;
+    border: 1px solid #0a0;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.debug-kind:hover:not(:disabled) { background: #0f0; color: #000; }
+
+.debug-kind.active {
+    background: #0f0;
+    color: #000;
+    font-weight: bold;
+}
+
+.debug-kind:disabled {
+    color: #060;
+    border-color: #050;
+    cursor: default;
 }
 
 .debug-download-btn {
@@ -2283,12 +2908,12 @@ button:hover {
     color: var(--accent-contrast);
 }
 
-/* padding-top:0 overrides the viewport's uniform 12px so the sticky thead's top:0 means the real top of this box. Padding on a scrolling ancestor does not scroll away the way a margin on its child does, so a sticky child parks against the padding box and leaves a permanent gap. The table's own margin-top restores the same inset at rest and scrolls away like content. */
+/* padding-top:0 (overriding.graph-viewport's uniform 12px) is deliberate. The sticky <thead> below needs top:0 to mean the ACTUAL top of this scrolling box. A CSS gotcha - padding on the scrolling ancestor itself doesn't scroll away the way a margin on its child does, so a sticky child stuck against a padded container's padding-box leaves a permanent gap between it and the visible top edge once scrolled, instead of ever sitting flush..player-table's own margin-top below restores the same 12px visual inset at rest, but because it's margin on the (scrollable) child rather than padding on the (scrolling) container, it fully scrolls away like normal content, and the header sticks flush with no gap. */
 .player-leaderboard-viewport {
     overflow: auto;
     align-items: stretch;
     padding-top: 0;
-    /* Reserve the vertical scrollbar's gutter permanently. Without it, a filter that narrows the pool enough to fit without scrolling (a search matching a handful of players) reclaims the scrollbar's ~17px, which widens the table and moves every column - the same horizontal jump table-layout: fixed above removes for content changes, arriving by a different route. Holding the gutter keeps the table one width at every pool size. */
+    /* Reserve the vertical scrollbar's gutter permanently. Without it, a filter that narrows the pool enough to fit without scrolling (a search matching a handful of players) reclaims the scrollbar's ~17px, which widens the table and moves every column - the same horizontal jump table-layout: fixed above removes for content changes, arriving by a different route (: measured 1104px with the bar, 1119px without). Holding the gutter keeps the table one width at every pool size. */
     scrollbar-gutter: stable;
 }
 
@@ -2399,11 +3024,11 @@ button:hover {
     border-collapse: separate;
     border-spacing: 0;
     width: 100%;
-    /* Column geometry is taken off the content entirely. Auto-sized, the Player column follows the widest NAME in the current pool, and every filter changes which names are present: toggling minimum games grew it 5px and slid every column after it. Fixed layout gives the text columns the widths below and splits the rest between the stat columns, so no pool change moves anything sideways. */
+    /* Column geometry is taken off the content entirely. The Player column used to be auto-sized, so the widest NAME in the current pool set its width - and every pool-changing control (Minimum Games Played, search, availability, position, sort) changes which names are present. Measured: toggling min games on the hockey pool grew Player by 5px and slid Team and every stat column after it by 5/4/3/3/2/1px, which is exactly the reported "all categories starting at the teams category slide over". With table-layout: fixed the text columns take the explicit widths set below and the stat columns split what's left, so no pool change can move anything horizontally. */
     table-layout: fixed;
     font-size: 12px;
     white-space: nowrap;
-    /* Restores the 12px top inset .player-leaderboard-viewport's own padding-top gave up (see its comment) - as margin on this scrollable child, it scrolls away normally instead of leaving a permanent gap above the sticky header. */
+    /* Restores the 12px top inset.player-leaderboard-viewport's own padding-top gave up (see its comment) - as margin on this scrollable child, it scrolls away normally instead of leaving a permanent gap above the sticky header. */
     margin-top: 12px;
 }
 
@@ -2432,33 +3057,50 @@ button:hover {
     border-bottom: 1px solid var(--border);
 }
 
-/* Explicit widths for every column whose content isn't a short number - under table-layout: fixed these come from the header row, and the unsized stat columns share the remainder equally. Sized from the widest real content measured across both sports and both group tabs (longest names ~24 chars, "Kayden's Top-Notch Team", a 4-digit FOW, "#1 of 942" plus a medal and a trend arrow), so the stat columns still clear their widest values in the densest layout (hockey skaters, 10 stat columns). */
+/* Explicit widths for every column whose content isn't a short number - under table-layout: fixed these come from the header row, and the unsized stat columns share the remainder equally. Sized from the widest real content measured across both sports and both group tabs (longest names ~24 chars, "Kayden's Top-Notch Team", a 4-digit FOW, "#1 of 942" plus a medal and a trend arrow), so the stat columns still clear their widest values in the densest layout (hockey skaters, 10 stat columns). The two text columns are the give in the layout. sizeLeaderboardColumns shrinks them toward --cat-name-min / --cat-team-min when the categories are already at their floor and the row still does not fit, so a narrow window tightens the names it can ellipsis before the table resorts to scrolling sideways. The values here are the widths at full size. */
 .player-table th[data-sort="name"] {
-    width: 175px;
+    width: var(--pl-name-w, var(--pl-name-base));
 }
 
 .player-table th[data-sort="teamName"] {
-    width: 160px;
+    width: var(--pl-team-w, var(--pl-team-base));
+}
+
+/* Where the space beyond N x CAP goes. Without it the stat columns absorbed every spare pixel of a wide window, which is the "far too big" the owner reported: nine categories on a 1280px table came out at 130px a column for figures that need barely a third of that. Same pattern as My Team's.mt-fill. */
+.player-table th.player-col-fill,
+.player-table td.player-col-fill {
+    width: auto;
+    padding: 0;
+}
+
+/* Declared as variables so sizeLeaderboardColumns can total them WITHOUT measuring the rendered header row. A fixed-layout table hands any surplus back to its columns, so a measured header is wider than the width it was given - asking it how wide it is answers with the answer already applied, which is the same circularity My Team's probe exists to dodge. */
+.player-table {
+    --pl-name-base: 175px;
+    --pl-team-base: 160px;
+    --pl-pos-w: 75px;
+    --pl-rank-w: 140px;
+    --pl-gp-w: 50px;
+    --pl-ip-w: 65px;
 }
 
 .player-table th[data-sort="positionName"] {
-    width: 75px;
+    width: var(--pl-pos-w);
 }
 
 .player-table th[data-sort="rotoScore"],
 .player-table th[data-sort="total"] {
-    width: 140px;
+    width: var(--pl-rank-w);
 }
 
 .player-table th[data-sort="gp"] {
-    width: 50px;
+    width: var(--pl-gp-w);
 }
 
 .player-table th[data-sort="ip"] {
-    width: 65px;
+    width: var(--pl-ip-w);
 }
 
-/* The columns that can genuinely exceed their fixed width: the two name columns, and Pos for a baseball player eligible almost everywhere ("1B/2B/3B/OF/DH"). Truncate with the full value on hover (the row markup carries a title), the same treatment the bar rows got in - a wrapped name would also make its row taller than its neighbours. Widening Pos instead would just take the space back out of the stat columns for a case this rare. */
+/* The columns that can genuinely exceed their fixed width, the two name columns, and Pos for a baseball player eligible almost everywhere ("1B/2B/3B/OF/DH"). Truncate with the full value on hover (the row markup carries a title), the same treatment the bar rows got in - a wrapped name would also make its row taller than its neighbours. Widening Pos instead would just take the space back out of the stat columns for a case this rare. */
 .player-table td.player-col-name,
 .player-table td.player-col-team,
 .player-table td.player-col-pos {
@@ -2466,11 +3108,13 @@ button:hover {
     text-overflow: ellipsis;
 }
 
-/* Numeric columns split whatever the fixed text columns above leave, which in the densest layout (baseball batters, 9 stat columns) is 45px - and 10px of padding a side left only 25px for a 3-decimal rate like a .149 AVG, which needs 30. Tighter padding buys the room inside the same fixed geometry, instead of taking width back off the name columns. Numbers need far less breathing room than the text columns do. */
+/* Numeric columns split whatever the fixed text columns above leave, which in the densest layout (baseball batters, 9 stat columns) is 45px - and 10px of padding a side left only 25px for a 3-decimal rate like a.149 AVG, which needs 30. Tighter padding buys the room inside the same fixed geometry, instead of taking width back off the name columns. Numbers need far less breathing room than the text columns do. */
 .player-table th.player-col-stat,
 .player-table td.player-col-stat {
     padding-left: 5px;
     padding-right: 5px;
+    /* Set by sizeLeaderboardColumns to the clamped pitch minus this padding. The fallback is only what renders for the frame before the measurement lands. */
+    width: var(--pl-stat-w, 58px);
 }
 
 .player-table tbody tr.player-row {
@@ -2597,7 +3241,7 @@ button:hover {
     cursor: help;
 }
 
-/* Same delayed hover-reveal as .rank-chip:hover .rank-chip-dropdown, just scoped to stat chips too so they can reuse the exact same dropdown box without inheriting .rank-chip's own background/border/cursor styling (which would conflict with the stat chip's own). */
+/* Same delayed hover-reveal as.rank-chip:hover.rank-chip-dropdown, just scoped to stat chips too so they can reuse the exact same dropdown box without inheriting.rank-chip's own background/border/cursor styling (which would conflict with the stat chip's own). */
 .stat-chip:hover .rank-chip-dropdown {
     visibility: visible;
     opacity: 1;
@@ -2782,6 +3426,24 @@ button:hover {
     font-style: italic;
 }
 
+/* Why a real score is missing from the list view. Muted rather than warning-coloured. The score above it is sound, and the minimum is a display filter doing its job, not a problem. */
+.rank-breakdown-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+/* Stands where the rank chips would be, so the header answers the question their absence asks instead of leaving a gap. Sized and spaced like the chip row it replaces. */
+.player-rank-unranked {
+    margin: 8px 0 0;
+    padding: 6px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 .rank-th-label {
     display: inline-flex;
     align-items: center;
@@ -2960,7 +3622,7 @@ button:hover {
     border-color: var(--accent);
 }
 
-/* Stood down rather than removed - the Recap button is disabled for roto leagues, which have no matchup for a recap to be about. Its title says so on hover. */
+/* Stood down rather than removed - the Recap button is disabled for roto leagues, which have no matchup for a recap to be about (B31-FULL). Its title says so on hover. */
 .share-toolbar-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -3200,7 +3862,7 @@ button:hover {
     color: var(--text-body);
 }
 
-/* === Mobile, Team Metrics only. The no-page-scroll rule is desktop-only by design: five panels crammed into a phone screen read worse than one column that scrolls, and scrolling is the native gesture there. #view-team becomes its own vertically-scrolling column rather than every panel fighting for a share of a capped height. Scoped to #view-team and not the ancestor chain, so Player Metrics keeps its internal-scroll table. === */
+/* Mobile (Firefox for Android - docs/BACKLOG.md M1). Team Metrics only. The desktop no-page-scroll rule (see CLAUDE.md golden rule 2 / docs/ CONVENTIONS.md "Layout invariants") is explicitly DESKTOP-ONLY. Cramming five panels into one phone screen is worse than scrolling, and scrolling is the native, expected gesture there. #view-team becomes its own vertically-scrolling single column (one continuous touch-scroll region - indistinguishable from "the page scrolling" to the user, even though it's technically this element's own overflow, not html/body's) instead of every panel fighting for a fixed share of a height-capped viewport. Deliberately scoped to #view-team, not the shared ancestor chain (html/body/.container/#results/.tab-view) or #view-player - Player Metrics keeps today's behavior (its own internal-scroll leaderboard/ table, already verified to work at this width), unaffected by this block..layout/.col/.heatmap-band/.control-panel are used only inside #view-team's subtree, so restyling them here can't leak into the other tab. */
 @media (max-width: 700px) {
     #view-team {
         overflow-y: auto;
@@ -3251,8 +3913,7 @@ button:hover {
     }
 }
 
-/* ==== My Team ==== */
-/* The tab is one column of bands: summary, then the roster, which takes the rest. No page scroll, so the roster owns the leftover height and scrolls inside itself only as the last resort. */
+/* ==== My Team ==== The tab is one column of bands, summary then the roster, which takes the rest. No page scroll, so the roster owns the leftover height and scrolls inside itself only as the last resort. */
 .myteam-container {
     display: flex;
     flex-direction: column;
@@ -3280,7 +3941,7 @@ button:hover {
     gap: 4px;
 }
 
-/* Exactly the other tabs' header metrics (.header-row h3 is 16px bold): this tab is a peer, not a variant, and a distinct identity for it is a separate job rather than a size difference here. */
+/* Exactly the other tabs' header metrics (.header-row h3 is 16px bold). This tab is a peer, not a variant, and a distinct identity for it is B83's job rather than a size difference here. */
 .mt-team-name {
     font-size: 16px;
     font-weight: bold;
@@ -3308,6 +3969,13 @@ button:hover {
     gap: 6px;
     font-size: 12px;
     color: var(--text-body);
+}
+
+/* The chip row wraps, and that is what keeps the whole tab inside the page. Fourteen chips are 734px of unbreakable row, so in the narrow desktop range (golden rule 2 runs down to 701px) they ran past the band, past the container and off the window edge - chips a manager could not read at all, since nothing here scrolled. Wrapping rather than scrolling because a header band can afford a second line, and a horizontal scroller full of five-character chips is a worse answer than one more row of them. It also unblocks.mt-summary's OWN wrap. A flex item's automatic minimum is its min-content, so a nowrap row this long refused to be pushed onto its own line no matter how little room was left beside the record. */
+.mt-profile {
+    flex-wrap: wrap;
+    row-gap: 4px;
+    min-width: 0;
 }
 
 .mt-stand-label, .mt-profile-label {
@@ -3349,12 +4017,63 @@ button:hover {
 .mt-cat-rank { font-weight: normal; opacity: 0.75; }
 .mt-cat-none { font-size: 11px; color: var(--text-faint); }
 
-/* Band two. Takes the leftover height and scrolls internally only when a roster genuinely cannot fit, which keeps the page itself off the scrollbar. */
+/* Band two. Takes the leftover height and hands it to the two groups, which scroll inside themselves - the band itself is NOT a scroller. It was one until, and past the last density step that put both groups behind ONE scrollbar together. Scrolling to the bottom of the rotation scrolled the batting table off the top. */
 .mt-roster {
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
+    /* What the Schedule face needs at minimum, the day grid at its floor, plus enough room for a scoring breakdown to be worth opening. layoutRosterBand reserves the larger of this and the pitching rows' own height, so the number that decides the split lives with the layout. */
+    --mt-sched-min: 230px;
+    /* What the Schedule face would LIKE, as opposed to the floor above that it must have. The lineup drill-in is the tallest thing it opens and it overflowed its box by 29px at the floor, so the reservation grows toward this whenever the band has room going spare - which is the owner's own suggestion, that the space sitting between the two tables should go to the panel that needs it. Never taken from the batting rows: only genuinely free space is spent. */
+    --mt-sched-want: 260px;
+    /* The threshold batting scrolls at. Pitching may take every pixel batting does not need, but never so many that batting drops below this - about six rows at the tightest row height, which is the point where a roster stops reading as a roster. Past it batting scrolls rather than shrinking further, and this is the ONE cap on the split. Two different ad-hoc fractions used to guard it from different directions. */
+    --mt-bat-min: 170px;
+
+    /* ---- The computed layout's inputs ------------------------------------------------- layoutRosterBand READS these and divides the band among the rows. Every one is enforced by a rule below, so the arithmetic and the rendering cannot disagree about what a header costs - which is the whole reason the old version had to measure. Change a number here and the layout follows; change a padding below without changing the number and it will not. What the head COSTS the band, its bottom margin included. Counting only the box was the 2px every group overflowed by: the arithmetic filled the band exactly, and then a margin nobody had budgeted for pushed each group's content 2px past the height it had been given, so both wore a scrollbar under a roster that was entirely visible. The number is set by the tallest thing a head carries, which is the Categories/Schedule pair on the pitching head, not by the label - 22 is the pill, 1px of padding either side of it and the 2px rule under it, plus the 2px margin. A head shorter than its own contents is how those pills came to overhang the table below them. */
+    --mt-group-head-h: 22px;
+    --mt-group-head-gap: 2px;
+    --mt-face-tab-h: 16px;
+    --mt-thead-h: 40px;
+    --mt-band-head-h: 20px;
+    /* Two names for one gap on purpose. layoutRosterBand READS the base and WRITES the other, so a second call on the same band cannot read back its own answer and add the slack twice. Today every call gets a freshly rendered band, which is why that never happened - but "it depends on the band being new" is not a property worth relying on. */
+    --mt-group-gap-base: 10px;
+    --mt-group-gap: var(--mt-group-gap-base);
+    /* How far the gap may stretch to swallow what the budget did not spend. Uncapped it took the lot, and a team two players and two bands under capacity pushed the tables 144px apart where the next team put them 84px apart - the same jarring the row height used to cause, moved into the spacing. Capped, both tables sit in the same place for every team and only the empty strip below the last one differs, which is the edge the eye is least attached to. */
+    --mt-group-gap-max: 32px;
+    /* Rows shrink to the floor before batting scrolls, and stop growing at the ceiling so a short roster on a tall window reads as a roster rather than a menu. 12px is the floor because that is how far the density ladder reached:.mt-densest set a 12px line-height on a 9px font, which is exactly what the continuous scale below produces at this row height. A higher floor would have made the ladder's tightest case scroll where it used to fit, and the redo is not allowed to lose reach. */
+    --mt-row-min: 12px;
+    --mt-row-max: 30px;
+
+    /* Everything that scales does it off the one variable. */
+    --mt-row-h: 22px;
+    /* CALIBRATED AGAINST THE LADDER THIS REPLACED, because the first cut was not and the roster came out too small to read. The old rungs paired a row height with a type size:.mt-densest 9px type and a 12px avatar on 12px rows,.mt-denser 10px and 15px on 14px rows,.mt-dense 11px and 18px on 15px rows, undensed 12px and 22px. A x0.5 multiplier held the font at its 9px floor until rows passed 18px - so a typical 14px row rendered the LADDER'S MOST EXTREME rung, and a smaller avatar than even that one used. Both lines now run through those pairs, a step above them where the row allows it, since the line box below is pinned to the row rather than to a ratio of the font. The tighten that used to live here is --cat-pitch-tighten in:root now, alongside the cap and floor the leaderboard reads too. One rule, one set of numbers, two tables. */
+    --mt-row-font: clamp(10px, calc(var(--mt-row-h) * 0.5 + 4px), 13px);
+    --mt-avatar: clamp(11px, calc(var(--mt-row-h) - 1px), 22px);
 }
+
+/* The constants above, made true. */
+.mt-roster .mt-group-head {
+    height: calc(var(--mt-group-head-h) - var(--mt-group-head-gap));
+    margin-bottom: var(--mt-group-head-gap);
+    box-sizing: border-box;
+    /* A height is only a request while flex-shrink is 1. On an over-budget group the batters head was being squeezed to 16px against the 20 the arithmetic had budgeted, so the constant was true everywhere except the one case where the numbers had to be exact. */
+    flex: 0 0 auto;
+    /* 1px, not the 2px the unscoped rule sets, and the difference is load-bearing: it is what leaves exactly --mt-face-tab-h between this padding and the 2px rule underneath. */
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
+.mt-roster .mt-table thead tr { height: var(--mt-thead-h); }
+/* tr.mt-band-head outranks the row rule below, which shares its specificity and would otherwise win on order and shrink these to a player row - leaving the band shorter than the arithmetic budgeted for it, which is dead space by another name. */
+.mt-roster .mt-table tr.mt-band-head td {
+    height: var(--mt-band-head-h);
+    padding-top: 0;
+    padding-bottom: 0;
+    /* Its own line box, or it inherits the player row's. Those two constants part company at the top of the scale - a 30px row sets a 28px line box, which is 8px taller than a band head is allowed to be, and the pitching group wore the difference as a scrollbar. */
+    line-height: var(--mt-band-head-h);
+}
+.mt-roster .mt-group { margin-bottom: var(--mt-group-gap); }
 
 .mt-table {
     width: 100%;
@@ -3362,9 +4081,11 @@ button:hover {
     font-size: 12px;
 }
 
+/* z-index is load-bearing, not decoration..player-avatar is position:relative so its initials can sit under the headshot, which makes every avatar a POSITIONED element later in the document than this header. Positioned siblings paint in document order, so without a z-index here the avatars scrolled straight over the sticky header instead of under it. */
 .mt-table th {
     position: sticky;
     top: 0;
+    z-index: 2;
     background-color: var(--surface);
     color: var(--text-subtle);
     font-size: 10px;
@@ -3381,7 +4102,7 @@ button:hover {
     color: var(--text-body);
 }
 
-/* The headshot is what sets the row's height, not the 12px text in it, so the roster reads spaced out however little padding the cells carry. 20px against a 16px line box holds 8px of clear air between stacked values, which is where the pitch was tuned to stop. */
+/* The headshot is what sets the row's height, not the 12px text in it, so the roster reads spaced out however little padding the cells carry. 20px against a 16px line box holds the owner's 8px of clear air between stacked values, which is where the pitch was tuned to stop. */
 .mt-table .player-avatar {
     width: 20px;
     height: 20px;
@@ -3411,9 +4132,11 @@ button:hover {
 }
 
 .mt-rank { font-weight: bold; color: var(--accent); cursor: help; }
+/* The dash carries a reason on hover when there is one, so the cursor has to say there is something to hover. Scoped to the ones that actually have a tooltip - a bare dash promises nothing. */
 .mt-rank-none { color: var(--text-faint); }
+.mt-rank-none[data-tooltip] { cursor: help; }
 
-/* The avatar is a tile with the image ON TOP: the initials show until a headshot decodes, and a headshot that never arrives leaves the tile showing. */
+/* The avatar is a tile with the image ON TOP. The initials show until a headshot decodes, and a headshot that never arrives (offline, missing id, error) leaves the tile showing. */
 .player-avatar {
     position: relative;
     display: inline-flex;
@@ -3457,8 +4180,7 @@ button:hover {
     padding: 2px 6px 6px;
 }
 
-/* The drill-down header: back button pinned top-left, the stat picker and pager top-right, and the player centred between them. The title is the only flexible child, so the two ends keep their corners no matter how long a name runs. */
-/* Three columns with equal flexible sides, so the player sits in the HEADER's centre rather than in the centre of whatever space the two ends happen to leave. Back takes the left corner, the stat picker and pager the right, both pinned to the top. */
+/* The drill-down header: back button pinned top-left, the stat picker and pager top-right, and the player centred between them. The title is the only flexible child, so the two ends keep their corners no matter how long a name runs. Three columns with equal flexible sides, so the player sits in the HEADER's centre rather than in the centre of whatever space the two ends happen to leave. Back takes the left corner, the stat picker and pager the right, both pinned to the top. */
 .player-detail-header {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
@@ -3498,7 +4220,7 @@ button:hover {
 
 .player-detail-title .avatar-initials { font-size: 12px; }
 
-/* Role groups: each is its own table with its own columns, so a pitcher's line never sits under batting headers. They share the roster band's height, each shrinking to its own content, and only the band scrolls if a very deep roster demands it. */
+/* Role groups ( part 2 item 1). Each is its own table with its own columns, so a pitcher's line never sits under batting headers. They share the roster band's height, each shrinking to its own content, and only the band scrolls if a very deep roster demands it. */
 .mt-group {
     display: flex;
     flex-direction: column;
@@ -3519,28 +4241,7 @@ button:hover {
     margin-bottom: 2px;
 }
 
-/* Density steps for the roster band (see fitRosterBand). Each one only tightens chrome: padding, type size and the avatar. No player is ever dropped, which is the point of yielding density. */
-.mt-dense .mt-table td { padding: 1px 6px; font-size: 11px; }
-.mt-dense .mt-group { margin-bottom: 6px; }
-.mt-dense .player-avatar { width: 18px; height: 18px; }
-.mt-dense .avatar-initials { font-size: 8px; }
-.mt-dense .mt-group-head { padding: 1px 6px; margin-bottom: 0; }
-
-.mt-denser .mt-table td { padding: 0 5px; font-size: 10px; line-height: 1.35; }
-.mt-denser .mt-table th { padding: 2px 5px; }
-.mt-denser .mt-group { margin-bottom: 4px; }
-.mt-denser .player-avatar { width: 15px; height: 15px; margin-right: 4px; }
-.mt-denser .avatar-initials { font-size: 7px; }
-
-/* Third rung. Two were enough at 800px tall and ran out at 680, where a 23-player roster still overflowed by 83px and clipped two players behind an internal scrollbar. Every player visible is the rule the tab is built on, so the ladder grows rather than the roster hiding anyone. */
-.mt-densest .mt-table td { padding: 0 4px; font-size: 9px; line-height: 1.3; }
-.mt-densest .mt-table th { padding: 1px 4px; font-size: 9px; }
-.mt-densest .mt-group { margin-bottom: 2px; }
-.mt-densest .mt-group-head { padding: 0 4px; font-size: 9px; }
-.mt-densest .mt-band-head td { padding: 0 4px; font-size: 8px; }
-.mt-densest .player-avatar { width: 12px; height: 12px; margin-right: 3px; }
-.mt-densest .avatar-initials { font-size: 6px; }
-/* The last group's own bottom margin is content the band still has to scroll for, and at the tightest rung it was the difference between a clean fit and a 14px scrollbar under a roster whose every player was already visible. */
+/* ONE continuous scale, keyed off --mt-row-h, replacing the three density classes. The ladder existed because a measured fit could only choose between rungs; a computed row height is a number, so everything that used to step can follow it. clamp keeps type and avatars readable at the bottom of the range and stops them ballooning at the top. The last group's own bottom margin is content the band still has to scroll for, and at the tightest rung it was the difference between a clean fit and a 14px scrollbar under a roster whose every player was already visible. */
 .mt-roster .mt-group:last-child { margin-bottom: 0; }
 
 
@@ -3549,21 +4250,19 @@ button:hover {
     table-layout: fixed;
 }
 
-/* Every stat column takes the same pitch in BOTH tables, and a trailing filler column soaks up whatever is left over in the shorter one. That is what keeps the Nth category of one group directly above the Nth of the other, which still matters. What CHANGED: the pitch is no longer a fixed number with the slack pooling in the filler. It is measured to fill the row for the group carrying the MOST categories, so the space is spread between the columns instead of sitting in a gutter at the right, and the shorter group's filler absorbs only the columns it genuinely does not have. See sizeRosterColumns. */
+/* Every stat column takes the same pitch in BOTH tables, and a trailing filler column soaks up whatever is left over in the shorter one. That is what keeps the Nth category of one group directly above the Nth of the other, which the owner confirmed still matters. What CHANGED. The pitch is no longer a fixed number with the slack pooling in the filler. It is measured to fill the row for the group carrying the MOST categories, so the space is spread between the columns instead of sitting in a gutter at the right, and the shorter group's filler absorbs only the columns it genuinely does not have. See sizeRosterColumns. */
 .mt-table th.mt-fill, .mt-table td.mt-fill {
     width: auto;
     padding: 0;
 }
 
-/* Sized to what the content actually measures, not to round numbers. Across a real 1302-player pool in the roster table's own font: the longest NAME is 118px ("Christian Encarnacion-Strand") with a 99th percentile of 82px, the longest POSITION string is 69px ("1B/2B/3B/OF/DH") with a median of 13px, and the widest SLOT label is 20px ("UTIL"). Player was 210px against a 20px avatar, which left 162px of dead space between a typical name and the Pos column. Player fits the longest name outright; the other two fit theirs with a few pixels to spare, and anything longer clips to an ellipsis (see the rule below) rather than widening a fixed column. */
-/* Player and Pos are sized to the ROSTER ON SCREEN, measured after it renders (sizeRosterColumns in myteam.js), not to the widest name in the league's whole pool. A fixed width has to fit its worst case, and the pool's worst case is 118px of name against a 55px median, which is where the dead space between a name and the Pos column came from. The fallbacks here are only what renders for the frame before the measurement lands. Both group tables get the same value, so they stay aligned, which is the whole reason the layout is fixed in the first place. */
+/* Sized to what the content actually measures, not to round numbers. Across a real 1302-player pool in the roster table's own font. The longest NAME is 118px ("Christian Encarnacion-Strand") with a 99th percentile of 82px, the longest POSITION string is 69px ("1B/2B/3B/OF/DH") with a median of 13px, and the widest SLOT label is 20px ("UTIL"). Player was 210px against a 20px avatar, which left 162px of dead space between a typical name and the Pos column. Player fits the longest name outright; the other two fit theirs with a few pixels to spare, and anything longer clips to an ellipsis (see the rule below) rather than widening a fixed column. Player and Pos are sized to the ROSTER ON SCREEN, measured after it renders (sizeRosterColumns in myteam.js), not to the widest name in the league's whole pool. A fixed width has to fit its worst case, and the pool's worst case is 118px of name against a 55px median, which is where the dead space between a name and the Pos column came from. The fallbacks here are only what renders for the frame before the measurement lands. Both group tables get the same value, so they stay aligned, which is the whole reason the layout is fixed in the first place. */
 .mt-table th.mt-slot, .mt-table td.mt-slot { width: 32px; }
 .mt-table th.mt-player, .mt-table td.mt-player { width: var(--mt-player-w, 148px); }
 .mt-table th.mt-pos, .mt-table td.mt-pos { width: var(--mt-pos-w, 72px); }
 .mt-table th.mt-rankcell, .mt-table td.mt-rankcell { width: 50px; }
 
-/* A right-aligned number under a left-aligned header reads as belonging to the column to its right. The header takes the value's alignment so the two sit on the same edge. */
-/* The pitch is set PER GROUP by sizeRosterColumns in myteam.js, from the room that group's table actually has after the shared columns take theirs, and floored at what its widest heading or value needs so nothing ever clips. The fallback here is only what renders for the frame before the measurement lands. */
+/* A right-aligned number under a left-aligned header reads as belonging to the column to its right. The header takes the value's alignment so the two sit on the same edge. The pitch is set PER GROUP by sizeRosterColumns in myteam.js, from the room that group's table actually has after the shared columns take theirs, and floored at what its widest heading or value needs so nothing ever clips. The fallback here is only what renders for the frame before the measurement lands. */
 .mt-table th.mt-stat, .mt-table td.mt-stat {
     width: var(--mt-stat-w, 58px);
     padding-left: 3px;
@@ -3581,7 +4280,7 @@ button:hover {
     white-space: nowrap;
 }
 
-/* Sortable group headers: the same affordances the heatmap's headers carry (pointer, hover, a visible focus ring since they are keyboard-reachable), and the arrow slot is always present so sorting a column cannot shift the header's text sideways. */
+/* Sortable group headers carry the same affordances the heatmap's do (pointer, hover, a visible focus ring since they are keyboard-reachable), and the arrow slot is always present so sorting a column cannot shift the header's text sideways. */
 .mt-sortable { cursor: pointer; }
 .mt-sortable:hover { color: var(--accent); }
 .mt-sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -3599,18 +4298,27 @@ button:hover {
     width: auto;
 }
 
-/* The sorted column carries the emphasis, exactly as the heatmap's does: weight only, and the line box is locked so a heavier face cannot make the row taller (the lesson - a bold column grew every row and pushed the table's neighbours around). Column widths are already fixed, so the bold cannot change them either. */
+/* The sorted column carries the emphasis, exactly as the heatmap's does, weight only, and the line box is locked so a heavier face cannot make the row taller (the lesson - a bold column grew every row and pushed the table's neighbours around). Column widths are already fixed, so the bold cannot change them either. */
 .mt-table td.mt-sorted-col, .mt-table th.mt-sorted-col {
     font-weight: bold;
 }
 
-.mt-table td, .mt-table th {
-    line-height: 16px;
+.mt-table th { line-height: 14px; }
+/* The row's height IS the computed one. Cells carry no vertical padding, so a row is exactly --mt-row-h and the arithmetic that divided the band among the rows stays true on screen. */
+.mt-roster .mt-table td {
+    height: var(--mt-row-h);
+    padding-top: 0;
+    padding-bottom: 0;
+    /* An explicit line box, which is what lets the type be legible at these heights: a ratio line-height caps the font at row/1.2 and strands the rest of the row above and below the strut. The ladder this replaced set a per-rung line-height for the same reason. Two pixels UNDER the row, never equal to it. Pinned exactly to --mt-row-h there is no slack for the avatar's inline overhang - vertical-align:middle sits a box off the baseline by half an x-height, so a 13px avatar in a 14px line box made every row render 15.14px and put both groups behind scrollbars. */
+    line-height: calc(var(--mt-row-h) - 2px);
+    font-size: var(--mt-row-font);
 }
+.mt-roster .mt-table .player-avatar { width: var(--mt-avatar); height: var(--mt-avatar); }
+/* The availability badge is the one inline thing in a row that did not scale with it. Its fixed 11px glyph grew the line box past --mt-row-h once the row font dropped below that, so at the tightest rows the two injured players stood 1.19px taller each than the arithmetic had budgeted for - and a group that fits exactly cannot afford even that. */
+.mt-roster .mt-table td .injury-icon { font-size: var(--mt-row-font); line-height: inherit; }
+.mt-roster .avatar-initials { font-size: calc(var(--mt-avatar) * 0.45); }
 
-.mt-dense .mt-table td, .mt-dense .mt-table th { line-height: 15px; }
-.mt-denser .mt-table td, .mt-denser .mt-table th { line-height: 14px; }
-.mt-densest .mt-table td, .mt-densest .mt-table th { line-height: 12px; }
+
 
 
 
@@ -3622,16 +4330,16 @@ button:hover {
     align-items: center;
     gap: 9px;
     flex-wrap: wrap;
-    /* The container is a flex column, so without this the strip takes a share of the free space and becomes a 300px band of nothing. It is chrome: it gets exactly the height it needs. */
+    /* The container is a flex column, so without this the strip takes a share of the free space and becomes a 300px band of nothing. It is chrome, so it gets exactly the height it needs. */
     flex: 0 0 auto;
-    /* Back on the tab bar, centred in the gap between the tabs and the utilities: auto margins on both sides split the leftover space evenly, so it sits in the middle rather than shoved against either neighbour. It only fits there because the labels lost their repeated words and the utilities became icons; the row wanted 1322px before that and has 1145px. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
+    /* Back on the tab bar, centred in the gap between the tabs and the utilities. Auto margins on both sides split the leftover space evenly, so it sits in the middle rather than shoved against either neighbour. It only fits there because the labels lost their repeated words and the utilities became icons; the row wanted 1322px before that and has 1145px. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
     justify-content: flex-start;
     overflow: visible;
     margin: 0 auto;
     padding: 0;
 }
 
-/* Wrapping is the honest fallback when the row genuinely runs out: nothing is hidden. */
+/* Wrapping is the honest fallback when the row genuinely runs out, because nothing is hidden. */
 .tabs-container {
     flex-wrap: wrap;
     row-gap: 4px;
@@ -3650,7 +4358,7 @@ button:hover {
     .tabs-container > .share-toolbar { margin-left: auto; }
 }
 
-/* One segment reads as one control: shared border, no gaps, dividers between members. */
+/* One segment reads as one control, with a shared border, no gaps, dividers between members. */
 .timeframe-seg {
     display: inline-flex;
     align-items: stretch;
@@ -3707,7 +4415,7 @@ button:hover {
     font-weight: bold;
 }
 
-/* Icon-only utilities, with the word revealed on hover and on keyboard focus. The label is taken OUT of flow to do it: revealing it inline widened the toolbar, and the timeframe beside it is centred in the space the toolbar leaves, so hovering Export slid the whole timeframe sideways. Out of flow, the button's box never changes and nothing next to it can move. */
+/* Icon-only utilities, with the word revealed on hover and on keyboard focus. The label is taken OUT of flow to do it. Revealing it inline widened the toolbar, and the timeframe beside it is centred in the space the toolbar leaves, so hovering Export slid the whole timeframe sideways ( again, from the other direction). Out of flow, the button's box never changes and nothing next to it can move. */
 .share-toolbar-btn { position: relative; }
 
 .share-toolbar-btn .btn-label {
@@ -3734,9 +4442,9 @@ button:hover {
     opacity: 1;
 }
 
-/* Mobile keeps the labels: there is no hover to reveal them with. */
+/* Mobile keeps the labels, because there is no hover to reveal them with. */
 @media (max-width: 700px) {
-    /* Touch has no hover, so the word rides beside the icon in flow. There is no centred timeframe to disturb at this width: it has its own line. */
+    /* Touch has no hover, so the word rides beside the icon in flow. There is no centred timeframe to disturb at this width, since it has its own line. */
     .share-toolbar-btn .btn-label {
         position: static;
         opacity: 1;

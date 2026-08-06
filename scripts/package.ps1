@@ -28,7 +28,7 @@ try {
         'manifest.json', 'dashboard.html', 'dashboard.css', 'icon.svg', 'theme-init.js', 'compat.js',
         'api.js', 'controls.js', 'data.js', 'export.js', 'graphs.js', 'main.js', 'players.js',
         'rank-engine.js', 'recap.js', 'roster-timeline.js', 'state.js', 'utils.js',
-        'myteam.js', 'images.js', 'probables.js'
+        'myteam.js', 'images.js', 'probables.js', 'matchup-difficulty.js'
     )
 
     # Every relative ES import in the shipped modules, and every local src/href in dashboard.html, must resolve to a file on the runtime list. Run BEFORE building so a stale list never produces an archive at all.

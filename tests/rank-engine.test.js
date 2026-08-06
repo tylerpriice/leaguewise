@@ -1,4 +1,4 @@
-// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static server (file:// won't work - browsers block ES module imports without a real origin; .claude/serve.ps1 is a zero-dependency option) - green means every assertion held. Every expected value here is hand-computed from the documented formulas, so a failure means the ENGINE changed behavior, not that a snapshot went stale.
+// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static server (file:// won't work - browsers block ES module imports without a real origin;.claude/serve.ps1 is a zero-dependency option) - green means every assertion held. Every expected value here is hand-computed from the documented formulas, so a failure means the ENGINE changed behavior, not that a snapshot went stale.
 import {
     MIN_PLAYING_TIME_FRACTION, MIN_OPPORTUNITY_FRACTION,
     countLessThan, countGreaterThan, percentileFor,
@@ -28,7 +28,7 @@ const P = (id, totals) => ({ id, seasonTotals: totals });
 const ctx = (over = {}) => ({
     relevantStatIds: ['5'],
     inverseStatIds: new Set(),
-    // Empty by default: every scored cat is treated as counting, so a missing value zero-fills. Rate tests opt in a stat (e.g. rateStatIds: new Set(['47'])) to keep the undefined-skip.
+    // Empty by default, so every scored cat is treated as counting, so a missing value zero-fills. Rate tests opt in a stat (e.g. rateStatIds: new Set(['47'])) to keep the undefined-skip.
     rateStatIds: new Set(),
     isRpPool: false,
     requireMinPlayingTime: true,
@@ -134,7 +134,7 @@ test('computeRotoRanks: min-games toggle: exclusion when on, stable basis when o
     assert(!on.ranks.has(3), 'call-up unranked with toggle on');
     const off = computeRotoRanks([A, B, callup], ctx({ requireMinPlayingTime: false }));
     assert(off.ranks.has(3), 'call-up ranked with toggle off');
-    // Basis stability: qualified players' scores must be IDENTICAL either way
+    // Basis stability. Qualified players' scores must be IDENTICAL either way
     assertClose(off.scores.get(1), on.scores.get(1), 'A score unchanged by toggle');
     assertClose(off.scores.get(2), on.scores.get(2), 'B score unchanged by toggle');
     // Call-up beats the whole 2-member basis -> clamped raw 100, shrink 10/100 -> 50+50*0.1
@@ -154,7 +154,7 @@ test('computeRotoRanks: a 0-GP player is never ranked with the toggle OFF', () =
     assert(!r.scores.has(3), 'and carries no score at all, not a 50');
     assertClose(r.scores.get(1), 100, 'A unchanged');
     assertClose(r.scores.get(2), 0, 'B unchanged');
-    // The regression this pins: unfixed, zero scores 50 and takes this slot, pushing B to 3rd.
+    // The regression this pins. Unfixed, zero scores 50 and takes this slot, pushing B to 3rd.
     assertClose(r.ranks.get(2), 2, 'B stays second, nothing floats in above it');
 });
 
@@ -163,7 +163,7 @@ test('computeRotoRanks: the 0-GP exclusion also holds with the toggle ON', () =>
     const B = P(2, { '5': 10, '81': 100 });
     const zero = P(3, { '5': 0 });
     const r = computeRotoRanks([A, B, zero], ctx({ requireMinPlayingTime: true }));
-    // Identical outcome to the toggle-off case above: with the toggle on the min-games threshold already excluded the zero, so the floor is a no-op here and this state is unchanged.
+    // Identical outcome to the toggle-off case above. With the toggle on, the min-games threshold already excluded the zero, so the floor is a no-op here and this state is unchanged.
     assertClose(r.total, 2, 'same two ranked');
     assert(!r.ranks.has(3), 'the 0-GP player is unranked with the toggle on too');
     assertClose(r.scores.get(1), 100, 'A unchanged');
@@ -171,7 +171,7 @@ test('computeRotoRanks: the 0-GP exclusion also holds with the toggle ON', () =>
 });
 
 test('computeRotoRanks: the zero floor does not empty a pool where nobody has played', () => {
-    // Preseason / brand-new league: every thresholdWorkload is 0, so there is no real cohort for the floor to protect and blanking the board would be worse than ranking on what's there.
+    // Preseason / brand-new league. Every thresholdWorkload is 0, so there is no real cohort for the floor to protect and blanking the board would be worse than ranking on what's there.
     const A = P(1, { '5': 30 });
     const B = P(2, { '5': 10 });
     const r = computeRotoRanks([A, B], ctx({ requireMinPlayingTime: false }));
@@ -245,7 +245,7 @@ test('computeRotoRanks: hockey goalie pool: inverse GAA, games-played workload, 
 });
 
 test('computeRotoRanks: a missing COUNTING stat is a real 0, ranked not skipped', () => {
-    // ESPN omits a zero-valued sparse counting stat entirely: B has no '20' key. Under the zero-fill rule B is ranked in '20' at 0 (not skipped) and enters the '20' basis at 0, so having zero costs a real bottom percentile instead of nothing.
+    // ESPN omits a zero-valued sparse counting stat entirely, so B has no '20' key. Under the zero-fill rule B is ranked in '20' at 0 (not skipped) and enters the '20' basis at 0, so having zero costs a real bottom percentile instead of nothing.
     const A = P(1, { '5': 10, '20': 5, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const r = computeRotoRanks([A, B], ctx({ relevantStatIds: ['5', '20'] }));
@@ -271,7 +271,7 @@ test('computeRotoRanks: sparse stats: counting zero-fills, rate stays absent', (
 });
 
 test('computeRotoRanks: a zero cohort scores the midrank block average, not 0', () => {
-    // The real-league case in miniature: one player has the counting stat, three don't (no key). The three zeros form a tie block; midrank puts each at the block's mean, not rock bottom.
+    // The real-league case in miniature. One player has the counting stat, three don't (no key). The three zeros form a tie block; midrank puts each at the block's mean, not rock bottom.
     const A = P(1, { '5': 20, '81': 100 });
     const B = P(2, { '81': 100 }); // no '5' -> 0
     const C = P(3, { '81': 100 }); // no '5' -> 0
@@ -344,7 +344,7 @@ test('computeCategoryBreakdown: zero-fills a missing counting cat and reports th
 });
 
 test('computeCategoryBreakdown: unqualified player reproduces the toggle-off roto score', () => {
-    // The drill-down must show the same number the leaderboard shows when Minimum Games Played is off: the call-up scored against the FIXED qualified basis, never inserted into it.
+    // The drill-down must show the same number the leaderboard shows when Minimum Games Played is off. The call-up scored against the FIXED qualified basis, never inserted into it.
     const A = P(1, { '5': 30, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const callup = P(3, { '5': 40, '81': 10 });
@@ -375,7 +375,7 @@ test('computeCategoryBreakdown: RP K row is labeled "(as K/9)" and valued as a r
 });
 
 test('computeCategoryBreakdown: a true full-precision rate tie yields equal percentiles', () => {
-    // adds display decimals to rate rows so two SV% that ROUND to .912 (.9118 vs .9123) stop looking like an engine bug. That fix is only sound because the engine already ties by value, not by rounded display: two rates equal at full precision must score the same percentile. If distinct raw values ever collapsed here, extra decimals would expose it - this pins that the tie is on the real value, so the drill-down's precision only reveals differences, never invents them.
+    // adds display decimals to rate rows so two SV% that ROUND to.912 (.9118 vs.9123) stop looking like an engine bug. That fix is only sound because the engine already ties by value, not by rounded display. Two rates equal at full precision must score the same percentile. If distinct raw values ever collapsed here, extra decimals would expose it - this pins that the tie is on the real value, so the drill-down's precision only reveals differences, never invents them.
     const A = P(1, { '47': 0.9200, '81': 100 });
     const B = P(2, { '47': 0.9100, '81': 100 }); // identical full-precision rate...
     const C = P(3, { '47': 0.9100, '81': 100 }); // ...as B
@@ -427,7 +427,7 @@ test('scoreWeekAgainstBasis: inverse rate stat: a lower weekly value scores high
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 2.0 }, basis), 100, 'sub-basis ERA beats everyone');
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis), 50, 'mid ERA beats one of two');
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 5.0 }, basis), 0, 'blow-up week beats nobody');
-    // Inverse + proration: rates must stay unprorated even when the matchup is half-played
+    // Inverse + proration. Rates must stay unprorated even when the matchup is half-played
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis, 0.5), 50, 'partial week leaves ERA alone');
 });
 
@@ -435,7 +435,7 @@ test('scoreWeekAgainstBasis: exact percentiles, and null for unscoreable weeks',
     const pool = [P(1, { '5': 20, '2': 0.300 }), P(2, { '5': 10, '2': 0.250 })];
     const bctx = { relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10 };
     const basis = buildCategoryRateBasis(pool, bctx);
-    // HR 1.5 beats [1] of [1,2] -> 50; AVG .280 beats [.25] of [.25,.30] -> 50; average 50
+    // HR 1.5 beats [1] of [1,2] -> 50; AVG.280 beats [.25] of [.25,.30] -> 50; average 50
     assertClose(scoreWeekAgainstBasis(pool[0], { '5': 1.5, '2': 0.280 }, basis), 50, 'full week');
     assert(scoreWeekAgainstBasis(pool[0], {}, basis) === null, 'empty week -> null');
     assert(scoreWeekAgainstBasis(pool[0], undefined, basis) === null, 'missing week -> null');
@@ -446,7 +446,7 @@ test('scoreWeekAgainstBasis: proration scales counting stats up, never rate stat
     const basis = buildCategoryRateBasis(pool, {
         relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
     });
-    // Half a week: HR 1.2 -> on pace 2.4, beats both rates -> 100; AVG .280 unprorated -> 50
+    // Half a week: HR 1.2 -> on pace 2.4, beats both rates -> 100; AVG.280 unprorated -> 50
     assertClose(scoreWeekAgainstBasis(pool[0], { '5': 1.2, '2': 0.280 }, basis, 0.5), 75, 'prorated average');
 });
 
@@ -460,8 +460,7 @@ test('scoreWeekAgainstBasis: opportunity-gated player skips the category', () =>
     assert(scoreWeekAgainstBasis(closer, { '57': 2 }, basis) !== null, 'gated basis still scores the closer');
 });
 
-// ==== real-weekly-value basis (buildWeeklyValueBasis) ====
-// See its own comment in rank-engine.js for the full diagnosis of why the season-average basis above read flat for everyday players.
+// ==== : real-weekly-value basis (buildWeeklyValueBasis) - see its own comment in rank-engine.js for the full diagnosis of why the season-average basis above read flat for everyday players. ====
 
 // Weekly-pool player factory - id + seasonTotals (read only for opportunity gating) + a list of real per-matchup-week entries ({ stats, games }), matching what players.js's buildWeeklyRateBasis assembles from AppState.playerWeeklyCache.
 const WP = (id, seasonTotals, weeks) => ({ id, seasonTotals, weeks });
@@ -564,7 +563,7 @@ test('Matchup Score min-games decision: excluding part-timers from the weekly-va
     // DECISION (see buildWeeklyRateBasis in players.js): exclude part-timers. Comparing a regular's week to OTHER REGULARS' real weeks is the more diagnostic peer group - the previous test (part-timers included) still let the same bad week read 33% instead of this sharper 0%, because the part-timers' real-but-weak weeks acted as a soft floor under the whole distribution - a milder version of the exact problem this basis exists to fix.
 });
 
-// ==== Roto standings scoring ====
+// ==== Roto standings scoring (: the Roto Race) ====
 
 test('rotoPointsForCategory: position points, best gets n and worst gets 1', () => {
     // 4 teams, higher is better. Values 40 > 30 > 20 > 10 -> 4, 3, 2, 1 points.
@@ -578,7 +577,7 @@ test('rotoPointsForCategory: position points, best gets n and worst gets 1', () 
 });
 
 test('rotoPointsForCategory: a two-way tie splits the block average, mirroring ESPN halves', () => {
-    // The exact shape validated against the FGB payload: 5 teams, values 13, 10, 10, 8, 4. Positions (0-based) 0..4 are worth 5,4,3,2,1. The two 10s sit at positions 1 and 2, so they share (4+3)/2 = 3.5 each - the .5 ESPN's own pointsByStat shows for that tie.
+    // The exact shape validated against the FGB payload: 5 teams, values 13, 10, 10, 8, 4. Positions (0-based) 0..4 are worth 5,4,3,2,1. The two 10s sit at positions 1 and 2, so they share (4+3)/2 = 3.5 each - the.5 ESPN's own pointsByStat shows for that tie.
     const pts = rotoPointsForCategory([
         { id: 'a', value: 13 }, { id: 'b', value: 10 }, { id: 'c', value: 10 },
         { id: 'd', value: 8 }, { id: 'e', value: 4 }
@@ -623,7 +622,7 @@ test('scoreRotoWeek: sums per-category points, with a tie and an inverse categor
     assertClose(totals.get('C'), 2, 'C: worst in both (1 + 1)');
 });
 
-// ==== Roster timeline ====
+// ==== Roster timeline (: transaction-accurate rosters) ====
 
 // Item factory (only the fields buildRosterTimeline reads).
 const IT = (playerId, type, toTeamId) => ({ playerId, type, toTeamId });
@@ -700,7 +699,7 @@ test('buildRosterTimeline: non-EXECUTED transactions never change a roster', () 
 });
 
 test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () => {
-    // LINEUP is a bench/start slot move (skipped - that history is /); a DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
+    // LINEUP is a bench/start slot move (skipped - that history is B66/); a DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
     const tl = buildRosterTimeline({
         picks: [{ playerId: 10, teamId: 1 }],
         transactions: [
@@ -713,15 +712,14 @@ test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () =>
     assertClose(teamForPlayerAtPeriod(tl, 10, 30), 0, 'stays dropped, since the DRAFT item is skipped');
 });
 
-// ==== buildStartedTimeline / startedTeamForPlayerAtPeriod ====
-// Started-day crediting from the daily roster snapshots. STARTING = { 3,4,5,6 } here (hockey F/D/G/UTIL), bench 7, IR 8.
+// ==== buildStartedTimeline / startedTeamForPlayerAtPeriod - started-day crediting from the daily roster snapshots. STARTING = { 3,4,5,6 } here (hockey F/D/G/UTIL), bench 7, IR 8. ====
 
 // Entry + snapshot-day factories (only the fields buildStartedTimeline reads).
 const E = (p, slot) => ({ p, slot });
 const STARTERS = new Set([3, 4, 5, 6]);
 
 test('buildStartedTimeline: a started day credits the team, a benched day credits nobody', () => {
-    // Same two players, slots swapped between two days: whoever is in a starting slot that day counts.
+    // Same two players, slots swapped between two days. Whoever is in a starting slot that day counts.
     const tl = buildStartedTimeline({
         rosterDays: {
             1: [{ id: 1, entries: [E(10, 3), E(11, 7)] }], // p10 starting (F), p11 benched
@@ -760,7 +758,7 @@ test('buildStartedTimeline: an IR-slotted player credits nobody that day', () =>
 });
 
 test('buildStartedTimeline: benched, IR, unrostered, and never-seen all fall through to nobody', () => {
-    // The per-day fallback: any day a player is not in a starting slot on some team credits nobody, so the race skips it (whichever fallback tier is active never invents a crediting team).
+    // The per-day fallback. Any day a player is not in a starting slot on some team credits nobody, so the race skips it (whichever fallback tier is active never invents a crediting team).
     const tl = buildStartedTimeline({
         rosterDays: { 5: [{ id: 3, entries: [E(10, 7), E(11, 8)] }] }, // p10 bench, p11 IR
         startingSlots: STARTERS
@@ -781,9 +779,9 @@ test('buildStartedTimeline: crediting follows the passed startingSlots set, not 
     assertClose(startedTeamForPlayerAtPeriod(both, 20, 1), 1, 'slot 4 starts once the set includes it');
 });
 
-// ==== computePointsRanks, the points-league ranking ====
+// ==== computePointsRanks - the points-league ranking ====
 
-// Two weights, hand-computable: goals are worth 2 and assists 1, so the totals below are exact.
+// Two weights, hand-computable. Goals are worth 2 and assists 1, so the totals below are exact.
 const PTS_WEIGHTS = { '13': 2, '14': 1 };
 const ptsCtx = { weights: PTS_WEIGHTS, workloadOf: p => p.gp };
 const ptsPlayer = (id, g, a, gp = 10) => ({ id, gp, seasonTotals: { '13': g, '14': a } });
@@ -811,7 +809,7 @@ test('computePointsRanks: negative weights subtract', () => {
 });
 
 test('computePointsRanks: a player who has not played is unranked, not last', () => {
-    // Same floor computeRotoRanks uses: zero playing time is zero evidence. Ranking them would pile every unplayed player at the bottom on a score that means nothing.
+    // Same floor computeRotoRanks uses, where zero playing time is zero evidence. Ranking them would pile every unplayed player at the bottom on a score that means nothing.
     const r = computePointsRanks([ptsPlayer(1, 10, 5), ptsPlayer(2, 0, 0, 0)], ptsCtx);
     assert(!r.ranks.has(2), 'not ranked');
     assert(!r.scores.has(2), 'and not scored');
@@ -819,7 +817,7 @@ test('computePointsRanks: a player who has not played is unranked, not last', ()
 });
 
 test('computePointsRanks: before anyone has played, everybody still ranks', () => {
-    // Preseason, or a freshly created league: refusing to rank would empty the board instead of ranking on whatever projections the pool carries.
+    // Preseason, or a freshly created league. Refusing to rank would empty the board instead of ranking on whatever projections the pool carries.
     const r = computePointsRanks([ptsPlayer(1, 3, 1, 0), ptsPlayer(2, 1, 1, 0)], ptsCtx);
     assert(r.total === 2, 'both ranked');
     assert(r.ranks.get(1) === 1, 'still ordered by points');

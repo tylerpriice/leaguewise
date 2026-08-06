@@ -5,7 +5,7 @@ import { processCoreData } from './data.js';
 // The host permission the cookie reads and every ESPN fetch depend on.
 const ESPN_ORIGINS = { origins: ['*://*.espn.com/*'] };
 
-// Firefox MV3 treats host_permissions as opt-in: a temporary add-on gets them automatically, a store or file install does not, so cookies.get returns nothing until the user grants access. Chrome grants at install, and a browser with no permissions API is treated as granted.
+// Firefox MV3 treats host_permissions as OPT-IN: about:debugging grants them for a temporary add-on, but a store or file install does not, so cookies.get quietly returns nothing (or throws) until the user grants access - every AMO install from 1.0.0 to 1.1.1 hit this. Chrome grants host permissions at install time, so contains() is already true there and the prompt below never renders. A browser with no permissions API at all is treated as granted, which is what keeps the dev-preview stub path unchanged.
 async function hasEspnHostAccess() {
     try {
         if (!browser.permissions?.contains) return true;
@@ -15,7 +15,7 @@ async function hasEspnHostAccess() {
     }
 }
 
-// A missing host permission makes the cookie read throw rather than return null, and the caller only needs to know whether the cookie is there.
+// Cookie reads throw rather than return null when the host permission is missing, and the caller only needs "is it there", so a failure is the same answer as an absent cookie.
 async function readEspnCookie(name) {
     try {
         return await browser.cookies.get({ url: 'https://espn.com', name });
@@ -24,7 +24,7 @@ async function readEspnCookie(name) {
     }
 }
 
-// True once checkAuth has seen both cookies. The watchers below read it so a green dashboard is never re-checked, which keeps the status from flickering and the league picker from being rebuilt under a user who is already using it.
+// True once checkAuth has seen both cookies. The watchers below read it so a green dashboard is never re-checked, which is what keeps the status from flickering and the league picker from being rebuilt under a user who is already using it.
 let authSatisfied = false;
 
 export async function checkAuth() {
@@ -35,17 +35,16 @@ export async function checkAuth() {
     if (grantBtn) grantBtn.style.display = 'none';
 
     if (s2Cookie && swidCookie) {
-        // Only a missing-cookies problem is worth a banner.
+        // Success needs no banner - only a missing-cookies problem is worth surfacing.
         authStatus.textContent = '';
         authStatus.style.display = 'none';
-        // Remember the SWID so the recap can pre-select the user's own team.
+        // Remember the SWID so the weekly recap can auto-pick "my team" (matches team owners).
         AppState.userSwid = swidCookie.value || '';
-        // Fire and forget: the manual sport, league id and year fields work whether or not discovery succeeds.
-        // Only the first green run builds the picker, so a watcher that fires again never rebuilds a list the user is reading.
+        // Fire-and-forget league discovery - the manual sport/league-id/year fields work exactly as before whether or not this succeeds. Only the FIRST green run builds the picker, so a watcher that fires again never rebuilds a list the user is reading.
         if (!authSatisfied) populateLeaguePicker(swidCookie.value).catch(() => {});
         const wasSatisfied = authSatisfied;
         authSatisfied = true;
-        // The moment a logged-out session becomes a logged-in one, which the auth watchers already detect on a focus or a cookie change. Anything that failed for want of a login can now succeed, so say so and let main.js decide what to reload. api.js importing players.js would close a cycle.
+        // The moment a logged-out session becomes a logged-in one, which B91's watchers already detect within a focus or a cookie change. Anything that failed for want of a login can now succeed, so say so and let main.js decide what to reload - api.js importing players.js would close a cycle (see the post-fetch hook below for the same reasoning). Fires on a normal logged-in load too, where the handler finds nothing broken and stops.
         if (!wasSatisfied) document.dispatchEvent(new CustomEvent('leaguewise:auth-restored'));
         return;
     }
@@ -54,12 +53,12 @@ export async function checkAuth() {
     authStatus.style.display = '';
     authStatus.className = 'status-red';
 
-    // No cookies can mean no ESPN login or an install that was never granted espn.com, so ask the permission first. Only when it is granted is "log in" the honest diagnosis.
+    // No cookies could mean no ESPN login, or that this install was never granted espn.com at all. Ask the permission first. Only when it IS granted is "log in" the honest diagnosis.
     if (!(await hasEspnHostAccess())) {
         authStatus.textContent = '⚠️ Leaguewise needs access to espn.com.';
         if (grantBtn) {
             grantBtn.style.display = '';
-            // The request must be the first thing the click does, since awaiting anything first loses the user gesture Firefox requires. onclick rather than addEventListener, so a re-render never stacks handlers.
+            // The request MUST be the first thing the click does. Awaiting anything before it loses the user gesture Firefox requires, and the prompt is then refused silently. onclick rather than addEventListener so a re-render never stacks handlers.
             grantBtn.onclick = () => {
                 browser.permissions.request(ESPN_ORIGINS)
                     .then(granted => { if (granted) checkAuth(); })
@@ -72,8 +71,7 @@ export async function checkAuth() {
     authStatus.textContent = '❌ Missing Cookies. Log into ESPN Fantasy first.';
 }
 
-// One period's roster snapshot: every team's roster with the lineupSlotId each player sat in that day. Distilled to [{ id, entries: [{ p, slot }] }] so the pure module never sees ESPN's full payload, and any missing field drops that entry rather than throwing.
-// Install first, log in second is the normal first run, and the dashboard never noticed: the warning sat there until a manual refresh, and because checkAuth had already run before the login the league picker stayed empty too. Two layers, because neither is sufficient alone, with one re-check at a time and never while the state is already green.
+// Install first, log in second is the NORMAL first run, and until the dashboard never noticed: the warning sat there until a manual refresh, and because checkAuth had already run pre-login the My Leagues picker stayed empty too, so the first outside user had to hunt down a league id by hand. Two layers, because neither is sufficient alone. One re-check at a time, and never while the state is already green. checkAuth is idempotent, but a focus flurry would still run it several times and rebuild the picker under someone reading it.
 let authRecheckTimer = null;
 function recheckAuthSoon() {
     if (authSatisfied || authRecheckTimer) return;
@@ -84,7 +82,7 @@ function recheckAuthSoon() {
 }
 
 export function setupAuthWatchers() {
-    // The precise layer: the cookies permission already covers this listener, and it only fires once the host permission is granted, which is exactly when cookie visibility begins, so it covers grant-then-login and login-then-grant alike. Guarded, since the preview stub has no cookies.onChanged.
+    // Layer 1, the precise one. The cookies permission already covers this listener, and it only ever fires once the host permission is granted, which is exactly when cookie visibility begins. So it covers grant-then-login and login-then-grant alike. Guarded the way 1.1.2 guards permissions, since the dev-preview stub has no cookies.onChanged.
     try {
         browser.cookies?.onChanged?.addListener((change) => {
             const domain = change?.cookie?.domain || '';
@@ -92,18 +90,18 @@ export function setupAuthWatchers() {
         });
     } catch { /* no listener available, the focus layer below still covers it */ }
 
-    // The layer that needs no permissions at all: coming back to this page is the moment a user returns from logging in. Both events fire in the cases that matter, and recheckAuthSoon collapses them into one check.
+    // Layer 2, the one that needs no permissions at all. Coming back to this page is the moment a user returns from logging in. Both events fire in the cases that matter (a tab regaining focus, a popup being reopened), and recheckAuthSoon collapses them into one check.
     window.addEventListener('focus', recheckAuthSoon);
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') recheckAuthSoon();
     });
 }
 
-// ESPN's fan-profile endpoint lists every fantasy league the logged-in account belongs to, keyed by the SWID cookie and authenticated by the same espn_s2 cookie every other call here uses (gameId 1=ffl, 2=flb, 3=fba, 4=fhl). Parsed defensively field by field, and any failure just leaves the picker hidden.
+// ESPN's fan-profile endpoint knows every fantasy league the logged-in account belongs to - keyed by the SWID cookie, authenticated by the same espn_s2 cookie every other call here already uses (fan.api.espn.com is under the.espn.com cookie domain and the extension's existing *.espn.com host permission). gameId mapping per entry: 1=ffl, 2=flb, 3=fba, 4=fhl. UNVERIFIED against a real account as written - the exact response shape (entry.name vs groups[].groupName for the league's display name, especially) needs one validation pass with real cookies, which is why parsing is defensive field-by-field and any failure just leaves the picker hidden. Also unverified: that a multi-season league actually surfaces one pref.metaData.entry per season (the assumption the sport:leagueId dedupe below relies on to pick the highest seasonId) rather than some other shape. Best-effort by design. Manual league-id entry remains the fallback for public leagues the user isn't a member of, and for any account this endpoint misbehaves for.
 const FAN_API_GAME_IDS = { 1: 'ffl', 2: 'flb', 3: 'fba', 4: 'fhl' };
 const SUPPORTED_SPORTS = new Set(['flb', 'fhl']);
 
-// The last successful discovery is kept in memory so a sport change re-renders the picker without re-fetching.
+// The full cross-sport league list from the last successful discovery, kept in memory so a #sport change can re-render the picker filtered to the selected sport without re-fetching the fan API.
 let discoveredLeagues = [];
 
 export async function populateLeaguePicker(swid) {
@@ -113,7 +111,7 @@ export async function populateLeaguePicker(swid) {
 
     const data = await fetchEspnJson(`https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(swid)}`);
 
-    // Keyed by sport:leagueId rather than season, because the fan API can list the same league once per season it knows about. The highest seasonId is kept, which is also the year the change handler auto-selects.
+    // Keyed by sport:leagueId (NOT:seasonId) - the fan API can list the same league once per season it knows about, which used to multiply entries in the dropdown. Keep only the highest seasonId per league; that's also the season the onchange handler below will auto-select in the Year dropdown, so the kept entry matches what clicking it actually does.
     const byLeague = new Map();
     (data.preferences || []).forEach(pref => {
         const entry = pref.metaData?.entry;
@@ -124,7 +122,7 @@ export async function populateLeaguePicker(swid) {
         const key = `${sport}:${leagueId}`;
         const existing = byLeague.get(key);
         if (existing && (existing.seasonId || 0) >= (entry.seasonId || 0)) return;
-        // No season or sport in the label: the Year dropdown owns the year, and the picker is already filtered to the selected sport.
+        // No seasonId in the label - the Year dropdown already owns year selection, and baking one in here read like the league itself was restricted to that single season. No sport suffix either. The picker is now filtered to the selected sport, so "(MLB)"/"(NHL)" only restated what the Sport control already says.
         byLeague.set(key, {
             key,
             leagueId,
@@ -137,9 +135,9 @@ export async function populateLeaguePicker(swid) {
     if (discoveredLeagues.length === 0) return;
 
     select.onchange = () => {
-        // The placeholder's value is empty and matches no league.
+        // Guard the "Choose..." placeholder explicitly - its value is '' and no league matches it.
         if (select.value === '') return;
-        // Values are stable sport:leagueId keys rather than list indices, so the lookup survives a sport-filtered re-render.
+        // Values are stable sport:leagueId keys, not list indices, so this lookup survives the sport-filtered re-renders that rebuild the option set.
         const league = discoveredLeagues.find(l => l.key === select.value);
         if (!league) return;
         document.getElementById('sport').value = league.sport;
@@ -155,7 +153,7 @@ export async function populateLeaguePicker(swid) {
     renderMyLeaguesOptions();
 }
 
-// Renders the picker filtered to the selected sport. Rebuilding the option set fires no change event, so a selection from another sport resets to the placeholder without fetching anything.
+// Render the My Leagues picker filtered to the currently selected sport, from the in-memory discovered list. Called on first discovery and on every #sport change (wired in main.js), so hockey leagues never show while Baseball is selected and vice versa. A sport switch that filters out the current selection falls back to the "Choose..." placeholder here WITHOUT fetching - rebuilding the option set fires no change event, and a value from the other sport is absent from these options, so it resets cleanly with no stale selection. A single-sport account viewing its own sport still sees its full list, unchanged.
 export function renderMyLeaguesOptions() {
     const wrap = document.getElementById('my-leagues-wrap');
     const select = document.getElementById('my-leagues');
@@ -163,7 +161,7 @@ export function renderMyLeaguesOptions() {
     const currentSport = document.getElementById('sport').value;
     const forSport = discoveredLeagues.filter(l => l.sport === currentSport);
     if (forSport.length === 0) {
-        // Nothing discovered for this sport, so hide the picker. Manual league-id entry still works.
+        // Nothing discovered for this sport - hide the picker (manual league-id entry still works).
         select.value = '';
         wrap.style.display = 'none';
         return;
@@ -183,13 +181,13 @@ export async function loadStoredSettings() {
     if (session.apiData) {
         AppState.apiData = session.apiData;
         AppState.leagueHistoryYears = session.leagueHistoryYears || [];
-        // The restore path never goes through fetchEspnData, so without this the debug panel's team context stays empty until the next manual fetch.
+        // This restore path (reopening the extension on an already-loaded session) never went through fetchEspnData, so the debug panel's 'team' context was staying permanently empty until the next manual "Fetch Data" click - only ever populated on a fresh fetch.
         setDebugContext('team', session.apiData);
         processCoreData();
     }
 }
 
-// The three fields every ESPN fantasy API call here needs to build its URL.
+// Reads the sport/league/year the user has entered - the same three fields every ESPN fantasy API call in this file needs to build its URL.
 function getLeagueParams() {
     return {
         sport: document.getElementById('sport').value,
@@ -198,7 +196,7 @@ function getLeagueParams() {
     };
 }
 
-// Runs worker over items with at most `limit` calls in flight, failing fast on the first rejection.
+// Runs `worker` over every item in `items`, at most `limit` calls in flight at once - fails fast on the first rejection, same as Promise.all would.
 async function runWithConcurrencyLimit(items, limit, worker) {
     const results = new Array(items.length);
     let nextIndex = 0;
@@ -214,7 +212,7 @@ async function runWithConcurrencyLimit(items, limit, worker) {
     return results;
 }
 
-// Shared fetch, throw and parse for an ESPN call. Every endpoint sends cookies with credentials:'include', and the filtered ones add an X-Fantasy-Filter header. A non-ok response always means something ESPN-specific went wrong, so it becomes a real Error rather than a broken body. VALIDATED against a real logged-out session: ESPN refuses an unauthenticated player-pool request with 405 rather than 401, and that call is the only one carrying the filter header it objects to. A league read with restrictionType NONE succeeds with no cookies at all, so the three statuses below mean one thing between them and callers phrase it instead of printing a number.
+// Shared fetch/throw/parse for an ESPN fantasy API call - every endpoint here sends cookies via credentials:'include' and, when filtering the response server-side, an X-Fantasy-Filter header. A non-ok response always means something ESPN-specific went wrong (bad league id, private league, expired auth), worth surfacing as a real Error rather than continuing with a broken response body. VALIDATED against a real logged-out session. ESPN refuses an unauthenticated player-pool request with 405, not 401. That call is the only one carrying an X-Fantasy-Filter header, and the filter is what it objects to. A league read with restrictionType NONE meanwhile succeeds outright with no cookies at all. So the three statuses below mean one thing between them, "you are not logged in", and callers phrase it rather than printing a number at someone who cannot act on it.
 const AUTH_STATUSES = new Set([401, 403, 405]);
 
 async function fetchEspnJson(url, filter) {
@@ -245,15 +243,15 @@ export async function fetchPlayerData() {
 }
 
 export async function fetchPlayerWeeklyStats(playerId) {
-    // Delegates to the bulk endpoint with a single id, so there is one request shape to keep in sync instead of two.
+    // Delegates to the bulk endpoint below with a single id - same request shape (and same { players: [...] } response shape, since processPlayerWeeklyHistory already flattens across however many entries rawData.players holds), one less code path to keep in sync.
     return fetchPlayersWeeklyStatsBulk([playerId]);
 }
 
-// Weekly stat history for many players at once, chunked because a single request with hundreds of ids risks an unreasonable URL and response, and capped in flight so a deep pool does not fire ten simultaneous requests at ESPN. filterStatsForTopScoringPeriodIds is set well past a season's day count so daily-scoring sports are never truncated.
+// Fetches weekly/daily stat history for MANY players in one shot, instead of one HTTP request per player - needed to make the Player Metrics leaderboard timeframe-aware (see getEffectivePlayerPool in players.js) without one request per player in the pool. Chunked because a single request with hundreds of IDs risks an unreasonably large response/URL, and capped to a handful in flight at once (MAX_CONCURRENT_CHUNKS) - an especially deep player pool can chunk into 10+ requests, and firing all of them at ESPN simultaneously risks tripping their own rate limiting for what should look like normal browsing traffic. Relies on filterIds.value accepting multiple IDs at once (same array-based filter shape ESPN already uses elsewhere in this file, e.g. filterStatsForTopScoringPeriodIds.additionalValue below) - CONFIRMED working against a real league. MLB/NHL use daily scoring periods (~185-195 per season) - filterStatsForTopScoringPeriodIds is bumped well past a single season's day count so "top N" never truncates anything. A chart that still "starts late" or "ends early" after this isn't a fetch problem - cross-checked two different real players in the same league/season both missing the exact same early days, and one was confirmed genuinely injured that whole stretch. See the gap-note UI in drawPlayerTrendChart (players.js) for surfacing that distinction instead of chasing it as a fetch bug.
 export const WEEKLY_CHUNK_SIZE = 75;
 export const WEEKLY_MAX_CONCURRENT_CHUNKS = 6;
 
-// One request for one chunk of ids, the unit the leaderboard's queue schedules, so a scroll or re-sort can change what the next chunk asks for. A drill-down fetch goes through the bulk helper instead and never waits behind a chunk.
+// ONE weekly-stats request for one chunk of ids. This is the unit the leaderboard's prioritized queue schedules (see players.js). It owns the ordering and the concurrency so a scroll or re-sort can change what the NEXT chunk asks for, which a self-chunking call can't express. A drill-down's single-player fetch goes through fetchPlayersWeeklyStatsBulk below instead, so it is never counted against that queue's concurrency budget and never waits behind a bulk chunk. The request shape is deliberately unchanged from the self-chunking version this replaced. filterStatsForSourceIds still asks for [0, 1] even though the weekly processing only reads statSourceId 0 (real, not projected) - dropping the 1 looks like free payload savings, but golden rule 4's "never guess a request shape" applies here too, and it can only be settled by diffing a real trimmed response against the current one for a known player. Left as-is until that check runs against a live league.
 export async function fetchPlayersWeeklyChunk(playerIds) {
     const { sport, leagueId, year } = getLeagueParams();
     const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=kona_player_info`;
@@ -274,11 +272,11 @@ export async function fetchPlayersWeeklyStatsBulk(playerIds) {
 
     const responses = await runWithConcurrencyLimit(chunks, WEEKLY_MAX_CONCURRENT_CHUNKS, fetchPlayersWeeklyChunk);
 
-    // Merge every chunk's players array so the caller never needs to know this was chunked.
+    // Merge every chunk's players array into one combined response shape - the caller doesn't need to know this was chunked at all.
     return { players: responses.flatMap(r => r.players || []) };
 }
 
-// Draft picks are the day-one rosters, fetched with mDraftDetail since the main league call does not request that view. Returns an empty array when the league has no draft detail.
+// The draft picks = day-one rosters. Fetched with its own view since the main league fetch doesn't request mDraftDetail. Returns the picks array (playerId/teamId per pick), or [] if the league has no draft detail (some formats) - best-effort, the roster timeline falls back to current rosters if this is empty (golden rule 8).
 export async function fetchDraftDetail(sport, leagueId, year) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mDraftDetail`;
@@ -289,7 +287,7 @@ export async function fetchDraftDetail(sport, leagueId, year) {
     }
 }
 
-// mTransactions2 silently scopes to the CURRENT period unless an explicit scoringPeriodId is passed, which is why the plain call reads empty for a completed season. Batching periods through the filter returns no rows, so the harvest is genuinely one request per period.
+// One scoring period's transaction slice. mTransactions2 silently scopes to the CURRENT period unless an explicit scoringPeriodId is passed (M0 probe C), which is why the plain call read empty for a completed season. Batching many periods through X-Fantasy-Filter returned 0 rows (M0), so the harvest is genuinely one request per period.
 async function fetchTransactionPeriod(sport, leagueId, year, scoringPeriodId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mTransactions2&scoringPeriodId=${scoringPeriodId}`;
@@ -300,7 +298,7 @@ async function fetchTransactionPeriod(sport, leagueId, year, scoringPeriodId) {
     }
 }
 
-// The whole season's transaction log, one request per scoring period, concurrency-capped so a 196-request season reads as normal browsing. De-duplicated by transaction id, since ESPN can echo a multi-period transaction into more than one slice.
+// Harvest the whole season's transaction log, one request per scoring period from first to final, merged into a single array. Concurrency-capped like the weekly fetch so a ~196-request hockey season looks like normal browsing traffic, not a burst. This is the expensive, one-time cost of transaction-accurate rosters; callers cache the result for the session (see players.js), and it's the natural artifact a future archive would keep so it never re-fetches. De-duplicated by transaction id because ESPN can echo a multi-period transaction into more than one period slice.
 export async function harvestTransactions(sport, leagueId, year, firstScoringPeriod, finalScoringPeriod) {
     const periods = [];
     for (let p = firstScoringPeriod; p <= finalScoringPeriod; p++) periods.push(p);
@@ -313,7 +311,7 @@ export async function harvestTransactions(sport, leagueId, year, firstScoringPer
     return Array.from(byId.values());
 }
 
-// The pro sports schedule, which turns a probable-start game id into a day. A SEASON endpoint rather than a league one: no league id, no cookies, and the same host the manifest already lists, so it adds no permission and no privacy question. One fetch per sport and season, cached in session storage, since the response is around 850KB for baseball and a season's schedule does not move. Failure is silent by design and the projected-start column just does not render.
+// The pro sports schedule, which is what turns a probable-start game id into a day. A SEASON endpoint, not a league one. It carries no league id, needs no cookies, and is the same host the manifest already lists, so it adds no permission and no privacy question. One fetch per sport and season, cached in session storage. The response is ~850KB for baseball and a season's schedule does not move, so re-fetching it on every My Team render would be pure waste. Failure is silent by design. The tab's projected-start line does not render, and nothing else on the page depends on it.
 export async function fetchProTeamSchedules() {
     const { sport, year } = getLeagueParams();
     const key = `proTeamSchedules:${sport}:${year}`;
@@ -337,13 +335,29 @@ export async function fetchProTeamSchedules() {
     }
 }
 
-// One period's rosters, for the surface that needs the last lineup of a finished season. The league payload only carries current rosters while a matchup is live, so a completed season has none and this is the single call that answers it. Same validated parser the harvest uses.
+// The day's scoreboard, which is where ESPN carries betting lines. Public and UNAUTHENTICATED - validated, 200 with no cookies - on the same host the manifest wildcard already covers, so no new permission and no third party. Deliberately the DEFAULT response, with no ?dates=. Odds attach to ESPN's current SLATE, and that slate spans two UTC dates because night games roll past midnight Zulu; asking for a specific date returns those same games WITHOUT odds. Asking for "today" is the only query that carries them. NOT cached in session storage, unlike the season schedule. A line moves during the day, and a stale price shown as current is worse than no price. The in-memory copy is keyed by sport and hour so a render storm costs one fetch, not one per render. Failure is silent by design - the cards carry no line, which is what most of them do anyway.
+export async function fetchScoreboardOdds() {
+    const { sport, year } = getLeagueParams();
+    const path = sport === 'fhl' ? 'hockey/nhl' : 'baseball/mlb';
+    const key = `scoreboard:${sport}:${year}:${new Date().toISOString().slice(0, 13)}`;
+    if (AppState.scoreboardOdds && AppState.scoreboardOdds.key === key) return AppState.scoreboardOdds.data;
+    try {
+        const data = await fetchEspnJson(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`);
+        AppState.scoreboardOdds = { key, data };
+        return data;
+    } catch {
+        AppState.scoreboardOdds = { key, data: null };
+        return null;
+    }
+}
+
+// One period's rosters, for the surface that needs the LAST lineup of a finished season. The league payload only carries current rosters while a matchup is live, so a completed season has none and this is the single call that answers it. Same validated parser the harvest uses.
 export async function fetchRosterForPeriod(scoringPeriodId) {
     const { sport, leagueId, year } = getLeagueParams();
     return fetchRosterPeriod(sport, leagueId, year, scoringPeriodId);
 }
 
-// One scoring period's roster SNAPSHOT: every team's full roster with the lineupSlotId each player sat in that day. mRoster with an explicit scoringPeriodId returns the historical lineup for a completed season. Distilled to the shape the timeline consumes, so the pure module never sees ESPN's full playerPoolEntry payload. Any missing field drops that entry rather than throwing, and a shape mismatch yields empty snapshots and the fallback ladder.
+// One scoring period's roster SNAPSHOT: every team's full roster with the lineupSlotId each player sat in on that exact day. mRoster with an explicit scoringPeriodId returns the historical lineup for a completed season (owner probe: periods 49 vs 50 differ by exactly the lineup edits applied on 50). Distilled to the shape the timeline consumes - [{ id, entries: [{ p, slot }] }] - so the pure module never sees ESPN's full playerPoolEntry payload. Defensive per golden rule 8: any missing field just drops that entry rather than throwing. The raw field names (teams[].id, roster.entries[].playerId,.lineupSlotId) are ESPN's standard mRoster shape; best-effort like the draft/transaction fetches, and a mismatch yields empty snapshots and the fallback ladder.
 async function fetchRosterPeriod(sport, leagueId, year, scoringPeriodId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&scoringPeriodId=${scoringPeriodId}`;
@@ -359,7 +373,7 @@ async function fetchRosterPeriod(sport, leagueId, year, scoringPeriodId) {
     }
 }
 
-// The season's daily roster snapshots, same shape and cost as the transaction harvest. This is what makes the race started-accurate rather than only rostered-accurate, since the snapshot says whether a player was in a starting slot that day.
+// Harvest the whole season's daily roster snapshots, one request per scoring period, into { days: { period: [{ id, entries }] } }. Same shape and cost as harvestTransactions - one request per period, concurrency-capped so a ~196-request season reads as normal browsing - and cached for the session by the caller (players.js). This is what upgrades the race from rostered-accurate to STARTED-accurate. The snapshot says not just who owned a player but whether he was in a starting slot that day, which is exactly the distinction ESPN's own standings count.
 export async function harvestRosters(sport, leagueId, year, firstScoringPeriod, finalScoringPeriod) {
     const periods = [];
     for (let p = firstScoringPeriod; p <= finalScoringPeriod; p++) periods.push(p);
@@ -375,7 +389,7 @@ export async function harvestRosters(sport, leagueId, year, firstScoringPeriod, 
     return { days };
 }
 
-// status.previousSeasons is not scoped to the league being queried and can list years belonging to other leagues on the same account. leagueHistory is scoped to this exact sport and league id, and stays best-effort so a new or private league never blocks the main fetch.
+// data.status.previousSeasons turned out to not be scoped to the specific league being queried (a baseball league starting in 2025 was showing years back to 2021 - almost certainly bleeding in from a different league/sport tied to the same ESPN account). The leagueHistory endpoint is scoped to this exact sport+leagueId and returns one entry per season the league itself has actually existed for, so it's the correct source of truth. Best-effort only: a brand-new league with no history yet, or a private league returning a 404/empty result here, should never block the main fetch.
 async function fetchLeagueHistorySeasons(sport, leagueId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/leagueHistory/${leagueId}`;
@@ -386,7 +400,7 @@ async function fetchLeagueHistorySeasons(sport, leagueId) {
     }
 }
 
-// Runs after every successful fetch, whoever started it. Registered from main.js rather than called here, because the work lives in players.js and api.js importing players.js would be circular.
+// Runs after EVERY successful fetchEspnData, whoever started it: the Fetch Data button, the My Leagues picker's auto-fetch above, or anything added later. Registered once from main.js rather than called directly here because the work it does (reloading the Player Metrics view) lives in players.js, and api.js importing players.js would be circular - players.js already imports this module's fetch helpers. Routing it through fetchEspnData instead of the individual initiators is the point. The picker path silently missed the button's player-view reload for exactly as long as that reload lived in the button handler, and a registered hook means the next fetch initiator inherits it instead of having to remember.
 let postFetchHook = null;
 export function setPostFetchHook(fn) { postFetchHook = fn; }
 
@@ -396,7 +410,7 @@ export async function fetchEspnData() {
     if (!leagueId) return alert("Enter a League ID.");
     await browser.storage.local.set({ sport, leagueId, year });
 
-    // Snapshotted before processCoreData wipes it, so a drill-down that is open right now reopens against the league just fetched.
+    // Snapshotted before processCoreData() wipes it below. A drill-down that's open right now should reopen against the league/year just fetched rather than silently disappearing. The capture has to happen here, not in the caller, because the picker's auto-fetch calls straight into this function with no chance for anything else to read the id first.
     const reopenPlayerId = AppState.selectedPlayerId;
 
     const btn = document.getElementById('fetch-btn');
@@ -427,6 +441,6 @@ export async function fetchEspnData() {
         btn.disabled = false;
     }
 
-    // Outside the try on purpose: a failure in the hook is a rendering problem, and reporting it through the catch would read as though the fetch itself failed.
+    // Outside the try on purpose. A failure inside the hook is a rendering problem, and reporting it through the catch above would show it as "Error:..." as though the fetch itself failed. Running it after the finally also means the button is usable again even if the refresh is slow.
     if (succeeded && postFetchHook) await postFetchHook({ reopenPlayerId });
 }
