@@ -18,36 +18,44 @@ try {
     $manifestObj = Get-Content 'manifest.json' -Raw | ConvertFrom-Json
     $version = $manifestObj.version
 
-    # The complete runtime, the ONLY things that ship. Anything off this list never enters
-    # either archive. THE LIST IS VERIFIED, NOT TRUSTED: the check below walks every ES import
-    # in the packaged modules and every src and href in dashboard.html, and fails the build if a
-    # target is missing from it. 1.1.0 shipped broken because a module added long after this list
-    # was written was absent from it. One dead import kills the whole module graph, and the
-    # temporary-install testing everyone does loads from the directory, where nothing is missing.
-    $runtimeFiles = @(
-        'manifest.json', 'dashboard.html', 'dashboard.css', 'icon.svg', 'theme-init.js', 'compat.js',
-        'api.js', 'controls.js', 'data.js', 'export.js', 'graphs.js', 'main.js', 'players.js',
-        'rank-engine.js', 'recap.js', 'roster-timeline.js', 'state.js', 'utils.js',
-        'myteam.js', 'images.js', 'probables.js', 'matchup-difficulty.js'
-    )
+    # THERE IS NO LIST. Twice a module added long after a hand-kept list was written went missing from it: one release shipped broken, and the next omission was caught only by the import check below. One dead import kills the whole module graph, and the temporary-install testing everyone does loads from the directory, where nothing is ever missing.
+    # The check that caught the second one walked the import graph to verify the list. It builds the list now. Roots are what the browser itself loads, manifest.json's declared files plus the popup document, and everything reachable from there by an ES import or a local src or href is packaged. A module nothing imports is not part of the extension and is not shipped; a module something imports is shipped the moment the import is written.
+    $graphRoots = @('dashboard.html')
+    $manifestJson = Get-Content 'manifest.json' -Raw | ConvertFrom-Json
+    if ($manifestJson.action -and $manifestJson.action.default_popup) {
+        $graphRoots += $manifestJson.action.default_popup
+    }
+    foreach ($size in $manifestJson.icons.PSObject.Properties) { $graphRoots += $size.Value }
 
-    # Every relative ES import in the shipped modules, and every local src/href in dashboard.html, must resolve to a file on the runtime list. Run BEFORE building so a stale list never produces an archive at all.
-    $shipSet = @{}
-    foreach ($f in $runtimeFiles) { $shipSet[$f] = $true }
-    $missing = @()
-    foreach ($f in ($runtimeFiles | Where-Object { $_ -like '*.js' })) {
-        foreach ($m in ([regex]::Matches((Get-Content $f -Raw), "import[^'`"]+['`"]\./([\w./-]+)['`"]"))) {
-            $target = $m.Groups[1].Value
-            if (-not $shipSet.ContainsKey($target)) { $missing += "$f imports $target" }
+    # manifest.json roots the graph and is not reachable from it, so it is named here with the icon set below. This is the whole non-graph remainder.
+    $nonGraphFiles = @('manifest.json')
+
+    $seen = [System.Collections.Generic.HashSet[string]]::new()
+    $queue = [System.Collections.Generic.Queue[string]]::new()
+    foreach ($r in $graphRoots) { if ($seen.Add($r)) { $queue.Enqueue($r) } }
+    while ($queue.Count -gt 0) {
+        $file = $queue.Dequeue()
+        if (-not (Test-Path -LiteralPath $file)) {
+            throw "Import graph points at a file that does not exist, refusing to build: $file"
         }
+        $ext = [IO.Path]::GetExtension($file).ToLower()
+        if ($ext -notin @('.js', '.html')) { continue }
+        $text = Get-Content $file -Raw
+        $targets = @()
+        # Static ES imports and re-exports, which is every cross-module edge this codebase has. There is no dynamic import anywhere in it, and if one is ever added this pattern will not see it and the build will ship a broken graph.
+        foreach ($m in ([regex]::Matches($text, "(?:import|export)[^'`"]+['`"]\./([\w./-]+)['`"]"))) {
+            $targets += $m.Groups[1].Value
+        }
+        if ($ext -eq '.html') {
+            foreach ($m in ([regex]::Matches($text, "(?:src|href)=['`"](?!https?:|#|data:)([\w./-]+)['`"]"))) {
+                $targets += ($m.Groups[1].Value -replace '^\./', '')
+            }
+        }
+        foreach ($t in $targets) { if ($seen.Add($t)) { $queue.Enqueue($t) } }
     }
-    foreach ($m in ([regex]::Matches((Get-Content 'dashboard.html' -Raw), "(?:src|href)=['`"](?!https?:|#|data:)([\w./-]+)['`"]"))) {
-        $target = $m.Groups[1].Value -replace '^\./', ''
-        if (-not $shipSet.ContainsKey($target)) { $missing += "dashboard.html references $target" }
-    }
-    if ($missing.Count -gt 0) {
-        throw "Runtime list is incomplete, refusing to build:`n$($missing -join "`n")"
-    }
+
+    $runtimeFiles = @($nonGraphFiles + ($seen | Sort-Object))
+    Write-Host ("Import graph: {0} files from {1} root(s)." -f $runtimeFiles.Count, $graphRoots.Count)
 
     # Declared BEFORE the decode loop below, which reads it. Assigning it after meant $iconFiles was $null there, PowerShell folded that into an empty array, and the loop ran over nothing at all: the one guard standing between a corrupt icon and a build no Chrome user could install had been silently checking zero files.
     $iconFiles = @('icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png')
