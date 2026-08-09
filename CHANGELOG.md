@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.0 (2026-08-08)
+- League History: a fourth tab covering every season your league has played.
+- Each season hangs down the side as a pennant for baseball or a rafter banner for hockey, naming its champion and carrying that team's logo when ESPN has one.
+- All-time standings rank every franchise that has ever played, by titles, record, and win percentage, and name the seasons a record covers when some of them were roto.
+- Rivalries: pick an opponent and read the whole history against them. Who leads, a bar for each season, the current streak, the last meeting, the longest run and the matchups it spanned, playoff meetings, and titles.
+- Player careers total every player across every season, sortable by any column and split by role.
+- A career's franchises come from the draft and the transaction log rather than from whoever holds the player today, so a stint that ended in a drop still counts.
+- Categories by season shows what each season scored, and which format it was played in.
+- The tab bar is rebuilt. The timeframe control composes a span of the season with a recent window inside it, and Legend, Export and Recap moved to an icon rail at the edge of the page.
+- Tied standings read T2 rather than #2, everywhere a rank appears.
+- The matchup scorecard sits beside the logo instead of taking a line of its own.
+- A diagnostic panel setting, off by default. Turned on, it also counts what the page has asked for since it opened, with API calls and image loads listed apart.
+- Fixed: Player Metrics could push the page sideways at narrow window widths.
+- Fixed: opening the rank explanation shrank the chart underneath it instead of pushing it down.
+
 ## 1.3.0 (2026-08-05)
 - Schedule: a calendar of your pitchers' projected starts for the matchup, one card per start, with the opponent and the day. Flip between it and your category lines from the same header.
 - Every start carries a difficulty read, and the evidence sits one click away: the opposing lineup's strength category by category, and the ballpark, with its run index and where it sits among the 30.

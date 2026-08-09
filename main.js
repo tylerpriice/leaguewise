@@ -2,11 +2,12 @@ import { checkAuth, setupAuthWatchers, loadStoredSettings, fetchEspnData, setPos
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, setupCardPopout, isCardPopoutOpen, closeCardPopout } from './graphs.js';
 import { AppState } from './state.js';
 import { loadPlayerTabIfNeeded, renderPlayerLeaderboard, openPlayerDetail, closePlayerDetail, ensurePlayerDetailDiagnostic, reprioritizeWeeklyQueue, setWeeklyProgressHook, retryPlayerPoolAfterLogin } from './players.js';
-import { downloadDebugData, setActiveDebugKind, refreshDebugPanel, setupHintTooltips, pinDebugKind } from './utils.js';
+import { downloadDebugData, setActiveDebugKind, refreshDebugPanel, setupHintTooltips, pinDebugKind, registerLeagueView, showLeagueView, wirePushPanel, setDiagnosticPanelEnabled } from './utils.js';
 import { openExportModal } from './export.js';
 import { openRecapModal } from './recap.js';
-import { syncRotoTimeframePills } from './controls.js';
+import { syncRotoTimeframePills, setTimeframeVisible } from './controls.js';
 import { renderMyTeamTab, invalidateMyTeamLayout } from './myteam.js';
+import { renderHistoryTab } from './history-view.js';
 
 // Betting lines are OFF until the user turns them on, and while they are off the scoreboard is never even requested (see myteam.js) - so an install that never opts in makes no betting-related call at all. That is the honest default for a fantasy tool and it is also the posture the store question in docs/PUBLISHING.md turns on. localStorage rather than browser.storage, matching the theme beside it. Both are display preferences that must be readable synchronously at render time.
 function setupOddsPreference() {
@@ -23,6 +24,22 @@ function setupOddsPreference() {
 
 function oddsEnabled() {
     try { return localStorage.getItem('efv-odds') === 'on'; } catch { return false; }
+}
+
+// The diagnostic panel is a maintainer's tool, so it is OFF for everyone who has not asked for it ( item 9). Off means it is not on the page at all - the collapsed bar was still eating a row of a viewport the Team Metrics tab has none to spare in. Same localStorage shape as the odds preference above, and read synchronously for the same reason: the panel's visibility is decided during the first render, not after it. Turning it on mid-session is not a fresh start. The request tally it shows counts at the fetch site in api.js, so it has been running since the page opened, and switching this on shows the true numbers for the whole session rather than a count that begins when you look.
+function setupDiagnosticPreference() {
+    const box = document.getElementById('pref-diagnostic');
+    if (!box) return;
+    box.checked = diagnosticEnabled();
+    box.addEventListener('change', () => {
+        try { localStorage.setItem('efv-diagnostic', box.checked ? 'on' : 'off'); } catch { /* storage off */ }
+        setDiagnosticPanelEnabled(box.checked);
+    });
+    setDiagnosticPanelEnabled(box.checked);
+}
+
+function diagnosticEnabled() {
+    try { return localStorage.getItem('efv-diagnostic') === 'on'; } catch { return false; }
 }
 
 // Theme is a select in the settings panel rather than a cycling button in the header. The chosen mode is stored in localStorage and re-applied synchronously by theme-init.js before the stylesheet paints, so there is no flash; "auto" removes data-theme entirely and hands control back to the prefers-color-scheme query in dashboard.css.
@@ -164,6 +181,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Theme toggle is independent of league data - wire it first so it works immediately.
     setupOddsPreference();
+    setupDiagnosticPreference();
     setupThemeToggle();
 
     // Season Trends and Category Heatmap pop-out overlays - wired once; their buttons live in the tab view that only appears after data loads, but the elements exist in the static markup from the start.
@@ -323,6 +341,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // The panel's own <details> lazily skips serializing its payload while collapsed (see setDebugContext/renderActiveDebugContext in utils.js) - catch it up whenever it's opened, in case its active context changed in the background while it sat collapsed. Opening is also the trigger for the drill-down's on-demand diagnostic capture (see ensurePlayerDetailDiagnostic). A no-op unless a player is open with nothing captured yet.
     const debugPanel = document.getElementById('debug-panel');
+    // The container keeps the exact height it had while the console is open ( item 1). The page scrolls instead, which is the ruling: a transient panel pushes content down, never resizes it.
+    wirePushPanel(debugPanel, document.querySelector('.container'));
     debugPanel.addEventListener('toggle', () => {
         refreshDebugPanel();
         if (debugPanel.open) ensurePlayerDetailDiagnostic();
@@ -336,40 +356,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tabBtnMyTeam = document.getElementById('tab-btn-myteam');
     const viewMyTeam = document.getElementById('view-myteam');
+    const tabBtnHistory = document.getElementById('tab-btn-history');
+    const viewHistory = document.getElementById('view-history');
 
-    function switchTab(name) {
-        const isTeam = name === 'team';
-        const isMine = name === 'myteam';
-        tabBtnTeam.classList.toggle('active', isTeam);
-        tabBtnPlayer.classList.toggle('active', name === 'player');
-        tabBtnMyTeam.classList.toggle('active', isMine);
-        viewTeam.style.display = isTeam ? 'flex' : 'none';
-        viewPlayer.style.display = name === 'player' ? 'flex' : 'none';
-        viewMyTeam.style.display = isMine ? 'flex' : 'none';
-        // My Team measures its own bands, so it re-renders on every entry for the same reason the Team tab does. Anything measured while the view was display:none reads zero.
-        if (isMine) {
-            setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'player-pool');
-            // Re-fit from scratch on entry. What was measured last time was measured for whatever league, roster and window size were on screen then, and any of the three can have changed while this tab was away.
-            invalidateMyTeamLayout();
-            renderMyTeamTab();
-            return;
-        }
-        if (isTeam) {
+    // Each tab says here how to show itself, and the registry owns both call sites: a click on the tab button, and a league fetch committing while that tab is the one on screen ( item 6). A new tab registers alongside its siblings and is correct on a league switch for free.
+    registerLeagueView('team', {
+        show: () => {
             setActiveDebugKind('team');
             // Re-render on return. The columns' layout-measuring steps (inline-pie placement, compact-row fallback - see renderLeftColumn/renderCategoryGraph in graphs.js) read zero heights for anything measured while this tab was display:none, silently dropping the inline pies until some other re-render happened to run while visible (confirmed: pies vanishing after a visit to the Player tab, coming back only after toggling the timeframe). Re-rendering now measures real geometry.
-            if (AppState.apiData) {
-                renderLeftColumn();
-                renderRightColumn();
-                renderHeatmapBand();
-            }
-        } else {
+            if (!AppState.apiData) return;
+            renderLeftColumn();
+            renderRightColumn();
+            renderHeatmapBand();
+        }
+    });
+    registerLeagueView('player', {
+        show: () => {
             // A drill-down left open from a previous visit stays open (loadPlayerTabIfNeeded only touches the leaderboard container) - match the panel to whichever is actually showing rather than always assuming the leaderboard.
             setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'player-pool');
             loadPlayerTabIfNeeded();
         }
+    });
+    registerLeagueView('myteam', {
+        show: () => {
+            setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'player-pool');
+            // Re-fit from scratch on entry. What was measured last time was measured for whatever league, roster and window size were on screen then, and any of the three can have changed while this tab was away.
+            invalidateMyTeamLayout();
+            renderMyTeamTab();
+        }
+    });
+    registerLeagueView('history', {
+        // History fetches a payload per past season, so entry is where that starts. The view keeps its own per-league state and re-renders from it, so a second entry costs nothing.
+        show: () => { renderHistoryTab(); }
+    });
+
+    function switchTab(name) {
+        const isTeam = name === 'team';
+        const isMine = name === 'myteam';
+        const isHistory = name === 'history';
+        tabBtnTeam.classList.toggle('active', isTeam);
+        tabBtnPlayer.classList.toggle('active', name === 'player');
+        tabBtnMyTeam.classList.toggle('active', isMine);
+        if (tabBtnHistory) tabBtnHistory.classList.toggle('active', isHistory);
+        viewTeam.style.display = isTeam ? 'flex' : 'none';
+        viewPlayer.style.display = name === 'player' ? 'flex' : 'none';
+        viewMyTeam.style.display = isMine ? 'flex' : 'none';
+        if (viewHistory) viewHistory.style.display = isHistory ? 'flex' : 'none';
+        // The one tab with no timeframe ( V1). Visibility only - the container keeps its place and its flex, so nothing in the row moves on the way in or out.
+        setTimeframeVisible(!isHistory);
+        showLeagueView(name);
     }
 
     tabBtnTeam.addEventListener('click', () => switchTab('team'));
     tabBtnPlayer.addEventListener('click', () => switchTab('player'));
     tabBtnMyTeam.addEventListener('click', () => switchTab('myteam'));
+    if (tabBtnHistory) tabBtnHistory.addEventListener('click', () => switchTab('history'));
 });

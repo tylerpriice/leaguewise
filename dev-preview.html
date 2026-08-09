@@ -19,19 +19,17 @@
                     <circle cx="21" cy="6" r="2.4" fill="var(--accent)"/>
                 </svg><span>ise</span>
             </a>
+            <!-- The matchup indicator rides the header row at the logo's height ( item 4). It had a row of its own below, which cost a band of vertical space to say six words; up here it uses the space beside a wordmark that was never going to fill the line. Hover behaviour is untouched - the dropdown still hangs off.scoreboard-hover. -->
+            <div class="scoreboard-hover brand-scorecard">
+                <span id="week-indicator">&nbsp;</span>
+                <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
+            </div>
         </h2>
         <!-- The grant button only appears when Firefox has not been given espn.com yet (see checkAuth in api.js). It sits beside the status line so the ask and the reason read as one sentence, and its click handler calls permissions.request directly, since that needs the user gesture. -->
         <div class="auth-row">
             <div id="auth-status" class="status-red">Checking cookies...</div>
             <button type="button" id="grant-access-btn" class="grant-access-btn" style="display:none;">Grant access</button>
         </div>
-
-        <div class="form-row">
-            <div class="scoreboard-hover" style="margin-left: auto; padding-bottom: 8px;">
-                <span id="week-indicator"
-                    style="color: var(--accent); font-weight: bold; font-size: 12px; cursor: help;">&nbsp;</span>
-                <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
-            </div>
 
         <aside id="settings-bar" class="settings-bar">
             <div class="settings-rail-head">Settings</div>
@@ -78,11 +76,32 @@
                 <div class="settings-pref">
                     <label for="pref-odds"><input type="checkbox" id="pref-odds"><span>Betting lines on Schedule cards</span></label>
                 </div>
+                <div class="settings-pref">
+                    <label for="pref-diagnostic"><input type="checkbox" id="pref-diagnostic"><span>Diagnostic panel</span></label>
+                </div>
             </div>
         </aside>
-        <button id="settings-toggle-btn" class="settings-toggle-btn"
-            title="Settings" aria-label="Settings">&#9881;</button>
 
+        <!-- ONE utility home ( V1). The gear used to be a lone tab on this edge and Legend, Export and Recap lived in the tab row; the row was carrying twelve interactive things and the owner called the sprawl. They are all here now, gear first, then a hairline, then the three - and the tab row keeps only tabs and timeframes. A sibling of.container's rows rather than a child of one: it is fixed to the viewport, and.form-row>div sets flex and position on any div inside that row, which stretched it to 980px the moment it lived there. -->
+        <div class="utility-rail">
+            <button id="settings-toggle-btn" class="settings-toggle-btn utility-rail-btn"
+                title="Settings" aria-label="Settings"><span class="btn-icon">&#9881;</span><span class="btn-label">Settings</span></button>
+            <div class="utility-rail-divider"></div>
+            <div class="legend-menu">
+                <button type="button" id="legend-btn" class="share-toolbar-btn utility-rail-btn" aria-haspopup="true"
+                    aria-expanded="false"><span class="btn-icon">&#128273;</span><span class="btn-label">Legend</span></button>
+                <div id="legend-popover" class="legend-popover" role="menu" aria-label="Icon legend" hidden>
+                    <div class="legend-item"><span class="legend-item-icon">&#128081;</span><span>League champion</span></div>
+                    <div class="legend-item"><span class="legend-item-icon">&#129351;&#129352;&#129353;</span><span>Top three by Rank</span></div>
+                    <div class="legend-item"><span class="legend-item-icon trend-up">&#8599;</span><span>Last matchup above average</span></div>
+                    <div class="legend-item"><span class="legend-item-icon trend-down">&#8600;</span><span>Last matchup below average</span></div>
+                    <div class="legend-item"><span class="legend-item-icon injury-major">&#10010;</span><span>Injured, not expected to play</span></div>
+                    <div class="legend-item"><span class="legend-item-icon injury-minor">&#10010;</span><span>Day to day</span></div>
+                    <div class="legend-item"><span class="legend-item-icon injury-major">!</span><span>Suspended</span></div>
+                </div>
+            </div>
+            <button type="button" id="export-btn" class="share-toolbar-btn utility-rail-btn"><span class="btn-icon">&#11015;</span><span class="btn-label">Export</span></button>
+            <button type="button" id="recap-btn" class="share-toolbar-btn utility-rail-btn"><span class="btn-icon">&#128227;</span><span class="btn-label">Recap</span></button>
         </div>
 
         <div id="results" style="display:none;">
@@ -91,24 +110,8 @@
                 <button class="tab-button active" id="tab-btn-team">Team Metrics</button>
                 <button class="tab-button" id="tab-btn-player">Player Metrics</button>
                 <button class="tab-button" id="tab-btn-myteam">My Team</button>
+                <button class="tab-button" id="tab-btn-history">League History</button>
                 <div id="timeframe-toggle" class="timeframe-toggle"></div>
-                <div class="share-toolbar">
-                    <div class="legend-menu">
-                        <button type="button" id="legend-btn" class="share-toolbar-btn" aria-haspopup="true"
-                            aria-expanded="false"><span class="btn-icon">🔑</span><span class="btn-label">Legend</span></button>
-                        <div id="legend-popover" class="legend-popover" role="menu" aria-label="Icon legend" hidden>
-                            <div class="legend-item"><span class="legend-item-icon">👑</span><span>League champion</span></div>
-                            <div class="legend-item"><span class="legend-item-icon">🥇🥈🥉</span><span>Top three by Rank</span></div>
-                            <div class="legend-item"><span class="legend-item-icon trend-up">↗</span><span>Last matchup above average</span></div>
-                            <div class="legend-item"><span class="legend-item-icon trend-down">↘</span><span>Last matchup below average</span></div>
-                            <div class="legend-item"><span class="legend-item-icon injury-major">✚</span><span>Injured, not expected to play</span></div>
-                            <div class="legend-item"><span class="legend-item-icon injury-minor">✚</span><span>Day to day</span></div>
-                            <div class="legend-item"><span class="legend-item-icon injury-major">!</span><span>Suspended</span></div>
-                        </div>
-                    </div>
-                    <button type="button" id="export-btn" class="share-toolbar-btn"><span class="btn-icon">⬇</span><span class="btn-label">Export</span></button>
-                    <button type="button" id="recap-btn" class="share-toolbar-btn"><span class="btn-icon">📣</span><span class="btn-label">Recap</span></button>
-                </div>
             </div>
 
             <div id="view-team" class="tab-view">
@@ -147,7 +150,7 @@
                     <div class="header-row">
                         <h3 style="display: flex; align-items: center;">Category Heatmap
                             <span class="hint" tabindex="0" role="button" aria-label="About this heatmap"
-                                data-hint="Every team's total per category, shaded green (best) to red (worst). Click a category to sort by it.">ⓘ</span>
+                                data-hint="Every team's total per category, shaded green for best down to red for worst. Click a category to sort by it.">ⓘ</span>
                         </h3>
                         <button type="button" id="heatmap-popout-btn" class="trends-popout-btn" aria-expanded="false"
                             title="Expand" aria-label="Expand the category heatmap">⛶</button>
@@ -252,6 +255,10 @@
             <div id="view-myteam" class="tab-view" style="display:none;">
                 <div id="myteam-container" class="myteam-container"></div>
             </div>
+            <!-- League History: every season the league has existed, folded into franchise records. Its own container, filled by renderHistoryTab, the same shape My Team uses. -->
+            <div id="view-history" class="tab-view" style="display:none;">
+                <div id="history-container" class="history-container"></div>
+            </div>
 
         </div>
 
@@ -262,6 +269,8 @@
         <!-- One button per captured response. Each ESPN response the app makes is kept under its own name, and this is how you choose which one the panel shows and Download takes. Populated by renderDebugPicker in utils.js, since which kinds hold a payload changes as responses land. -->
         <div id="debug-kinds" class="debug-kinds"></div>
         <button id="debug-download-btn" class="debug-download-btn">⬇ Download as JSON</button>
+        <!-- What this page has asked for since it opened, in two groups that are deliberately not added together. Filled by renderRequestTally in utils.js; the counting itself happens at the fetch site, so these are true from page open even if the panel was off. -->
+        <div id="debug-tally" class="debug-tally"></div>
         <pre id="debug-output"></pre>
     </details>
     <script src="tests/browser-stub.js"></script>

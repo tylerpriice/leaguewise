@@ -396,9 +396,11 @@ const DEBUG_LABELS = {
     team: 'Team Schema',
     'player-pool': 'Player Pool Schema',
     'player-weekly': 'Weekly Stats Chunk',
-    'player-detail': 'Player Detail Schema'
+    'player-detail': 'Player Detail Schema',
+    // The leagueHistory array: one entry per season the league has existed for. Captured so the shape can be read off a real league, which is the open question League History was built around - it fetches each past season directly rather than trust an unmeasured shape.
+    'league-history': 'League History Schema'
 };
-const debugContexts = { team: null, 'player-pool': null, 'player-weekly': null, 'player-detail': null };
+const debugContexts = { team: null, 'player-pool': null, 'player-weekly': null, 'player-detail': null, 'league-history': null };
 // Set while an on-demand diagnostic fetch is in flight for a kind, so the panel shows a loading line for that moment instead of the "nothing captured" placeholder (see ensurePlayerDetailDiagnostic in players.js - the drill-down's capture is lazy now).
 const debugLoading = { team: false, 'player-pool': false, 'player-weekly': false, 'player-detail': false };
 // Set once the user picks a kind by hand. From then on the panel stops following the view.
@@ -464,13 +466,51 @@ function renderDebugPicker() {
 // Re-renders the currently active context - called after every context/kind change, and again when the panel's <details> is toggled open (see main.js) so a kind that changed while collapsed still catches up once expanded, instead of showing whatever was on screen when it was last open.
 export function refreshDebugPanel() {
     renderActiveDebugContext();
+    // Independent of a payload landing: the panel can be opened long after the last fetch, and the tally is still worth redrawing then. renderActiveDebugContext returns early when no payload exists for the active kind, so this cannot ride on it alone.
+    if (diagnosticPanelEnabled) renderRequestTally();
+}
+
+// The tally, as two honestly separated groups. They are NOT summed into one headline number, because they are not the same thing: an API call carries the league cookie and returns league data, an image load carries a public athlete or team id and returns a picture. A combined total would read as "requests carrying your league data" and be wrong about most of them.
+function renderRequestTally() {
+    const host = document.getElementById('debug-tally');
+    if (!host) return;
+    const t = getRequestTally();
+    const since = new Date(t.startedAt).toLocaleTimeString();
+    const breakdown = (map) => Object.keys(map).sort().map(k => `${escapeHtml(k)} ${map[k]}`).join(', ');
+    const apiDetail = t.api.total
+        ? `<div class="debug-tally-detail">${breakdown(t.api.byKind)}</div><div class="debug-tally-detail">${breakdown(t.api.byHost)}</div>`
+        : '';
+    const imgDetail = t.images.total ? `<div class="debug-tally-detail">${breakdown(t.images.byHost)}</div>` : '';
+    host.innerHTML = `
+        <div class="debug-tally-row"><b>API calls</b> ${t.api.total}${apiDetail}</div>
+        <div class="debug-tally-row"><b>Image loads</b> ${t.images.total}${imgDetail}</div>
+        <div class="debug-tally-note">Counted since this page opened at ${escapeHtml(since)}. Nothing is stored.</div>`;
+}
+
+// OFF by default ( item 9). "Off" has to mean the panel is not on the page at all - not a collapsed bar sitting at the foot - because that bar still takes a row of the viewport, and on a tab that is already fighting for vertical room, giving it back is the point of the setting. Every path that would show the panel goes through renderActiveDebugContext, so one check there is the whole gate; nothing else needs to know the preference exists.
+let diagnosticPanelEnabled = false;
+
+export function setDiagnosticPanelEnabled(on) {
+    diagnosticPanelEnabled = !!on;
+    const debugPanel = document.getElementById('debug-panel');
+    if (!debugPanel) return;
+    if (!diagnosticPanelEnabled) {
+        // Closed as well as hidden, so the container's pinned height is released through the same toggle path that a normal close uses (wirePushPanel above). Hiding an OPEN panel would otherwise leave the page pinned tall around a panel nobody can see.
+        debugPanel.open = false;
+        debugPanel.style.display = 'none';
+        return;
+    }
+    // Turning it back on re-runs the normal render, which shows the panel if anything was captured.
+    renderActiveDebugContext();
 }
 
 function renderActiveDebugContext() {
+    if (!diagnosticPanelEnabled) return;
     const debugPanel = document.getElementById('debug-panel');
     const output = document.getElementById('debug-output');
     if (!debugPanel || !output) return;
     renderDebugPicker();
+    if (debugPanel.open) renderRequestTally();
     const payload = debugContexts[activeDebugKind];
     const label = DEBUG_LABELS[activeDebugKind] || 'Schema';
     if (!payload) {
@@ -552,4 +592,136 @@ export function matchupOfPeriod(map, scoringPeriodId) {
         if (period < scoringPeriodId && (best === null || period > best.period)) best = { period, mp };
     });
     return best ? best.mp : null;
+}
+
+// Which way a column opens on its FIRST click (owner ruling,, item 0). One rule for every sortable table in the app: the first click shows the BEST value. For most stats best is the highest, so the column opens descending. For a lower-is-better category - ERA, WHIP, GAA - best is the lowest, so it opens ascending. Before the ruling the leaderboard opened every column descending, which meant sorting by ERA led with the worst pitcher in the league, and the League History career table had already been built the other way. Two sortable tables disagreeing is the thing this exists to stop. The inverse set is passed in rather than read here, so the rule is a pure function of its inputs and the same call works for a stat id, a column key, or anything else a table sorts by.
+export function openingSortDir(key, inverseIds) {
+    return (inverseIds && inverseIds.has(key)) ? 'asc' : 'desc';
+}
+
+// The league-switch registry ( item 6). Every tab registers how to CLEAR itself and how to SHOW itself, and both the tab buttons and the post-fetch path go through here. The bug it exists to end: a fetch that commits while a tab is on screen used to leave the PREVIOUS league sitting there. It was fixed for Team Metrics, then again for My Team, and then League History shipped with the same fault because the fix was a call added by hand each time and the third tab's call was never added. The owner named it a bug CLASS rather than a bug. With a registry the question moves from "did somebody remember this tab" to "did this tab register", which is answered in the tab's own file, next to the code that needs it. A view that throws is logged and the rest still run. One tab failing to clear must not leave the other three showing another league's numbers, which is the exact failure this is here to prevent.
+const leagueViews = new Map();
+let activeLeagueView = 'team';
+
+// MERGES rather than replaces, because the two halves are registered from different files on purpose: a tab's reset lives beside the state it clears, and its show lives beside the wiring that draws it. Setting the whole entry silently dropped whichever half registered first. The first run of this registry did exactly that - every reset lost to main.js's show - and the History tab kept the previous league's careers open through a switch, which is the bug it was built to end.
+export function registerLeagueView(name, handlers) {
+    leagueViews.set(name, { ...(leagueViews.get(name) || {}), ...handlers });
+}
+
+export function setActiveLeagueView(name) {
+    if (leagueViews.has(name)) activeLeagueView = name;
+}
+
+export function showLeagueView(name) {
+    setActiveLeagueView(name);
+    const view = leagueViews.get(name);
+    if (view && view.show) view.show();
+}
+
+export function resetLeagueViews() {
+    leagueViews.forEach((view, name) => {
+        if (!view.reset) return;
+        try {
+            view.reset();
+        } catch (err) {
+            console.error(`League switch: ${name} failed to reset`, err);
+        }
+    });
+}
+
+// Called once a fetch has committed, so whichever tab is on screen redraws on the new league. The tabs that are NOT showing are already cleared by resetLeagueViews above and redraw on entry.
+export function renderActiveLeagueView() {
+    const view = leagueViews.get(activeLeagueView);
+    if (!view || !view.show) return;
+    try {
+        view.show();
+    } catch (err) {
+        console.error(`League switch: ${activeLeagueView} failed to render`, err);
+    }
+}
+
+// Every season this league has, from whatever the app knows ( item 3). The History tab and the year dropdown both need this and had derived it separately, which is how they disagreed: the dropdown already unioned in the real-world year, and History did not. The bug that forced this: loading 2025 in a league that also has 2026 showed a history ending at 2025. The leagueHistory stub omits UNFINISHED seasons (docs/DATA-SOURCES.md section 9), so 2026 was absent from it, and the only other term was the LOADED season - which is 2025 when you are looking at 2025. The tab's history shrank to wherever the dashboard happened to be standing. The real-world year is the term that fixes it, and it is not a guess: a season ESPN does not have fails its own fetch and is absent, which every caller already handles one season at a time. Next year is deliberately NOT added - ESPN 404s on a season that does not exist yet, and the dropdown has carried that same note since it was written.
+export function leagueSeasonYears(historyYears, loadedSeasonId, realYear) {
+    return [...new Set([...(historyYears || []), loadedSeasonId, realYear])]
+        .map(Number)
+        .filter(y => Number.isFinite(y) && y > 0)
+        .sort((a, b) => a - b);
+}
+
+// The scroll-not-shrink ruling (owner, items 1 and 2). A transient panel opens DOWNWARD: the content around it keeps every pixel it had, the panel takes the space it needs, and the scrollbar that appears is the honest consequence. Closing puts it back exactly. This overrules B12/B108's premise. That pass read the page scrolling as the bug and made the container flex-shrink to absorb the console, which is why opening the diagnostic quietly resized every box on the tab behind it. The owner has now ruled the opposite: a panel that shrinks the thing you are reading to avoid a scrollbar has solved the wrong problem. Implementation note: the shrink comes from the flex parent, so the fix is to take the element OUT of the flex negotiation while the panel is open, at exactly the height it already had. Pinning a measured pixel height is what makes "nothing resizes" literally true rather than approximately.
+function pinHeight(element) {
+    if (!element) return;
+    const h = Math.round(element.getBoundingClientRect().height);
+    if (h > 0) element.style.height = `${h}px`;
+    element.classList.add('height-pinned');
+}
+
+function releaseHeight(element) {
+    if (!element) return;
+    element.style.height = '';
+    element.classList.remove('height-pinned');
+}
+
+// Wires one <details> so opening it PUSHES rather than shrinks. Both call sites go through this rather than each rolling its own, which is the point of it being a ruling and not two fixes. The pin happens on the summary's CLICK, not on the details' toggle, and that is the whole trick: toggle fires AFTER the open state is applied, so by then the flex parent has already taken the space out of the neighbour and the height read there is the shrunken one. The first cut measured in toggle and pinned 464px where the reader had been looking at 728. The click runs first, while the old height is still true.
+export function wirePushPanel(detailsEl, targetEl) {
+    if (!detailsEl || !targetEl) return;
+    const summary = detailsEl.querySelector('summary');
+    if (summary) {
+        summary.addEventListener('click', () => {
+            if (!detailsEl.open) pinHeight(targetEl);
+        });
+    }
+    detailsEl.addEventListener('toggle', () => {
+        if (detailsEl.open) pinHeight(targetEl);
+        else releaseHeight(targetEl);
+    });
+    if (detailsEl.open) pinHeight(targetEl);
+}
+
+// THIS SESSION'S REQUESTS ( item 8). One tally, in memory, for as long as the page has been open - nothing is stored and nothing survives a reload, which is the whole scope of the question the panel answers: what has this page asked for since you opened it. Counting happens at the FETCH SITE, not in the panel, and that is deliberate: the panel is behind a Display checkbox now (item 9) and may be off for the whole session. The numbers are therefore true from page open regardless, so switching the panel on halfway through shows what really happened rather than what happened since you looked. Two groups, labelled apart because they are not the same act. An API call is this code deciding to ask ESPN for data. An image load is a browser fetching a src off an <img> the page rendered - no cookies of ours, no filter headers, and a different privacy story. Adding them into one number would flatter the first and hide the second.
+const requestTally = {
+    startedAt: Date.now(),
+    api: { total: 0, byHost: {}, byKind: {} },
+    images: { total: 0, byHost: {} }
+};
+
+// No base URL, deliberately. Every request this counts is absolute, and resolving against the page instead would file anything unreadable under the extension's own host - a name that looks like an answer and is not one. "unknown" is the honest bucket for a URL nobody can attribute.
+const hostOf = (url) => {
+    try {
+        return new URL(String(url)).hostname || 'unknown';
+    } catch {
+        return 'unknown';
+    }
+};
+
+export function countApiRequest(url, kind) {
+    requestTally.api.total += 1;
+    const host = hostOf(url);
+    requestTally.api.byHost[host] = (requestTally.api.byHost[host] || 0) + 1;
+    const k = kind || 'other';
+    requestTally.api.byKind[k] = (requestTally.api.byKind[k] || 0) + 1;
+    scheduleTallyRender();
+}
+
+// Called from the img wiring when an image reports back, once each. A logo refused by B167's host allowlist never becomes an <img> at all, so it cannot reach this and is correctly counted nowhere.
+export function countImageRequest(url) {
+    requestTally.images.total += 1;
+    const host = hostOf(url);
+    requestTally.images.byHost[host] = (requestTally.images.byHost[host] || 0) + 1;
+    scheduleTallyRender();
+}
+
+// Both counters land while the panel may already be open - a fetch resolves, an avatar decodes - and a tally frozen at whatever had happened when you opened it would be worse than none. Coalesced through a timeout so a burst of avatars redraws it once rather than once each.
+let tallyRenderQueued = false;
+function scheduleTallyRender() {
+    if (tallyRenderQueued) return;
+    tallyRenderQueued = true;
+    setTimeout(() => {
+        tallyRenderQueued = false;
+        if (diagnosticPanelEnabled && document.getElementById('debug-panel')?.open) renderRequestTally();
+    }, 0);
+}
+
+export function getRequestTally() {
+    return requestTally;
 }

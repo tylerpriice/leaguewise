@@ -8,13 +8,11 @@
 </p>
 
 
-Standings, trend lines, category heatmaps, a ranked player leaderboard, and shareable weekly recaps for your ESPN Fantasy Baseball and Hockey leagues. Weekly head to head, points, and season-long roto formats are all supported.
+Standings, trend lines, category heatmaps, a ranked player leaderboard, your league's whole history, and shareable weekly recaps for your ESPN Fantasy Baseball and Hockey leagues. Weekly head to head, points, and season-long roto formats are all supported.
 
 ## Built with AI, reviewed by humans
 
-AI does a lot of the typing here. Humans review and test every change before it lands. The unit tests assert hand-computed values, and all ESPN stat ids are checked against real stat lines before use.
-
-If AI involvement bothers you, fair enough. The entire source is here to read, and it's small.
+AI is actively used for developing and maintaining this project. Humans review and test every change before it lands.
 
 ## Your data stays in your browser
 
@@ -26,27 +24,29 @@ If AI involvement bothers you, fair enough. The entire source is here to read, a
 
 ## What it does
 
-Three tabs, each answering a different question.
+Each tab provides a different view into your league.
 
-- **Team Metrics**, how the league is doing. Standings with playoff shading, season trend lines, per-category rankings, a category heatmap, and live scoreboards for the matchup being played.
+- **Team Metrics**, how the league is doing. Season trend lines, per-category rankings, a category heatmap, and live scoreboards for the matchup being played.
 
-<p align="center"><img src="screenshots/1.3.0/team-metrics-1.3.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
+<p align="center"><img src="screenshots/1.4.0/team-metrics-1.4.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
 
-- **Player Metrics**, who is actually good. Every player in your league ranked in your league's own categories, adjusted for playing time, with search and position filters. Open any player for a weekly trend chart and the arithmetic behind their rank.
+- **Player Metrics**. Every player in your league ranked in your league's own categories, adjusted for playing time, with search and position filters. Open any player for a more in depth view.
 
-<p align="center"><img src="screenshots/1.3.0/player-metrics-1.3.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
+<p align="center"><img src="screenshots/1.4.0/player-metrics-1.4.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
 
-<p align="center"><img src="screenshots/1.3.0/player-drill-down-1.3.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
+<p align="center"><img src="screenshots/1.4.0/player-drill-down-1.4.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
 
-- **My Team**, your roster at a glance. Every player with their rank and category line, grouped by role, sortable by any column.
+- **My Team**, your roster at a glance. Every player with their rank and category line. Pitchers have a schedule view with projected matchup difficulties based on the opponent's batting and park factor.
 
-<p align="center"><img src="screenshots/1.3.0/my-team-1.3.0.png" width="900" alt="My Team tab showing a roster grouped by role with each player's rank and category line"></p>
+<p align="center"><img src="screenshots/1.4.0/my-team-schedule-1.4.0.png" width="900" alt="My Team tab: the roster grouped by role with each player's rank and category line, and the pitchers' projected starts on the matchup calendar"></p>
 
-  Your pitchers' projected starts also sit on a calendar for the matchup, one card per start. Each carries a difficulty read, and opening one shows the working: how the opposing lineup ranks category by category, and what the ballpark does to run scoring. Betting lines are opt-in and off by default.
+- **League History**, everything the league has ever done. Every season it has played, with the champions down the side as pennants for baseball and rafter banners for hockey.
 
-<p align="center"><img src="screenshots/1.3.0/schedule-1.3.0.png" width="900" alt="The Schedule view: a week of projected pitching starts on a calendar, each card naming the opponent, with a betting line shown on the one game whose slate has opened"></p>
+  Pick an opponent and the rivalry opens: who leads, a bar for each season, the current streak, the last meeting, the longest run and the matchups it spanned, playoff meetings, and titles. Player careers total every player across every season.
 
-One timeframe control drives all three. Pick a part of the season and how recent a stretch inside it, so "the last four matchups of the regular season" is one click plus one.
+<p align="center"><img src="screenshots/1.4.0/league-history-1.4.0.png" width="900" alt="League History tab: champions down the side as pennants, all-time standings, and a rivalry opened to its season bars and facts"></p>
+
+One timeframe control drives Team Metrics, Player Metrics, and My Team. Pick a part of the season you want to see in more detail.
 
 - **Export and Recap**: CSV or clipboard export of any view, and a shareable image recap of a matchup week for the league group chat.
 

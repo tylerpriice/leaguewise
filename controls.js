@@ -100,7 +100,7 @@ export function rebuildTimeframeOptions(forceDefault = false) {
             value: `${span}+last${n}`, group: 'recent', window: n, disabled: !fits,
             text: n === 1 ? 'Current' : `Last ${n}`,
             title: !fits
-                ? `Only ${spanLength(span)} ${(spanLength(span) === 1 ? unit.long : unit.plural).toLowerCase()} in this stretch, so there is no window to take inside it`
+                ? `Only ${spanLength(span)} ${(spanLength(span) === 1 ? unit.long : unit.plural).toLowerCase()} in this span`
                 : (n === 1 ? `The ${unit.long.toLowerCase()} being played now` : `The last ${n} completed ${unit.plural.toLowerCase()}`)
         });
     });
@@ -115,7 +115,12 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     renderTimeframeToggle(options);
 }
 
-// A row of always-visible pill buttons (same visual language as.filter-flex/.legend-item elsewhere in this file) - lives directly in.tabs-container (dashboard.html) so it's visible regardless of which tab is active. AppState.timeframe is the real source of truth now (no backing <select> anymore - see state.js).
+// A row of always-visible pill buttons (same visual language as.filter-flex/.legend-item elsewhere in this file) - lives directly in.tabs-container (dashboard.html) so it's visible regardless of which tab is active. AppState.timeframe is the real source of truth now (no backing <select> anymore - see state.js). League History answers "how has this league gone", which no timeframe narrows - its seasons are its own axis. So the pills are absent there ( V1), and absent is the word: the CONTAINER stays in the row and keeps its flex, so it still absorbs the free space between the tabs and the right edge exactly as it does when full. Hiding the container instead would hand that space back to the tabs and slide them, which is the reflow the ruling forbids.
+export function setTimeframeVisible(visible) {
+    const toggle = document.getElementById('timeframe-toggle');
+    if (toggle) toggle.classList.toggle('timeframe-hidden', !visible);
+}
+
 function renderTimeframeToggle(options) {
     const toggle = document.getElementById('timeframe-toggle');
     toggle.innerHTML = '';

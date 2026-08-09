@@ -203,7 +203,21 @@ export function computeCategoryBreakdown(player, groupPlayers, ctx) {
 
 // ==== Single-stat ranking (drill-down stat chips) ====
 
-// Rank playerId within pool on one stat. Competition ranking ("1-2-2-4") - ties in a raw stat total are common (two players with 30 HR each), and breaking them by sort-array position handed tied players different ranks (and different percentile tints) purely by luck of the sort order. Every value in a run of ties shares the rank of the run's first member; the next distinct value picks back up at its true positional rank. Rank 1 is always "best" - pass inverse=true for lower-is-better stats.
+// Rank playerId within pool on one stat. Competition ranking ("1-2-2-4") - ties in a raw stat total are common (two players with 30 HR each), and breaking them by sort-array position handed tied players different ranks (and different percentile tints) purely by luck of the sort order. Every value in a run of ties shares the rank of the run's first member; the next distinct value picks back up at its true positional rank. Rank 1 is always "best" - pass inverse=true for lower-is-better stats. The app's ONE tie convention, lifted out of computeStatRankInPool so nothing has to restate it ( item 3). Competition ranking over an ALREADY-SORTED list of comparison keys: every entry in a run of equal keys shares the rank of the run's first member, and the next distinct key picks back up at its true positional rank - 1, 1, 3, not 1, 1, 2. Keys, not objects, because the callers sort by different things: a stat total here, a win total and points on My Team's record line. Sorting stays the caller's job; agreeing about ties does not.
+export function competitionRanks(sortedKeys) {
+    const ranks = new Array(sortedKeys.length);
+    for (let i = 0; i < sortedKeys.length; i++) {
+        ranks[i] = (i > 0 && sortedKeys[i] === sortedKeys[i - 1]) ? ranks[i - 1] : i + 1;
+    }
+    return ranks;
+}
+
+// A rank that is SHARED reads as T-N, so a three-way tie for first is not silently presented as a first, a second and a third ( item 3).
+export function formatRank(rank, ranks) {
+    const shared = (ranks || []).filter(r => r === rank).length > 1;
+    return `${shared ? 'T' : '#'}${rank}`;
+}
+
 export function computeStatRankInPool(pool, playerId, statId, inverse) {
     if (pool.length === 0) return null;
 
@@ -211,10 +225,7 @@ export function computeStatRankInPool(pool, playerId, statId, inverse) {
         ? a.seasonTotals[statId] - b.seasonTotals[statId]
         : b.seasonTotals[statId] - a.seasonTotals[statId]);
 
-    const ranks = new Array(sorted.length);
-    for (let i = 0; i < sorted.length; i++) {
-        ranks[i] = (i > 0 && sorted[i].seasonTotals[statId] === sorted[i - 1].seasonTotals[statId]) ? ranks[i - 1] : i + 1;
-    }
+    const ranks = competitionRanks(sorted.map(p => p.seasonTotals[statId]));
 
     const idx = sorted.findIndex(p => p.id === playerId);
     if (idx === -1) return null;

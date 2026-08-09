@@ -69,3 +69,19 @@ export function startedTeamForPlayerAtPeriod(startedByPlayer, playerId, period) 
     const byPeriod = startedByPlayer.get(playerId);
     return (byPeriod && byPeriod.get(period)) || 0;
 }
+
+// EVERY franchise that ever held a player, for one season ( item 5). The careers table asks a different question from the roto race above it: not "who owned him on day 87" but "who ever owned him at all", because the owner's ruling is that any stint counts however short - a player drafted, held a week and dropped played for that franchise. Reads the same change points buildRosterTimeline produces, so a drop (teamId 0) contributes nothing and a re-add to the same team cannot double it. Order is first-held first, which is the order a career row reads best in: the franchise that drafted him leads.
+export function ownerTeamIdsByPlayer(timeline) {
+    const out = new Map();
+    if (!timeline || typeof timeline.forEach !== 'function') return out;
+    timeline.forEach((changes, playerId) => {
+        const seen = [];
+        (changes || []).forEach(change => {
+            const teamId = change && change.teamId;
+            if (!teamId) return;
+            if (!seen.includes(teamId)) seen.push(teamId);
+        });
+        if (seen.length) out.set(playerId, seen);
+    });
+    return out;
+}

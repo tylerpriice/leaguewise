@@ -6,8 +6,8 @@ import {
     computeRotoRanks, computePointsRanks, computeCategoryBreakdown, computeStatRankInPool,
     buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis,
     rotoPointsForCategory, scoreRotoWeek
-} from '../rank-engine.js';
-import { buildRosterTimeline, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from '../roster-timeline.js';
+, competitionRanks, formatRank } from '../rank-engine.js';
+import { buildRosterTimeline, ownerTeamIdsByPlayer, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from '../roster-timeline.js';
 
 const results = [];
 function test(name, fn) {
@@ -708,6 +708,29 @@ test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () =>
             TX(25, [IT(10, 'DRAFT', 1)]) // stray DRAFT-typed item after a drop must be ignored
         ]
     });
+// item 5: the careers table asks "who ever held him", not "who held him on day 87".
+test('ownerTeamIdsByPlayer: every franchise a player was ever on, first-held first', () => {
+    const tl = buildRosterTimeline({
+        picks: [{ playerId: 10, teamId: 1 }],
+        transactions: [TX(5, [IT(10, 'DROP', 0)]), TX(9, [IT(10, 'ADD', 3)]), TX(12, [IT(10, 'TRADE', 2)])]
+    });
+    const owners = ownerTeamIdsByPlayer(tl);
+    assert(JSON.stringify(owners.get(10)) === '[1,3,2]', 'drafted by 1, picked up by 3, traded to 2');
+});
+
+test('ownerTeamIdsByPlayer: a drop is not a franchise, and a re-add is not a second one', () => {
+    const tl = buildRosterTimeline({
+        picks: [{ playerId: 10, teamId: 1 }],
+        transactions: [TX(5, [IT(10, 'DROP', 0)]), TX(9, [IT(10, 'ADD', 1)])]
+    });
+    assert(JSON.stringify(ownerTeamIdsByPlayer(tl).get(10)) === '[1]', 'team 0 is nobody, and team 1 is already there');
+});
+
+test('ownerTeamIdsByPlayer: a player nobody ever held is absent, not empty', () => {
+    const owners = ownerTeamIdsByPlayer(buildRosterTimeline({ transactions: [TX(3, [IT(77, 'DROP', 0)])] }));
+    assert(owners.has(77) === false, 'a drop with no prior hold leaves nothing to report');
+    assert(ownerTeamIdsByPlayer(null).size === 0, 'and no timeline at all is an empty map, not a throw');
+});
     assertClose(teamForPlayerAtPeriod(tl, 10, 10), 1, 'LINEUP did not change the drafted ownership');
     assertClose(teamForPlayerAtPeriod(tl, 10, 30), 0, 'stays dropped, since the DRAFT item is skipped');
 });
@@ -826,6 +849,26 @@ test('computePointsRanks: before anyone has played, everybody still ranks', () =
 test('computePointsRanks: ties order by id so a re-render does not reshuffle', () => {
     const r = computePointsRanks([ptsPlayer(7, 5, 0), ptsPlayer(3, 5, 0)], ptsCtx);
     assert(r.ranks.get(3) === 1 && r.ranks.get(7) === 2, 'lower id takes the earlier rank');
+});
+
+// item 3: one tie convention, and T-N wherever a shared rank renders.
+test('competitionRanks: a run of ties shares the run first rank, the next distinct value resumes', () => {
+    assert(JSON.stringify(competitionRanks([10, 8, 8, 5])) === '[1,2,2,4]', 'not 1,2,2,3 - the next value takes its true place');
+    assert(JSON.stringify(competitionRanks([9, 9, 9])) === '[1,1,1]', 'everyone tied is all first');
+    assert(JSON.stringify(competitionRanks([5])) === '[1]', 'one entry');
+    assert(JSON.stringify(competitionRanks([])) === '[]', 'none');
+    assert(JSON.stringify(competitionRanks([3, 2, 1])) === '[1,2,3]', 'no ties, plain ordinals');
+    // The callers hand in composite keys, so equality has to be by value not by object identity.
+    assert(JSON.stringify(competitionRanks(['4|10', '4|10', '3|9'])) === '[1,1,3]', 'composite keys compare by value');
+});
+
+test('formatRank: shared ranks read T-N, unique ranks keep the hash', () => {
+    const ranks = [1, 2, 2, 4];
+    assert(formatRank(1, ranks) === '#1', 'alone at the top');
+    assert(formatRank(2, ranks) === 'T2', 'shared');
+    assert(formatRank(4, ranks) === '#4', 'alone again');
+    assert(formatRank(3, []) === '#3', 'no rank list is not a tie');
+    assert(formatRank(1, [1, 1, 1]) === 'T1', 'everyone tied');
 });
 
 // Report ---------------------------------------------------------------------------

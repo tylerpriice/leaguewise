@@ -1,7 +1,7 @@
 // My Team: the third pillar. Team Metrics answers how the LEAGUE is doing, Player Metrics answers who is good, this answers how MY team is doing and why. It is a roster VIEWER that defaults to the user's own team and can scout any other, which is what makes the later lineup features (optimal lineup, keep/drop, the time machine) work for whichever team is on screen. Nothing here forks the engines: ranks come from the leaderboard's own pool ranking, the category profile from the heatmap's aggregation.
 
 import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS, LINEUP_SLOT_ORDER, SLOT_POSITION_MAPS, POSITION_MAPS } from './state.js';
-import { escapeHtml, getTimeframeBounds, axisUnit, attachDataTooltips, splitStatIdsByRole, injuryBadgeHtml, playerPoolErrorText, parseTimeframe } from './utils.js';
+import { escapeHtml, getTimeframeBounds, axisUnit, attachDataTooltips, splitStatIdsByRole, injuryBadgeHtml, playerPoolErrorText, parseTimeframe, registerLeagueView } from './utils.js';
 import { buildPlayerAvatarHtml, wirePlayerAvatars } from './images.js';
 import { rosterRankLookup, openPlayerDetail, playerRoleGroups, effectivePlayerPool, loadPlayerTabIfNeeded, matchupPeriodMap, ensureWeeklyDataForTimeframe, weeklyDataPending } from './players.js';
 import { fetchRosterForPeriod, fetchProTeamSchedules, fetchScoreboardOdds } from './api.js';
@@ -10,7 +10,7 @@ import {
     teamOffence, offenceStrength, offenceBreakdown, startDifficulty, difficultyLabel, daysBetween, isSidelined,
     SHORT_REST_ADJUSTMENT, SHORT_REST_DAYS, MLB_PARK_FACTORS
 } from './matchup-difficulty.js';
-import { GAMES_PLAYED_IDS } from './rank-engine.js';
+import { GAMES_PLAYED_IDS, competitionRanks, formatRank } from './rank-engine.js';
 import { teamCategoryProfile } from './graphs.js';
 
 // Which team the tab is showing, remembered per league so scouting another roster survives a tab switch but never leaks into the next league fetched.
@@ -60,6 +60,9 @@ document.addEventListener('leaguewise:weekly-data-ready', () => {
 export function invalidateMyTeamLayout() {
     lastColumnFit = { key: null, player: 0, pos: 0, stat: 0 };
 }
+
+// Registered rather than called from the fetch path ( item 6). The scouted team belongs to the league that was on screen, so a new league starts on its own owner's team again.
+registerLeagueView('myteam', { reset: resetMyTeamView });
 
 export function resetMyTeamView() {
     viewedTeamKey = null;
@@ -218,8 +221,10 @@ function teamById(id) {
 function teamStandingLine(team) {
     if (AppState.isRotoLeague) {
         const ranked = [...AppState.teamStats].sort((a, b) => b.rotoPoints - a.rotoPoints);
-        const rank = ranked.findIndex(t => t.id === team.id) + 1;
-        return { value: `${team.rotoPoints} pts`, rank, of: ranked.length, label: 'Roto Points' };
+        // Through the shared convention, so two teams on the same points read T-N rather than being handed a first and a second by sort order ( item 3).
+        const ranks = competitionRanks(ranked.map(t => t.rotoPoints));
+        const rank = ranks[ranked.findIndex(t => t.id === team.id)];
+        return { value: `${team.rotoPoints} pts`, rank, ranks, of: ranked.length, label: 'Roto Points' };
     }
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
     const summarize = (t) => {
@@ -238,11 +243,13 @@ function teamStandingLine(team) {
     const rows = AppState.teamStats.map(t => ({ id: t.id, ...summarize(t) }))
         .sort((a, b) => (b.wins - a.wins) || (b.pts - a.pts));
     const mine = rows.find(r => r.id === team.id) || { w: 0, l: 0, ties: 0, pts: 0 };
-    const rank = rows.findIndex(r => r.id === team.id) + 1;
+    // The comparison key is the same pair the sort above uses, so the ranks agree with the order.
+    const ranks = competitionRanks(rows.map(r => `${r.wins}|${r.pts}`));
+    const rank = ranks[rows.findIndex(r => r.id === team.id)];
     const value = AppState.isPointsLeague
         ? `${mine.w}-${mine.l}-${mine.ties} - ${mine.pts.toFixed(1)} pts`
         : `${mine.w}-${mine.l}-${mine.ties}`;
-    return { value, rank, of: rows.length, label: AppState.isPointsLeague ? 'Record and points' : 'Record' };
+    return { value, rank, ranks, of: rows.length, label: AppState.isPointsLeague ? 'Record and points' : 'Record' };
 }
 
 // Re-renders the tab when its own box changes size, so the layout is never left holding an answer that was true for a window the user has since resized. Entering the tab already recomputes from scratch, and a resize is the same situation - the inputs changed - so it takes the same path rather than a second, subtly different one. Observing the CONTAINER, not the roster band, for two reasons. The band is rebuilt by every render, so an observer on it would have to be re-attached and could be re-triggered by its own output; the container is only ever written INTO. And the band's height changes for a second reason besides the viewport - the summary above it rewrapping to another line, which is what happens at 1229px and again at 809px - and that shows up as a width change on the container while the window listener it would otherwise need fires before the rewrap has been laid out. WHY IT CANNOT FEED ITSELF, which matters more than usual here because THIS CANNOT BE TESTED IN THE HARNESS. The preview page runs with document.hidden true, and rAF, the resize event and ResizeObserver are all driven by the rendering steps a hidden page skips - measured, zero callbacks of any of the three across a viewport change. So the argument has to be structural rather than "it did not loop when tried"..myteam-container is flex:1 1 auto with min-height:0 inside a view whose height the viewport fixes, and the page never scrolls in either axis. Its box is therefore set entirely by its parent, and nothing a render writes INSIDE it - row heights, column widths, the pitching share - can change it. A render cannot move the thing being watched, so it cannot retrigger this. The size guard below is what makes that concrete, and it is only a second line of defence: an in-flight flag would be worse than nothing, since it would have to be cleared before the observer could possibly redeliver and would read as a protection it was not providing.
@@ -818,7 +825,7 @@ export function renderMyTeamTab() {
                        </tr>`).join('')}</tbody>
                    ${score !== null ? `<tfoot><tr><td colspan="3">Lineup strength</td><td>${score.toFixed(1)}</td></tr></tfoot>` : ''}
                </table>`
-            : '<div class="mt-cal-hint">This lineup cannot be measured from the pool, so there is nothing to break down.</div>';
+            : '<div class="mt-cal-hint">This lineup cannot be measured from the pool.</div>';
         // A category the pool cannot measure is named, never silently missing from the table.
         const missing = (detail && detail.excluded.length)
             ? `<div class="mt-diff-dnote">Not measured: ${escapeHtml(detail.excluded.map(id => statMap[id] || id).join(', '))} - this pool carries no components to rebuild ${detail.excluded.length === 1 ? 'it' : 'them'} from.</div>`
@@ -869,7 +876,7 @@ export function renderMyTeamTab() {
                     ${crumbsHtml([{ label: 'Schedule', to: 'calendar' },
                                   { label: startCrumb(s), to: 'card' },
                                   { label: 'Ballparks' }])}
-                    <div class="mt-diff-dnote">Arenas above 100 favor hitters, below 100 favor pitchers.
+                    <div class="mt-diff-dnote">Arenas above 100 favour hitters, below 100 favour pitchers.
                         <span class="mt-diff-credit">Parks &middot; Baseball Savant</span></div>
                     <div class="mt-park-list" style="--park-rows: ${perColumn}">${rows}${unlisted}</div>
                 </div>`;
@@ -887,7 +894,7 @@ export function renderMyTeamTab() {
                        <thead><tr><th>Category</th><th>Actual</th></tr></thead>
                        <tbody>${actual.map(a => `<tr><td>${escapeHtml(a.label)}</td><td>${escapeHtml(formatStat(a.id, a.value))}</td></tr>`).join('')}</tbody>
                    </table>`
-                : `<div class="mt-cal-hint">No line recorded for this day. Either the numbers have not arrived yet, or the start was scratched after ESPN listed it.</div>`;
+                : `<div class="mt-cal-hint">No line recorded for this day.</div>`;
             const chip = forecast
                 ? `<span class="mt-diff-chip" style="--diff: ${forecast.score.toFixed(1)}">Forecast ${forecast.score.toFixed(0)} ${escapeHtml(difficultyLabel(forecast.score))}</span>`
                 : '';
@@ -907,7 +914,7 @@ export function renderMyTeamTab() {
                                       { label: startCrumb(s) }])}
                         <div class="mt-diff-state">No read</div>
                         ${startSubline(s, null)}
-                        <div class="mt-cal-hint">This opponent's offence cannot be measured from the pool, so scoring the matchup would be a guess.</div>
+                        <div class="mt-cal-hint">This opponent's offence cannot be measured from the pool.</div>
                         ${creditFootHtml(s)}
                     </div>`;
         }
@@ -944,7 +951,7 @@ export function renderMyTeamTab() {
             <div class="mt-stand">
                 <span class="mt-stand-label">${escapeHtml(standing.label)}</span>
                 <span class="mt-stand-value">${escapeHtml(standing.value)}</span>
-                <span class="mt-stand-rank">#${standing.rank} of ${standing.of}</span>
+                <span class="mt-stand-rank">${formatRank(standing.rank, standing.ranks)} of ${standing.of}</span>
             </div>
             <div class="mt-profile">
                 <span class="mt-profile-label">Wins</span>${profileChips(profile.best, 'mt-cat-best')}

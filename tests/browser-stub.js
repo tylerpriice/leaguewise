@@ -1,4 +1,4 @@
-// DEV-ONLY stub of the WebExtension `browser` API, used solely by dev-preview.html (which is not referenced by manifest.json and never ships). Lets the full dashboard run on a plain static server with a REAL captured league payload (one of the espn-debug-*.json dumps in the JSON_debug/ folder) preloaded as if it were the extension's session cache - no ESPN cookies or network needed. Anything that does hit the network (fan-profile discovery, the player pool) fails and takes its normal, already-handled error path. Pick a different payload with ?payload=<filename>, e.g. dev-preview.html?payload=espn-debug-1783444838686.json (bare filenames resolve into JSON_debug/; pass a path with "/" to point anywhere else) Two extra switches for screenshots and offline player work: ?anon=1 - renames every fantasy team to an invented one with its own abbreviation (and blanks member names) before the dashboard sees the payload, so screenshots of real league data carry no real team names. Player rows inherit the renamed teams because players.js maps teamId -> team through the league payload, not through the player payload's own strings. ?players=<file> - serves a captured player-pool JSON (the debug panel's "Player Pool Schema" download) for the pool fetch, so the Player Metrics tab runs offline. Weekly-stats fetches (same endpoint, but sent with a filterStatsForTopScoringPeriodIds filter header) are answered with an empty-but-valid pool - see the interception comment below. ?poolstatus=<code> - refuses the pool fetch with that HTTP status, everything else normal. ?poolstatus=405 is the logged-out session. ?proteam=<file> - serves a captured proTeamSchedules_wl response, which is what My Team's Schedule face needs to place projected starts on days. Without it that one request goes to real ESPN, so offline every calendar day renders empty - the face loads but has nothing in it to size against. ?noleague=1 - the FRESH-INSTALL state: no stored league, no cached payload, so nothing auto-fetches and the page renders only its entry chrome. This is what the browser-action popup shows the first time it is ever opened, and until now the harness could not produce it - which is how a header row with no header row silently stopped redirecting to a full tab. ?scoreboard=<file> - serves a captured scoreboard response, which is where the betting lines on the Schedule cards come from. Without it that request goes to real ESPN, so offline no card carries a line - which is also the shape to stage deliberately, since odds cover today's slate only and most cards never have one. Pass a no-odds capture to test that path. ?playersDelay=<ms> - holds the player pool back. Captures resolve off disk in a few ms, so a ?payloadDelay=<ms> driven click can never land BEFORE the pool settles and the LOADING state ?proteamDelay=<ms> the owner keeps entering had never once been rendered here - which is why three rounds of My Team fit bugs were reasoned about rather than staged. payloadDelay does the same for the league payload, which is the league-switch variant. Timing assertions belong against these clocks: a driven click lands late and reflexes are not evidence.
+// DEV-ONLY stub of the WebExtension `browser` API, used solely by dev-preview.html (which is not referenced by manifest.json and never ships). Lets the full dashboard run on a plain static server with a REAL captured league payload (one of the espn-debug-*.json dumps in the JSON_debug/ folder) preloaded as if it were the extension's session cache - no ESPN cookies or network needed. Anything that does hit the network (fan-profile discovery, the player pool) fails and takes its normal, already-handled error path. Pick a different payload with ?payload=<filename>, e.g. dev-preview.html?payload=espn-debug-1783444838686.json (bare filenames resolve into JSON_debug/; pass a path with "/" to point anywhere else) Two extra switches for screenshots and offline player work: ?anon=1 - renames every fantasy team to an invented one with its own abbreviation (and blanks member names) before the dashboard sees the payload, so screenshots of real league data carry no real team names. Player rows inherit the renamed teams because players.js maps teamId -> team through the league payload, not through the player payload's own strings. ?players=<file> - serves a captured player-pool JSON (the debug panel's "Player Pool Schema" download) for the pool fetch, so the Player Metrics tab runs offline. Weekly-stats fetches (same endpoint, but sent with a filterStatsForTopScoringPeriodIds filter header) are answered with an empty-but-valid pool - see the interception comment below. ?poolstatus=<code> - refuses the pool fetch with that HTTP status, everything else normal. ?poolstatus=405 is the logged-out session. ?proteam=<file> - serves a captured proTeamSchedules_wl response, which is what My Team's Schedule face needs to place projected starts on days. Without it that one request goes to real ESPN, so offline every calendar day renders empty - the face loads but has nothing in it to size against. ?noleague=1 - the FRESH-INSTALL state: no stored league, no cached payload, so nothing auto-fetches and the page renders only its entry chrome. This is what the browser-action popup shows the first time it is ever opened, and until now the harness could not produce it - which is how a header row with no header row silently stopped redirecting to a full tab. ?seasons=<y:file,..> - serves captured league payloads for PAST seasons, which is what the League History view fetches one per year. Also answers the leagueHistory year list from the same argument, so the view discovers exactly these years. Without it a history view has only the current season to show. ?seasonpools=<y:file,..> - serves a captured PLAYER POOL per season, which is what the career table fetches when it is opened - the live season included, since careers count it. Pass captures filtered to season totals, since that is what the real request asks for: the same league unfiltered is 52 MB against 2 MB filtered, and replaying the fat one stages a response the extension never receives. ?historyomit=<y,..> - drops those years from the leagueHistory ANSWER while still serving their payloads. That is what ESPN really does: the stub omits unfinished seasons (docs/DATA-SOURCES.md section 9), so the current season is missing from it while being perfectly fetchable. Without this the harness could not stage item 3 at all, because ?seasons= answered the stub with every year it could serve and the bug needs the two lists to differ. ?scoreboard=<file> - serves a captured scoreboard response, which is where the betting lines on the Schedule cards come from. Without it that request goes to real ESPN, so offline no card carries a line - which is also the shape to stage deliberately, since odds cover today's slate only and most cards never have one. Pass a no-odds capture to test that path. ?playersDelay=<ms> - holds the player pool back. Captures resolve off disk in a few ms, so a ?payloadDelay=<ms> driven click can never land BEFORE the pool settles and the LOADING state ?proteamDelay=<ms> the owner keeps entering had never once been rendered here - which is why three rounds of My Team fit bugs were reasoned about rather than staged. payloadDelay does the same for the league payload, which is the league-switch variant. Timing assertions belong against these clocks: a driven click lands late and reflexes are not evidence.
 (function () {
     if (window.browser) return;
 
@@ -61,6 +61,24 @@
 
     const scoreboardName = params.get('scoreboard');
     const scoreboardFile = scoreboardName && (scoreboardName.includes('/') ? scoreboardName : `JSON_debug/${scoreboardName}`);
+    // year -> captured payload file, e.g. ?seasons=2024:hockey-roto-2024-league.json,2025:...
+    const seasonsArg = params.get('seasons');
+    const seasonFiles = new Map();
+    (seasonsArg ? seasonsArg.split(',') : []).forEach(pair => {
+        const [y, f] = pair.split(':');
+        if (y && f) seasonFiles.set(String(y).trim(), f.includes('/') ? f.trim() : `JSON_debug/${f.trim()}`);
+    });
+
+    // year -> captured PLAYER POOL file, e.g. ?seasonpools=2024:hockey-roto-2024-pool.json,2025:... Separate from ?players= because they answer different questions of the same endpoint: that one is the pool Player Metrics reads, this one is what a career sums. They overlap on the live season and are still not the same request - the career fetch drops projections.
+    const poolsArg = params.get('seasonpools');
+    const poolFiles = new Map();
+    (poolsArg ? poolsArg.split(',') : []).forEach(pair => {
+        const [y, f] = pair.split(':');
+        if (y && f) poolFiles.set(String(y).trim(), f.includes('/') ? f.trim() : `JSON_debug/${f.trim()}`);
+    });
+
+    const historyOmit = new Set((params.get('historyomit') || '').split(',').map(s => s.trim()).filter(Boolean));
+
     const proteamName = params.get('proteam');
     const proteamFile = proteamName && (proteamName.includes('/') ? proteamName : `JSON_debug/${proteamName}`);
     // &proteamDelay=<ms> holds the schedule back the way the real fetch does. Served instantly, the Schedule face exists before the tab is ever entered and the re-fit that arriving starts triggers can never land while that face is on screen - which is the one moment the fit is decided against a layout the other face has to live with too ( follow-up).
@@ -111,12 +129,14 @@
         return byPeriod;
     }) : null;
 
+    // &txDelay=<ms> - holds every transaction and draft request that long, which is the only way to measure a harvest here at all: the fixture answers off disk in under a millisecond, so a change that reorders ~400 requests reads as noise without a modelled network.
     async function serveTransactionPeriod(url) {
         const byPeriod = await txPromise;
         const m = /[?&]scoringPeriodId=(\d+)/.exec(url);
         const period = m ? Number(m[1]) : null;
         const transactions = (period != null && byPeriod.get(period)) || [];
         window.__stubTransactionPeriods = (window.__stubTransactionPeriods || 0) + 1;
+        await new Promise(resolve => setTimeout(resolve, delayMs('txDelay')));
         return new Response(JSON.stringify({ transactions }), { headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -147,7 +167,10 @@
     window.fetch = (url, options) => {
         const u = typeof url === 'string' ? url : '';
         if (draftPromise && u.includes('view=mDraftDetail')) {
-            return draftPromise.then(d => new Response(JSON.stringify(d), { headers: { 'Content-Type': 'application/json' } }));
+            window.__stubDraftRequests = (window.__stubDraftRequests || 0) + 1;
+            return draftPromise
+                .then(d => new Promise(resolve => setTimeout(() => resolve(d), delayMs('txDelay'))))
+                .then(d => new Response(JSON.stringify(d), { headers: { 'Content-Type': 'application/json' } }));
         }
         if (txPromise && u.includes('view=mTransactions2')) {
             return serveTransactionPeriod(u);
@@ -157,6 +180,20 @@
         }
         if (scoreboardFile && u.includes('/scoreboard')) {
             return held(delayMs('scoreboardDelay'), () => realFetch(scoreboardFile));
+        }
+        // leagueHistory: answer with the years the harness was given, so discovery matches what can actually be served.
+        if (seasonFiles.size && u.includes('/leagueHistory/')) {
+            const years = [...seasonFiles.keys()]
+                .filter(y => !historyOmit.has(String(y)))
+                .map(y => ({ seasonId: Number(y) }));
+            return Promise.resolve(new Response(JSON.stringify(years), { headers: { 'Content-Type': 'application/json' } }));
+        }
+        // A past season's league payload.
+        if (seasonFiles.size) {
+            const m = u.match(/\/seasons\/(\d{4})\//);
+            if (m && seasonFiles.has(m[1]) && u.includes('view=mTeam')) {
+                return realFetch(seasonFiles.get(m[1]));
+            }
         }
         if (proteamFile && u.includes('proTeamSchedules_wl')) {
             return held(proteamDelayMs, () => realFetch(proteamFile));
@@ -177,7 +214,18 @@
         if (poolStatus && !window.__stubPoolStatusCleared) {
             return Promise.resolve(new Response('', { status: poolStatus, statusText: 'Stubbed' }));
         }
-        return playersFile ? held(playersDelayMs, () => realFetch(playersFile)) : realFetch(url, options);
+        const servePool = () => (playersFile ? held(playersDelayMs, () => realFetch(playersFile)) : realFetch(url, options));
+        // One season's pool, which the career table asks for a year at a time. Matched on the year in the path, and checked here rather than earlier so the weekly branch above still owns its own requests. A season with no file of its own is REFUSED, not left to fall through. It used to fall through to ?players=, so a run staging pools for two of three seasons quietly served the current season's players as the third one's, and the career table came back with 220 rows where the data supports 183 - a harness agreeing with itself and with nothing real. A refusal is also what a season ESPN will not serve actually looks like.
+        if (poolFiles.size) {
+            const m = u.match(/\/seasons\/(\d{4})\//);
+            if (m && poolFiles.has(m[1])) return held(delayMs('seasonPoolDelay'), () => realFetch(poolFiles.get(m[1])));
+            if (m) {
+                return payloadPromise.then(p => ((!p || String(p.seasonId) === m[1])
+                    ? servePool()
+                    : new Response('', { status: 404, statusText: 'No pool staged' })));
+            }
+        }
+        return servePool();
     };
 
     window.browser = {
@@ -211,7 +259,8 @@
                         console.error(`browser-stub: couldn't load payload "${payloadFile}"`);
                         return {};
                     }
-                    return { apiData, leagueHistoryYears: [] };
+                    // The real fetch fills this from the leagueHistory endpoint; dev-preview restores from the session cache and never runs that call, so ?seasons= seeds it here or League History would only ever see the loaded season.
+                    return { apiData, leagueHistoryYears: [...seasonFiles.keys()].map(Number) };
                 },
                 set: async () => {}
             }

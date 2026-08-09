@@ -1,5 +1,6 @@
 import { AppState } from './state.js';
-import { setDebugContext, escapeHtml } from './utils.js';
+import { setDebugContext, escapeHtml, countApiRequest } from './utils.js';
+import { buildRosterTimeline, ownerTeamIdsByPlayer } from './roster-timeline.js';
 import { processCoreData } from './data.js';
 
 // The host permission the cookie reads and every ESPN fetch depend on.
@@ -215,8 +216,26 @@ async function runWithConcurrencyLimit(items, limit, worker) {
 // Shared fetch/throw/parse for an ESPN fantasy API call - every endpoint here sends cookies via credentials:'include' and, when filtering the response server-side, an X-Fantasy-Filter header. A non-ok response always means something ESPN-specific went wrong (bad league id, private league, expired auth), worth surfacing as a real Error rather than continuing with a broken response body. VALIDATED against a real logged-out session. ESPN refuses an unauthenticated player-pool request with 405, not 401. That call is the only one carrying an X-Fantasy-Filter header, and the filter is what it objects to. A league read with restrictionType NONE meanwhile succeeds outright with no cookies at all. So the three statuses below mean one thing between them, "you are not logged in", and callers phrase it rather than printing a number at someone who cannot act on it.
 const AUTH_STATUSES = new Set([401, 403, 405]);
 
+// Which call this was, read off the URL rather than threaded through every caller. Every request in this file is identifiable from its own view or path, so the tally stays a one-line change at the single call site instead of a parameter on a dozen functions ( item 8). Ordered most specific first: a weekly-stats request IS a kona_player_info request with a scoring-period filter, so plain "pool" has to be the fallback of the two, not the match.
+function requestKindOf(url, filter) {
+    const u = String(url);
+    if (u.includes('fan.api.espn.com')) return 'league list';
+    if (u.includes('/leagueHistory/')) return 'history';
+    if (u.includes('proTeamSchedules_wl')) return 'schedule';
+    if (u.includes('/scoreboard')) return 'scoreboard';
+    if (u.includes('view=mRoster')) return 'rosters';
+    if (u.includes('kona_player_info')) {
+        const f = filter ? JSON.stringify(filter) : '';
+        return f.includes('filterStatsForTopScoringPeriodIds') ? 'weekly' : 'pool';
+    }
+    if (u.includes('/segments/0/leagues/')) return 'league';
+    return 'other';
+}
+
 async function fetchEspnJson(url, filter) {
     const headers = filter ? { 'X-Fantasy-Filter': JSON.stringify(filter) } : {};
+    // Counted BEFORE the await, so a request that fails still counts - it was still made, and the question the panel answers is what this page asked for, not what came back.
+    countApiRequest(url, requestKindOf(url, filter));
     const response = await fetch(url, { credentials: 'include', headers });
     if (!response.ok) {
         // The message keeps the status for the diagnostic panel and any log; authRequired is what the UI branches on, so no surface has to know which code ESPN chose this time.
@@ -394,10 +413,177 @@ async function fetchLeagueHistorySeasons(sport, leagueId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/leagueHistory/${leagueId}`;
         const seasons = await fetchEspnJson(url);
+        // Captured for the diagnostic panel so the ARRAY's shape can be read off a real league. Whether its entries carry full season payloads or only stubs is the one thing League History could not verify offline (docs/DATA-SOURCES.md section 9).
+        setDebugContext('league-history', seasons);
         return (seasons || []).map(s => s.seasonId).filter(Boolean);
     } catch {
         return [];
     }
+}
+
+// One past season's league payload, for League History ( M1). The SAME views the current season fetches, because history reads the same fields: teams for franchise identity and final ranks, schedule for the bracket champion and the head-to-head grid, settings for the season's scoring format and its category set. leagueHistory itself is only asked WHICH years exist (fetchLeagueHistorySeasons above). Whether its array entries also carry full payloads is unverified against a real league, so this fetches each season directly rather than trusting a shape nobody has measured - see docs/DATA-SOURCES.md section 9. If that array does turn out to carry everything, this becomes the fallback rather than the path.
+export async function fetchSeasonPayload(sport, leagueId, year) {
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mTeam&view=mMatchupScore&view=mSettings`;
+    return fetchEspnJson(url);
+}
+
+// Session-cached per season. A history view that is opened, left and reopened must not refetch a finished season whose numbers cannot change, and the cache is per league so switching leagues cannot serve one league's past under another's name.
+const seasonCache = new Map();
+export function resetSeasonCache() { seasonCache.clear(); poolCache.clear(); }
+
+export async function loadHistorySeasons(sport, leagueId, years, onProgress) {
+    const wanted = [...new Set(years || [])].filter(Boolean).sort((a, b) => a - b);
+    const payloads = {};
+    let done = 0;
+    for (const year of wanted) {
+        const key = `${sport}:${leagueId}:${year}`;
+        if (!seasonCache.has(key)) {
+            try {
+                seasonCache.set(key, await fetchSeasonPayload(sport, leagueId, year));
+            } catch {
+                // One unreadable season never costs the others. It is absent from the history, which the view reports as a season it could not read.
+                seasonCache.set(key, null);
+            }
+        }
+        const payload = seasonCache.get(key);
+        if (payload) payloads[year] = payload;
+        done += 1;
+        if (onProgress) onProgress(done, wanted.length);
+    }
+    return payloads;
+}
+
+// One past season's PLAYER POOL, for the career table ( M4). Deliberately the most expensive thing League History can ask for, and so the only thing it never asks for on its own: the tab's champions, standings, head-to-head and category tables are built from the league payloads above and must never wait on this. It runs when the career table is opened, and not before. The filter is narrow for a measured reason. A capture taken with the daily splits left in is 52 MB per season; the same league filtered to season totals is 4.1 MB. Both axes are honoured - the filtered capture came back with no split-5 blocks at all - so this asks for source 0 (real, not projected, which for a finished season is the only kind that means anything) split 0 (the season total). See docs/DATA-SOURCES.md section 9.
+export async function fetchSeasonPool(sport, leagueId, year) {
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=kona_player_info`;
+    const filter = {
+        players: {
+            limit: 3000,
+            sortPercOwned: { sortPriority: 1, sortAsc: false },
+            filterStatsForSourceIds: { value: [0] },
+            filterStatsForSplitTypeIds: { value: [0] }
+        }
+    };
+    return fetchEspnJson(url, filter);
+}
+
+const poolCache = new Map();
+
+export async function loadHistoryPools(sport, leagueId, years, onProgress) {
+    const wanted = [...new Set(years || [])].filter(Boolean).sort((a, b) => a - b);
+    const pools = {};
+    let done = 0;
+    for (const year of wanted) {
+        const key = `${sport}:${leagueId}:${year}`;
+        if (!poolCache.has(key)) {
+            try {
+                poolCache.set(key, await fetchSeasonPool(sport, leagueId, year));
+            } catch {
+                // Same rule as the season payloads: one unreadable year is one year missing from the careers, not a dead table.
+                poolCache.set(key, null);
+            }
+        }
+        const pool = poolCache.get(key);
+        if (pool) pools[year] = pool;
+        done += 1;
+        if (onProgress) onProgress(done, wanted.length);
+    }
+    return pools;
+}
+
+// EVERY FRANCHISE THAT HELD A PLAYER, per season ( item 5). The careers table's franchise column used to read the pool's onTeamId, which is the roster at the moment of the fetch - so a player who was dropped before it attributed to nobody, and the owner's drafted-and-held case showed only the season he happened to still be rostered in. THE COST, measured across the fixture set: the transaction log is one request per scoring period (ESPN scopes mTransactions2 to the current period unless asked otherwise, and batching through X-Fantasy-Filter returns zero rows - both established in the probes). That is 187 to 196 requests per season, so a five-season league is close to a thousand. Three things keep it honest: 1. It is LAZY, behind the careers pane, which is already the one part of this tab that pays for anything. Nobody who never opens careers fetches a single transaction. 2. The live season reuses the log the Roto Race already harvested when it is in hand, which is the ~192 requests most often already spent. 3. It is cached per season for the session, like the pools beside it. A season whose log cannot be read falls back to onTeamId rather than blanking the column, which is golden rule 8: the old answer was incomplete, not wrong, so an unreadable year degrades to it.
+const ownershipCache = new Map();
+
+// ONE SHARED LIMITER ACROSS SEASONS ( item 1). The old shape walked seasons in a for..of with an await, so each season's 190 requests drained to zero before the next one's first request went out - and the gap at the end of every season is dead time no cap requires. WHAT THIS DOES NOT DO, said plainly because the entry hoped for it: three seasons cannot approach the wall-clock of one. The cap is 6 TOTAL and the request count is unchanged, so the floor is still (seasons x periods) / 6 waves. What sharing the limiter buys is the drain gap between seasons and nothing more. The change that makes the pane usable is the draft-first render below, which puts a full table on screen after one request per season instead of after all of them. Tasks are queued season by season rather than round-robin, deliberately: the limiter then finishes the seasons IN ORDER, so per-season progressive fill still lands one season at a time instead of every season completing together at the very end.
+export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYear, options = {}) {
+    const { onDrafts, onSeason, onProgress, liveSeason } = options;
+    const wanted = [...new Set(years || [])].filter(Boolean).sort((a, b) => a - b);
+
+    const owners = {};
+    const pending = [];
+
+    // Anything already in hand resolves without a request: a season harvested earlier this session, or the live one the Roto Race has already paid for.
+    for (const year of wanted) {
+        const key = `${sport}:${leagueId}:${year}`;
+        if (ownershipCache.has(key)) {
+            const cached = ownershipCache.get(key);
+            if (cached) owners[year] = cached;
+            continue;
+        }
+        if (liveSeason && liveSeason.year === year && liveSeason.picks && liveSeason.transactions) {
+            const map = ownerTeamIdsByPlayer(buildRosterTimeline(liveSeason));
+            ownershipCache.set(key, map);
+            owners[year] = map;
+            continue;
+        }
+        pending.push(year);
+    }
+    if (!pending.length) {
+        if (onDrafts) onDrafts(owners, []);
+        return owners;
+    }
+
+    // PHASE 1: the drafts, one request per season, all of them through the shared limiter. This is the cheap half and it attributes every player who was drafted and never moved - which in a quiet league is most of them.
+    const picksByYear = {};
+    const draftResults = await runWithConcurrencyLimit(pending, WEEKLY_MAX_CONCURRENT_CHUNKS,
+        (year) => fetchDraftDetail(sport, leagueId, year));
+    pending.forEach((year, i) => { picksByYear[year] = draftResults[i] || []; });
+
+    // THE DRAFT MAPS GO STRAIGHT INTO `owners`. built them in a separate object and handed that to onDrafts, which left `owners` holding only cached and finished seasons - so the first season's log to land published a map with every OTHER pending season MISSING, and buildCareers fell those columns back to the pool's onTeamId. That is the season-end snapshot item 5 measured wrong for most of a pool, so the table regressed to the exact bug fixed, mid-refinement, while the note above it still said the franchises came from the draft. One map, seeded here and overwritten season by season in finish(), makes the intermediate states impossible to get wrong rather than merely correct today. It needs two-plus uncached seasons to show at all, which is how it survived B173's single-season pass.
+    pending.forEach(year => {
+        const picks = picksByYear[year];
+        if (picks.length) owners[year] = ownerTeamIdsByPlayer(buildRosterTimeline({ picks }));
+    });
+    // The table can render now, on draft-based attribution, while the log is still coming. The pending list rides along so the caller can say how many seasons are still refining without guessing - a cached season never appears in it.
+    if (onDrafts) onDrafts(owners, [...pending]);
+
+    // PHASE 2: every (season, period) pair as ONE task list through the SAME limiter.
+    const tasks = [];
+    pending.forEach(year => {
+        const status = ((payloadsByYear && payloadsByYear[year]) || {}).status || {};
+        const first = status.firstScoringPeriod;
+        const final = status.finalScoringPeriod;
+        // No period bounds means nothing to walk. That season keeps its draft-only attribution, which is the golden rule 8 answer rather than a blank column.
+        if (!Number.isFinite(first) || !Number.isFinite(final)) return;
+        for (let period = first; period <= final; period++) tasks.push({ year, period });
+    });
+
+    const remaining = new Map();
+    const txByYear = {};
+    pending.forEach(year => { txByYear[year] = []; });
+    tasks.forEach(t => remaining.set(t.year, (remaining.get(t.year) || 0) + 1));
+
+    const finish = (year) => {
+        const key = `${sport}:${leagueId}:${year}`;
+        const picks = picksByYear[year] || [];
+        // De-duplicated by id because ESPN can echo a multi-period transaction into more than one period slice - the same rule harvestTransactions applied when it owned this.
+        const byId = new Map();
+        (txByYear[year] || []).forEach(t => { if (t && t.id != null && !byId.has(t.id)) byId.set(t.id, t); });
+        const transactions = [...byId.values()];
+        const map = (picks.length || transactions.length)
+            ? ownerTeamIdsByPlayer(buildRosterTimeline({ picks, transactions }))
+            : null;
+        ownershipCache.set(key, map);
+        // null only when the season had neither picks nor transactions - and a season with no picks was never seeded above, so the fallback contract is unchanged: nothing to overwrite, and the year stays absent so buildCareers uses onTeamId for it.
+        if (map) owners[year] = map;
+        if (onSeason) onSeason(year, owners);
+    };
+
+    // A season with no periods to walk is done the moment its draft is in.
+    pending.filter(year => !remaining.has(year)).forEach(finish);
+
+    let done = 0;
+    await runWithConcurrencyLimit(tasks, WEEKLY_MAX_CONCURRENT_CHUNKS, async (task) => {
+        const slice = await fetchTransactionPeriod(sport, leagueId, task.year, task.period);
+        if (slice.length) txByYear[task.year].push(...slice);
+        done += 1;
+        if (onProgress) onProgress(done, tasks.length);
+        const left = (remaining.get(task.year) || 0) - 1;
+        remaining.set(task.year, left);
+        if (left === 0) finish(task.year);
+    });
+
+    return owners;
 }
 
 // Runs after EVERY successful fetchEspnData, whoever started it: the Fetch Data button, the My Leagues picker's auto-fetch above, or anything added later. Registered once from main.js rather than called directly here because the work it does (reloading the Player Metrics view) lives in players.js, and api.js importing players.js would be circular - players.js already imports this module's fetch helpers. Routing it through fetchEspnData instead of the individual initiators is the point. The picker path silently missed the button's player-view reload for exactly as long as that reload lived in the button handler, and a registered hook means the next fetch initiator inherits it instead of having to remember.

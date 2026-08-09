@@ -156,12 +156,20 @@
     --shadow-lg: 0 12px 44px rgba(0, 0, 0, 0.6);
 }
 
-html, body {
+html {
+    height: 100vh;
+    margin: 0;
+    /* The gutter is reserved whether or not a scrollbar is showing, so the scrollbar arriving with a transient panel cannot narrow the viewport under the content ( items 1 and 2). Without it the ruling was true for height and false for width: the chart held its 372px and lost 15px of width the moment the page gained a scrollbar - a resize, just not the one anybody was looking for. Firefox 97+ and Chrome 94+; the manifest floor is Firefox 115. */
+    scrollbar-gutter: stable;
+}
+
+/* height, NOT min-height. The flex chain below needs a DEFINITE height to divide, and relaxing this to min-height left the leaderboard taking its own content height instead of a share - 17,873px of page scroll on Player Metrics, found while fixing and caused by B169's first cut. The page still grows when a transient panel pushes: body keeps overflow:auto, so the push scrolls the body rather than stretching it. */
+body {
     height: 100vh;
     margin: 0;
 }
 
-/* A flex column, so the container and the debug console SHARE the viewport instead of stacking past the bottom of it. The container used to be height:100% with the console a sibling below, which meant the page scrolled by exactly the console's height the moment anything made it visible - and something always does, since every league fetch captures a diagnostic context (setDebugContext in api.js). That was 42px of scroll at 1280x800, against golden rule 2, on every tab and for every user. The container flexing absorbs the console the way the rule says to absorb anything else. The boxes shrink, the page does not scroll. */
+/* A flex column, so the container and the debug console's COLLAPSED bar share the viewport instead of stacking past the bottom of it - that part of stands, and is why a page with the console present but shut still scrolls by nothing. What changed (, owner): the console EXPANDING no longer shrinks the container. read any page scroll as the bug and made the container absorb the console at every size, so opening the diagnostic silently resized every box on the tab behind it. The owner ruled that backwards: a transient panel pushes content down and the page scrolls while it is open, and nothing resizes. min-height rather than height is what lets the body grow to accommodate that push. */
 body {
     font-family: Arial, sans-serif;
     background: var(--bg);
@@ -171,6 +179,12 @@ body {
     overflow: auto;
     display: flex;
     flex-direction: column;
+}
+
+/* Pinned at the height it already had, while a transient panel below it is open. Taking it out of the flex negotiation is what makes "nothing resizes" literal rather than close. */
+.height-pinned {
+    flex: 0 0 auto !important;
+    min-height: 0;
 }
 
 .container {
@@ -196,10 +210,25 @@ h2 {
     text-align: center;
 }
 
-/* Brand banner in the top bar: League[W]ise, the sparkline mark slotted in as the word's own "w" (see the markup comment in dashboard.html). align-items:baseline (not center) is what makes the mark sit ON the text baseline like a letter - an inline SVG's flex baseline is its bottom edge, and the banner viewBox is cropped so that edge IS the glyph's bottom. The <a> deliberately has no href yet - once the product website exists it becomes a real link. */
+/* Brand banner in the top bar: League[W]ise, the sparkline mark slotted in as the word's own "w" (see the markup comment in dashboard.html). align-items:baseline (not center) is what makes the mark sit ON the text baseline like a letter - an inline SVG's flex baseline is its bottom edge, and the banner viewBox is cropped so that edge IS the glyph's bottom. The <a> deliberately has no href yet - once the product website exists it becomes a real link. THE header row ( V1, item 4): wordmark left, matchup indicator right. The indicator used to own a row of its own below this one, which spent a band of vertical height to say six words while the wordmark's line sat empty to its right. Baseline-aligned so the two read as one line. */
 .brand-lockup {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.brand-scorecard {
+    flex: 0 0 auto;
+    position: relative;
+}
+
+/* Carried over from the inline styles the old row used, so the indicator looks and behaves exactly as it did - only its position changed. */
+#week-indicator {
+    color: var(--accent);
+    font-weight: bold;
+    font-size: 12px;
+    cursor: help;
 }
 
 .brand-link {
@@ -276,11 +305,10 @@ h2 {
     background-color: var(--accent-hover);
 }
 
-/* FORM ROW ALIGNMENT - flex-end forces everything to strictly lock to the bottom edge */
+/* FORM ROW ALIGNMENT - flex-end forces everything to strictly lock to the bottom edge The row the matchup indicator used to sit in is gone with it ( item 4) - the settings aside is the only thing that was ever beside it, and it is its own fixed panel. The rule stays because.form-row still dresses the settings fields inside that aside; only the outer row went. */
 .form-row {
     display: flex;
     gap: 15px;
-    margin-bottom: 8px;
     align-items: flex-end;
     flex-shrink: 0;
 }
@@ -290,12 +318,7 @@ h2 {
     position: relative;
 }
 
-/* The week indicator/scoreboard block keeps its natural size at the right edge - it must not stretch like the settings fields do, or the dropdown anchor drifts. */
-.form-row>.scoreboard-hover {
-    flex: 0 0 auto;
-}
-
-/* The collapsible sport/league/year/fetch group (see collapseSettingsBar in controls.js) - its children carry the flex:1 field sizing the old flat.form-row>div layout provided. Collapse is a class (not display:none) so it can ease shut. The box squashes to zero height while fading, instead of vanishing in one frame. A RAIL down the right edge, not a row across the top. Horizontally these fields fought for width they did not have - the Fetch button overflowed its box, values clipped, and a group label sat to the LEFT of a field whose own label sat ABOVE it, which reads as two competing names for one control. Stacked, each field gets the full width of the rail and one label in one place, and the empty margin beside the container is where it lives. Fixed, so it is out of flow. It can never take width from the data containers, and it cannot contribute to the document's preferred width - which is the number that clamps a popup. */
+/* The week indicator/scoreboard block keeps its natural size at the right edge - it must not stretch like the settings fields do, or the dropdown anchor drifts. The collapsible sport/league/year/fetch group (see collapseSettingsBar in controls.js) - its children carry the flex:1 field sizing the old flat.form-row>div layout provided. Collapse is a class (not display:none) so it can ease shut. The box squashes to zero height while fading, instead of vanishing in one frame. A RAIL down the right edge, not a row across the top. Horizontally these fields fought for width they did not have - the Fetch button overflowed its box, values clipped, and a group label sat to the LEFT of a field whose own label sat ABOVE it, which reads as two competing names for one control. Stacked, each field gets the full width of the rail and one label in one place, and the empty margin beside the container is where it lives. Fixed, so it is out of flow. It can never take width from the data containers, and it cannot contribute to the document's preferred width - which is the number that clamps a popup. */
 .settings-bar {
     position: fixed;
     top: 0;
@@ -328,23 +351,54 @@ h2 {
     position: relative;
 }
 
-/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. */
-.settings-toggle-btn {
+/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. The rail owns the fixed placement now; its buttons are ordinary children of it. Centred on the viewport's middle, which is where the lone gear tab already sat. */
+.utility-rail {
     position: fixed;
     right: 0;
     top: 50%;
-    margin-top: -32px;
+    transform: translateY(-50%);
     z-index: 61;
-    width: 22px;
-    height: 64px;
-    padding: 0;
-    font-size: 13px;
-    line-height: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 0;
+    width: 26px;
     background: var(--surface-2);
     border: 1px solid var(--border-strong);
     border-right: none;
     border-radius: 6px 0 0 6px;
+}
+
+/* A hairline, not a gap: the gear configures the app and the three below it act on the view, and the rule is what says those are two kinds of thing rather than four of one. */
+.utility-rail-divider {
+    height: 1px;
+    margin: 2px 4px;
+    background: var(--border-strong);
+}
+
+/* Scoped to the rail on purpose..share-toolbar-btn carries its own padding and sits LATER in this sheet, so an unscoped.utility-rail-btn lost to it and the icons rendered 46px and 30px wide inside a 27px rail - spilling out of the very thing meant to contain them. */
+.utility-rail .utility-rail-btn {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: 26px;
+    padding: 0;
+    margin: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-body);
     cursor: pointer;
+}
+
+.utility-rail .utility-rail-btn:hover { background: var(--surface-accent); }
+
+
+.settings-toggle-btn {
     color: var(--text-subtle);
     transition: background 0.15s ease, color 0.15s ease;
 }
@@ -1504,9 +1558,12 @@ button:hover {
     vertical-align: middle;
 }
 
-/* height and line-height are undoing the base sheet, not decorating. `input, select, button` are locked there to display:block and height:35px, which a <button> used as an inline pill inherits in full - so these sat 35px tall inside an 18px group head and spilled 19px over the table below it (owner, screenshot). It only became visible when pinned the head to a constant; before that the head had no height of its own and grew to swallow them. */
+/* height and line-height are undoing the base sheet, not decorating. `input, select, button` are locked there to display:block and height:35px, which a <button> used as an inline pill inherits in full - so these sat 35px tall inside an 18px group head and spilled 19px over the table below it (owner, screenshot). It only became visible when pinned the head to a constant; before that the head had no height of its own and grew to swallow them. nowrap and a width of its own, measured rather than assumed. The base sheet locks every button to width:100%, and as a flex item this one then shrank to whatever room was left and wrapped its label onto a second line - inside a box pinned to one line's height, so the second line was cut off. Measured on the careers pill: 32px of content in a 16px content box. It never showed while the only labels were "Categories" and "Schedule", because a single word has nothing to wrap. The first two-word caller found it. */
 .mt-view-tab {
     font: inherit;
+    white-space: nowrap;
+    width: auto;
+    flex: 0 0 auto;
     font-size: 10px;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -2833,12 +2890,40 @@ button:hover {
     color: #222;
 }
 
+/* The session request tally ( item 8). The console is the app's one deliberate exception to the custom-property rule - it is a fixed green-on-black terminal in both themes on purpose - so these inherit that palette rather than introducing variables the rest of the block does not use. */
+.debug-tally {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #0a0;
+}
+
+.debug-tally-row {
+    margin-bottom: 4px;
+}
+
+/* Indented under the total it breaks down, and dimmer, so the two headline numbers stay the thing you read first and the per-kind and per-host splits stay available without competing. */
+.debug-tally-detail {
+    margin-left: 14px;
+    opacity: 0.75;
+}
+
+.debug-tally-note {
+    margin-top: 6px;
+    opacity: 0.6;
+}
+
+/* WRAPS. Player Metrics was the one tab breaking the desktop no-page-scroll rule, and this toolbar was why: nowrap with visible overflow, so once its controls wanted more than the window had they hung off the side and pushed the DOCUMENT - 190px at 806px wide, 96px at 900, gone by 1000, which is where the break measures. The leaderboard table underneath was never the culprit and is untouched: 1021px across sixteen columns, clipped and scrolled by its own wrapper, which is the pattern this app wants. Only this strip escaped it. Wrapping rather than overflow-x, because hiding a control is not fitting it. The row is content-height already, so a second line costs the boxes below exactly its own height and nothing has to be re-budgeted - unlike.header-row, whose 30px IS load-bearing (relaxing that one, on the way to this fix, let the leaderboard take its content height and grew the page by 17,873px). */
 .player-toolbar {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
+    row-gap: 6px;
     margin-bottom: 6px;
     flex-shrink: 0;
 }
+
+/* And the controls stop refusing to shrink: a nowrap label is what made a 127px control insist on 127px inside a 90px space. */
+.player-toolbar > * { min-width: 0; }
 
 .player-toolbar input {
     flex: 1;
@@ -3057,7 +3142,7 @@ button:hover {
     border-bottom: 1px solid var(--border);
 }
 
-/* Explicit widths for every column whose content isn't a short number - under table-layout: fixed these come from the header row, and the unsized stat columns share the remainder equally. Sized from the widest real content measured across both sports and both group tabs (longest names ~24 chars, "Kayden's Top-Notch Team", a 4-digit FOW, "#1 of 942" plus a medal and a trend arrow), so the stat columns still clear their widest values in the densest layout (hockey skaters, 10 stat columns). The two text columns are the give in the layout. sizeLeaderboardColumns shrinks them toward --cat-name-min / --cat-team-min when the categories are already at their floor and the row still does not fit, so a narrow window tightens the names it can ellipsis before the table resorts to scrolling sideways. The values here are the widths at full size. */
+/* Explicit widths for every column whose content isn't a short number - under table-layout: fixed these come from the header row, and the unsized stat columns share the remainder equally. Sized from the widest real content measured across both sports and both group tabs (longest names ~24 chars, "Blue Line Bandits", a 4-digit FOW, "#1 of 942" plus a medal and a trend arrow), so the stat columns still clear their widest values in the densest layout (hockey skaters, 10 stat columns). The two text columns are the give in the layout. sizeLeaderboardColumns shrinks them toward --cat-name-min / --cat-team-min when the categories are already at their floor and the row still does not fit, so a narrow window tightens the names it can ellipsis before the table resorts to scrolling sideways. The values here are the widths at full size. */
 .player-table th[data-sort="name"] {
     width: var(--pl-name-w, var(--pl-name-base));
 }
@@ -3590,17 +3675,6 @@ button:hover {
 /* --- Export / Recap (see export.js and recap.js) --- */
 
 /* Sits at the right end of the tab bar, after the timeframe pills (which already carry margin-left:auto) - visually separated from the pills by a hairline divider so "pick a timeframe" and "take data out" read as different kinds of controls. */
-.share-toolbar {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    /* The timeframe's auto margins already push this to the right edge, so no auto margin here: two competing auto margins would split the space and un-centre the timeframe. */
-    margin-left: 10px;
-    padding-left: 10px;
-    border-left: 1px solid var(--border);
-    flex-shrink: 0;
-}
-
 .share-toolbar-btn {
     width: auto;
     height: auto;
@@ -4332,10 +4406,10 @@ button:hover {
     flex-wrap: wrap;
     /* The container is a flex column, so without this the strip takes a share of the free space and becomes a 300px band of nothing. It is chrome, so it gets exactly the height it needs. */
     flex: 0 0 auto;
-    /* Back on the tab bar, centred in the gap between the tabs and the utilities. Auto margins on both sides split the leftover space evenly, so it sits in the middle rather than shoved against either neighbour. It only fits there because the labels lost their repeated words and the utilities became icons; the row wanted 1322px before that and has 1145px. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
+    /* RIGHT-aligned, not centred ( V1). The centring was correct while Legend, Export and Recap sat to its right - auto margins on both sides split the leftover evenly so it was not shoved against either neighbour. Those three are in the utility rail now and there IS no right neighbour, so the same auto margins left it floating 22px short of the edge, which reads as a mistake rather than as centring. One auto margin on the left: the pills own the right side. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
     justify-content: flex-start;
     overflow: visible;
-    margin: 0 auto;
+    margin: 0 0 0 auto;
     padding: 0;
 }
 
@@ -4345,17 +4419,14 @@ button:hover {
     row-gap: 4px;
 }
 
-/* Below the width where all three fit inline, the TIMEFRAME is what drops, not the utilities. Left to itself, flex wraps whatever comes last, which put Legend/Export/Recap alone on line two while the timeframe kept the space it could no longer justify. Measured need is about 1090px of content: 350 tabs, 564 timeframe, 153 utilities and the gaps between them. */
-@media (max-width: 1230px) {
+/* RE-DERIVED for the row the utilities left ( V1). It lands almost where it was, which is worth saying plainly rather than leaving as a coincidence: Legend, Export and Recap freed about 173px from this row, and the League History tab added about 183px to the tab run, so the two changes very nearly cancelled. Measured on the rendered boxes rather than estimated: tabs 533, row gap 15, timeframe 564.5, so 1112.4px of content, plus 120px the page's own chrome takes from the viewport - the single row fits at 1233 and no lower. The query is set one pixel under that, so every width below the real fit point gets the DELIBERATE drop (flex-basis:100%) rather than whatever ragged line natural wrapping would have produced in the two pixels between. */
+@media (max-width: 1232px) {
     .tabs-container > .timeframe-toggle {
         order: 3;
         flex-basis: 100%;
         margin: 0;
         padding-top: 2px;
     }
-
-    /* With the timeframe on its own line there is nothing between the tabs and the utilities to push them right, so they claim the space themselves. */
-    .tabs-container > .share-toolbar { margin-left: auto; }
 }
 
 /* One segment reads as one control, with a shared border, no gaps, dividers between members. */
@@ -4370,13 +4441,17 @@ button:hover {
 
 .timeframe-seg:empty { display: none; }
 
+/* Hidden, not removed. visibility keeps the container's box and its flex share, so the tabs beside it cannot move when League History turns the pills off - display:none would return that space to the row and slide everything ( V1). */
+.timeframe-hidden { visibility: hidden; }
+
 /* The caption naming the unit, which is what keeps the word off all four pills beside it. Quiet enough to read as a heading rather than a fifth option. */
 .timeframe-caption {
     font-size: 11px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-faint);
-    margin-right: -4px;
+    /* Symmetric, so the caption reads as sitting BETWEEN the two segments rather than pushed onto one of them. It was -4px, which made the two sides 9px and 5px - the sort of difference nobody names but everybody sees ( V1). */
+    margin-right: 0;
 }
 
 .timeframe-toggle .timeframe-chip {
@@ -4396,7 +4471,7 @@ button:hover {
 
 .timeframe-seg .timeframe-chip:first-child { border-left: none; }
 
-.timeframe-toggle .timeframe-chip:hover { background: var(--surface-hover); color: var(--text-body); }
+.timeframe-toggle .timeframe-chip:hover:hover { background: var(--surface-hover); color: var(--text-body); }
 
 /* A window the current span is too short for. It keeps its place so the row never shifts, and reads as unavailable rather than as an option that quietly vanished. */
 .timeframe-toggle .timeframe-chip.disabled {
@@ -4409,7 +4484,7 @@ button:hover {
     color: var(--text-muted);
 }
 
-.timeframe-toggle .timeframe-chip.active {
+.timeframe-toggle .timeframe-chip.active.active {
     background: var(--accent);
     color: #fff;
     font-weight: bold;
@@ -4417,6 +4492,40 @@ button:hover {
 
 /* Icon-only utilities, with the word revealed on hover and on keyboard focus. The label is taken OUT of flow to do it. Revealing it inline widened the toolbar, and the timeframe beside it is centred in the space the toolbar leaves, so hovering Export slid the whole timeframe sideways ( again, from the other direction). Out of flow, the button's box never changes and nothing next to it can move. */
 .share-toolbar-btn { position: relative; }
+
+/* In the rail the label goes LEFT, not below. The shared rule drops it under the button and hard against its right edge, which on a control fixed to the right edge of the viewport puts it off the screen entirely. Same tooltip language, opposite side. Scoped through.utility-rail because.share-toolbar-btn.btn-label ties on specificity and sits later in this sheet - unscoped, three of the four labels still opened the wrong way. */
+.utility-rail .utility-rail-btn .btn-label {
+    position: absolute;
+    top: 50%;
+    right: calc(100% + 6px);
+    left: auto;
+    transform: translateY(-50%);
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: var(--tooltip-bg);
+    color: var(--tooltip-text);
+    font-size: 11px;
+    line-height: 14px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+    z-index: 30;
+}
+
+.utility-rail .utility-rail-btn:hover .btn-label,
+.utility-rail .utility-rail-btn:focus-visible .btn-label { opacity: 1; }
+
+/* The legend popover hangs off the rail, so it opens leftward from its button rather than down. */
+.utility-rail .legend-menu { position: relative; display: block; width: 100%; }
+
+.utility-rail .legend-popover {
+    top: 50%;
+    right: calc(100% + 6px);
+    left: auto;
+    bottom: auto;
+    transform: translateY(-50%);
+}
 
 .share-toolbar-btn .btn-label {
     position: absolute;
@@ -4455,4 +4564,582 @@ button:hover {
         font-size: inherit;
     }
     .timeframe-toggle { gap: 10px; }
+}
+
+/* ==== League History ( M2/M3) ==== A third tab rather than a band above the tabs: a persistent header would cost every other view vertical space under the no-scroll rule, and this one is read on its own. Same column shape as My Team, so the two tabs behave alike. The tab itself NEVER scrolls ( item 1). It used to, which put a scrollbar around the whole view and a second one inside half the blocks - the house rule every other tab converged on is that the container is a fixed box and each block that cannot fit shrinks or scrolls inside its own frame. */
+.history-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 10px;
+    padding: 12px;
+    overflow: hidden;
+}
+
+/* THE THREE ZONES (, owner ruled L2). The band budget this replaces is deleted, not disabled: caps, floors, shrink weights, the exactly-one-band-grows rule and the open/closed class it hung on. Two rounds of tuning that arithmetic could not kill the grey space, because the sum being balanced had a variable number of terms - league size, franchise count and whatever the reader had collapsed. This layout has no closed state to leave slack. */
+.lh-layout {
+    display: grid;
+    grid-template-columns: minmax(150px, 20%) minmax(0, 1fr);
+    gap: 10px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* The pennant rail. The flags scroll inside the rail if a league has more titles than the rail is tall; the vitals never do, because a number that moves out of sight is a number nobody reads. */
+.lh-rail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.lh-rail-flags {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lh-flag { text-align: center; }
+
+/* The shape, in clip-path, per the ruling: baseball hangs a felt pennant and hockey raises a rafter banner. Same construction, one polygon each, no images anywhere. REAL PROPORTIONS ( item 1). Both shapes were too short to read as the object they are. The pennant was 152x26, a 5.9:1 splinter where a felt pennant is nearer 2.5:1, and the banner was 70x30 - WIDER than tall, which is the one thing a rafter banner never is. The budget both had to fit is the rail's own: five titles plus the season in progress, scroll-free. Measured at 1280x800 that flag box is 536px, so six flags plus their five 6px gaps leaves 83px each, and a flag is its shape plus a 13px year and a 14px name. The pennant takes 46 of the 56 available and the banner 52, both inside it with room to spare. */
+.lh-flag-shape {
+    height: 46px;
+    margin: 0 auto;
+    background: var(--border);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+    /* THE ASPECT IS THE RULE, so it is declared rather than left to whatever the rail happens to be wide. As a percentage it was 128x46 at 1280 and 82x46 at 806 - 1.78:1, under the ruled two-to-one floor, because the rail narrows to its 150px minimum there. Pinned to the height instead, the pennant is 129x46 at both. max-width is the safety net for a rail narrower than any desktop layout produces, and below 700px the mobile rules take the rail over anyway. */
+    aspect-ratio: 2.8 / 1;
+    width: auto;
+    max-width: 100%;
+}
+
+.lh-rail[data-sport="fhl"] .lh-flag-shape {
+    /* Clearly taller than wide, at 36x52 or about 2:3, which is roughly how a rafter banner hangs. */
+    width: 36px;
+    height: 52px;
+    clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
+}
+
+/* Neutral chrome until the Classic theme lands ( P2 brings the felt green and the brick). The structure is what this entry ships; the dressing arrives on top of it without moving anything. */
+.lh-flag-bracket .lh-flag-shape { background: var(--accent); }
+.lh-flag-roto .lh-flag-shape { background: var(--accent-strong); }
+.lh-flag-open .lh-flag-shape { background: var(--border); opacity: 0.55; }
+
+/* The badge at the pennant's hoist end. The monogram is the COMMON case - 32 of 36 measured teams have no logo - so it is the finished thing and the logo, when ESPN is serving one, lays over it. Same two-layer trick the player avatar uses, for the same reason: nothing ever shows a broken image, and a refused host never gets an <img> at all. */
+.lh-flag-badge {
+    position: absolute;
+    left: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+}
+
+/* A BANNER'S CREST IS CENTERED ( item 2), in its upper field above the year, where a real one is stitched. The pennant keeps its badge at the hoist, which is where a pennant's is. Centering by left: 50% with a half-width translate rather than by margins, so the crest's centre and the banner's are the same number and cannot drift with the badge's size. */
+.lh-rail[data-sport="fhl"] .lh-flag-badge {
+    left: 50%;
+    top: 7px;
+    transform: translateX(-50%);
+}
+
+.lh-flag-monogram {
+    font-size: 9px;
+    font-weight: bold;
+    line-height: 1;
+    color: var(--text-subtle);
+    letter-spacing: -0.02em;
+}
+
+.lh-flag-logo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.lh-flag-shape { position: relative; }
+
+.lh-flag-year {
+    font-size: 10px;
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+    line-height: 13px;
+}
+
+.lh-flag-name {
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--text-body);
+    line-height: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lh-flag-open .lh-flag-name { color: var(--text-faint); font-weight: normal; }
+
+/* The shelf line that closes the wall in, and the league's vitals under it. */
+.lh-rail-vitals {
+    flex: 0 0 auto;
+    border-top: 2px solid var(--border);
+    padding-top: 6px;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.lh-vital { display: flex; align-items: baseline; gap: 5px; }
+.lh-vital-n { font-size: 13px; font-weight: bold; color: var(--text-body); font-variant-numeric: tabular-nums; }
+.lh-vital-l { font-size: 10px; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.03em; }
+
+.lh-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 10px;
+}
+
+/* The standings are sized to their content and capped where 20 franchises still fit scroll-free: 20 rows at 16px, the heading row, the block's own heading and note, and its padding. border-box because the cap has to mean the whole block - content-box quietly added the 20px of padding back on and the block rendered 420 against a 400 cap. IT DOES NOT YIELD, and item 4 is the owner reverting the one commit that let it. gave this block flex-shrink 1 so the rivalry pane could take height from it at 20 franchises; the careers pane then took it too, and the standings shrank behind a table nobody asked to grow. The L2 zone contract is the rule: the standings are ALWAYS visible, whole. A pane that wants more height scrolls inside its own frame instead, which is what every block here already has a scroller for. */
+.lh-main > .lh-block {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    max-height: 396px;
+}
+
+/* THE ASSERTION THIS LAYOUT EXISTS FOR: the focus pane takes every pixel the rail and the standings do not, in every pane, always. Nothing above it grows and nothing below it exists. */
+.lh-focus {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.lh-focus-tabs { flex: 0 0 auto; margin: 0 0 6px 0; }
+
+.lh-focus-pane {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.lh-focus-pane > .lh-block { flex: 1 1 auto; min-height: 0; }
+
+.lh-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.lh-block-head {
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-subtle);
+    margin-bottom: 6px;
+}
+
+/* The one line that explains what a number covers. It sits under the heading rather than as a footnote, because a total that means less than it looks like has to say so before it is read. */
+.lh-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.lh-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.lh-table th {
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-subtle);
+    padding: 3px 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* 16px rows, the pitch the opponent bars already proved, and what lets a 20-franchise standings table fit its cap without scrolling. height alone does not do it - a table cell grows to its line box first, and at 12px text that is 19px whatever the height says. */
+.lh-table td {
+    padding: 0 6px;
+    height: 16px;
+    line-height: 15px;
+    border-bottom: 1px solid var(--border-faint);
+    color: var(--text-body);
+}
+
+.lh-table td.lh-name, .lh-table th.lh-name {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ONE scroller per block, and this is it. Every table on the tab sits in one of these, so a block has at most a single scroll context and it is always the table area - never the heading, never the note, never the tab. A deep league genuinely outgrows its half of the split, so the last resort is scrolling inside this frame rather than widening the page. */
+.lh-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* The heading row is pinned in every one of them, because a stat column read 20 rows down is unreadable once its name has scrolled away. */
+.lh-scroll .lh-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 2;
+}
+
+.lh-grid th.lh-rot { font-size: 9px; }
+.lh-grid td { text-align: center; }
+.lh-self { color: var(--text-faint); }
+.lh-none { color: var(--text-faint); }
+
+.lh-season-row { cursor: pointer; }
+.lh-season-row:hover, .lh-season-row:focus { background: var(--surface-accent); outline: none; }
+
+/* Coverage rides with the column heading, so the reader learns a category is partial at the moment they read its name rather than after comparing the rows. */
+.lh-cover {
+    display: block;
+    font-size: 9px;
+    color: var(--text-faint);
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* Marks, not words. The tick carries the positive colour the rest of the app uses for a confirmed thing; the cross is deliberately quiet, since a category a season did not score is a fact about the league rather than something wrong. */
+.lh-scored { color: var(--success); font-weight: bold; }
+.lh-blank { background: var(--surface-sunken); color: var(--text-faint); }
+
+/* The franchise name gets its OWN centered line under the season selector, with the arrows tight against it ( items 1 and 2). Inline in the control row it was pushed around by whatever the pills and the heading left over, which is what "not positioned at all" meant - it had no position of its own, only a leftover. The trio centers as ONE unit: the name is flex: 0 1 auto rather than filling, so the group is as wide as its contents and the arrows stay a fixed gap from the text instead of drifting out to the edges of whatever room the row has. */
+.lh-h2h-pager {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.lh-h2h-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-body);
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The franchise's all-time line, under the name rather than beside it, so the trio above stays exactly three things and centres cleanly. */
+.lh-h2h-total {
+    flex: 0 0 auto;
+    text-align: center;
+    font-size: 10px;
+    line-height: 13px;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+}
+
+/* THE RIVALRY SPLIT ( item 4). Two columns: every opponent down the left, the selected one's rivalry on the right. Both take the pane's full height, so neither can leave slack - the ratio between them is the only thing that varies and it arrives as --lh-riv-list from rivalrySplit, which reads the opponent count. Nothing here measures anything. */
+.lh-rivalry {
+    flex: 1 1 auto;
+    /* NO FLOOR any more ( item 4). put 250px here and paid for it out of the standings, which is the thing the zone contract forbids. The pane takes what the zone leaves and the list below handles the shortfall itself. */
+    min-height: 0;
+    display: grid;
+    grid-template-columns: calc(var(--lh-riv-list, 0.5) * 100%) minmax(0, 1fr);
+    gap: 12px;
+}
+
+/* The list fills its column EXACTLY: n tracks of 1fr in a box of the column's height, so the row pitch is the column height over the opponent count and no arithmetic is needed to say so. 1fr has no upward clamp, which is the ruled behaviour - 5 opponents get tall bars and 19 get slim ones. The minimum is 13px, the pitch measured as the floor a row stays readable at, and it is what replaces the height that used to come out of the standings ( item 4). Under the minimum the tracks stop dividing and the list scrolls in its own frame - the last resort golden rule 2 already names, and the one that keeps the zone above whole. Above it nothing changes: the rows still share the column exactly and leave no slack. */
+.lh-rivalry-list {
+    display: grid;
+    grid-template-rows: repeat(var(--lh-riv-rows, 1), minmax(13px, 1fr));
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* Three fixed tracks, the same three on every row. The name and the record are sized in ch so they hold their width whatever the league calls its teams, and the bar takes what is left - which is the whole point of the format: alignment that does not depend on name lengths. */
+.lh-rivalry-list {
+    --lh-h2h-name-w: 13ch;
+    /* 9, not 7. A W-L-T with two-digit ties is eight characters - "60-12-12" - and at 7ch it WRAPPED to a second line rather than overflowing, so scrollWidth read clean and only a screenshot caught it. The nowrap below makes the next such case overflow visibly instead of hiding. */
+    --lh-h2h-rec-w: 9ch;
+}
+
+/* height: 100% of its own grid track, so the row IS the pitch the list computed. */
+.lh-h2h-row {
+    display: grid;
+    grid-template-columns: var(--lh-h2h-name-w) minmax(0, 1fr) var(--lh-h2h-rec-w);
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.lh-h2h-row:hover { background: var(--surface-hover); }
+
+/* A row is always selected, so this state is never merely decorative - it is what tells the reader which rivalry the card on the right belongs to. */
+.lh-h2h-row.selected {
+    background: var(--surface-accent);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.lh-h2h-row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+/* THE RIVALRY CARD. Its middle block is the flexible one, which is what guarantees the column fills whatever the depth arithmetic decided: the header, the lead line and the facts cost what they cost, and the per-season bars absorb every remaining pixel between them. */
+.lh-riv-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Scrolls rather than clips ( item 4). With the standings no longer yielding, a deep league genuinely leaves this column short, and a card that hides its own facts is worse than one the reader can scroll. The depth arithmetic keeps this unreachable at every count that fits. */
+    overflow-y: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-2);
+}
+
+.lh-riv-opp {
+    flex: 0 0 auto;
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-body);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lh-riv-lead {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* One track per season, 1fr apiece, in the block that owns the leftover. Same construction as the list column and for the same reason. */
+.lh-riv-seasons {
+    flex: 1 1 auto;
+    /* A floor, so a card whose facts wrapped onto extra lines gives up bar height rather than the bars themselves. 12px is still a readable bar under its year. */
+    min-height: calc(var(--lh-riv-season-rows, 1) * 12px);
+    display: grid;
+    grid-template-rows: repeat(var(--lh-riv-season-rows, 1), minmax(0, 1fr));
+    overflow: hidden;
+}
+
+.lh-riv-season {
+    display: grid;
+    grid-template-columns: 5ch minmax(0, 1fr) 9ch;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    font-size: 11px;
+}
+
+.lh-riv-year {
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+.lh-riv-facts {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--border);
+    margin-top: 6px;
+    padding-top: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Label left, value right, and they can never touch. space-between opens the row wide when the value is short - measured 240px on "Streak" - but the LONGEST RUN fact now carries its span, so the tight case is the common one and 8px of it was thin between a subtle label and a bold value. 12 is the floor; below that the value wraps under instead, which is the separation by another means. */
+.lh-riv-fact {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11px;
+    line-height: 15px;
+}
+
+.lh-riv-fact-l { color: var(--text-subtle); flex: 0 0 auto; }
+
+/* THE VALUE WRAPS, it does not ellipsize. Measured at 806px with 20 franchises staged, which is the narrowest this card ever gets - 172px - where "Lost, 2025 matchup 2" needed 112px against 79 and "2 straight by the Ice Wolves" needed 124: both were cut mid-word. An ellipsized fact is a fact nobody can read, and the label beside it makes that worse by looking complete. A second line costs height the season block above gives up, and only for the values that actually need it. */
+.lh-riv-fact-v {
+    color: var(--text-body);
+    font-weight: bold;
+    text-align: right;
+    min-width: 0;
+}
+
+.lh-riv-empty {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.lh-h2h-opp {
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The bar itself. Segments carry no width of their own - flex-grow is set inline from the record, so the split IS the win share and nothing here has to compute a percentage. A SHARE OF THE ROW, not a fixed height ( item 4). The list rows scale with the opponent count, so a bar pinned at 8px would look lost in a 50px row and crowd a 13px one. A percentage tracks the row it sits in for free, and the two bounds keep it a bar at both extremes. */
+.lh-h2h-track {
+    display: flex;
+    height: 34%;
+    min-height: 5px;
+    /* 20, not 14: a six-team league gives each row 65px, and a 14px bar in that much room read as a thin line with air around it rather than the tall bar the ruling asks for at low counts. */
+    max-height: 20px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--surface-sunken);
+}
+
+.lh-h2h-win { background: var(--success); }
+.lh-h2h-loss { background: var(--danger); }
+/* A tie is neither, so it reads as a sliver of nothing rather than a share of either. */
+.lh-h2h-tie { background: var(--text-faint); }
+
+.lh-h2h-track-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    height: auto;
+    font-size: 10px;
+    color: var(--text-faint);
+}
+
+.lh-h2h-rec {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--text-body);
+    font-weight: bold;
+}
+
+.lh-h2h-unmet .lh-h2h-rec { color: var(--text-faint); font-weight: normal; }
+
+/* Role pills for the careers groups, on My Team's face-tab chrome. That component reads its height from a variable declared on.mt-roster, which this block is not inside, so it is declared here too rather than letting the button fall back to the base sheet's 35px. */
+.lh-role-tabs {
+    --mt-face-tab-h: 18px;
+    flex: 0 0 auto;
+    margin: 0 0 6px 0;
+    align-self: flex-start;
+}
+
+/* A block that IS the pane rather than one of several in a band, so it fills what it is given. */
+.lh-block-fill { flex: 1 1 auto; min-height: 0; }
+
+/* THE BUG item 3 FIXES, named: this rule used to read.lh-cats { height: 100% }. CSS table layout distributes a table's surplus height across its ROW boxes, and td { height: 16px } above is a minimum in that algorithm rather than a cap - so nothing bounded the growth. Measured at 1280x800 with two seasons staged: a 326px table, an 18px thead, and two tbody rows of 154px each. Cells default to vertical-align: middle, so every row's text sat in the middle of its own 154px band, which is the header-floating-in-a-void the owner photographed. No margin, no space-between, no justify-content was involved - the gaps WERE the rows. The pitch now comes from the season count instead (categoryRowHeight in history.js, unit-tested): header directly on top of its rows at the pane's top, comfortable computed heights, and any leftover below left alone. */
+.lh-cats td, .lh-cats tbody th {
+    height: var(--lh-cats-row-h, 20px);
+    line-height: var(--lh-cats-row-h, 20px);
+    /* The year cell is a th, which the shared rule pads 3px top and bottom - and a table cell's height is content-box, so that padding was added ON TOP of the computed pitch and every row came out 7px taller than the arithmetic said. Zeroed here so the number the renderer computes is the number the row is. */
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+/* The season's format, as a badge rather than a word in a cell, so the eye can sort the rows by kind without reading them. Colours through the tokens, per golden rule 3. */
+.lh-format { white-space: nowrap; }
+
+.lh-format-badge {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    line-height: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-subtle);
+}
+
+.lh-format-roto { border-color: var(--accent-strong); color: var(--accent-strong); }
+.lh-format-cats { border-color: var(--accent); color: var(--accent); }
+
+/* Careers, one table per role group ( item 1), and since only ONE of them is drawn at a time - the pill above names it, so the group needs no heading of its own. */
+.lh-career-group {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* A count, with the names on hover. Underlined the way every other hinted value in the app is. */
+.lh-franchise-count {
+    text-align: center;
+    cursor: help;
+    border-bottom: 1px dotted var(--border);
+}
+
+/* Same affordance as the leaderboard's sortable columns, since it is the same gesture. */
+.lh-careers th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.lh-careers th.sortable:hover { color: var(--accent); }
+
+/* The career table is the one that scrolls in BOTH directions - as long as the league's whole roster history and as wide as every category ever scored. Its height comes from the band now, not a fixed cap, so it grows with the window instead of leaving dead space under it on a tall screen. */
+.lh-careers tbody th.lh-name {
+    position: sticky;
+    left: 0;
+    background: var(--surface);
+    z-index: 1;
+    text-align: left;
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+    color: var(--text-body);
+}
+
+.lh-careers thead th:first-child { z-index: 3; left: 0; }
+
+/* Stacking at 900px cost the tab a whole band of height at widths that still had room for two columns - six stacked blocks in an 800px window leaves each of them a strip. The split now holds down to the desktop floor, and the grids that no longer fit scroll sideways in their own frame, which they already did. Below 700px the mobile rules take over. The rail gives up its column below the tablet breakpoint and lies across the top, because a 20% rail of a 700px window is not a rail, it is a margin with words in it. */
+@media (max-width: 700px) {
+    .lh-layout { grid-template-columns: minmax(0, 1fr); }
+    .lh-rail { flex-direction: row; align-items: flex-start; gap: 10px; }
+    .lh-rail-flags { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+    .lh-rail-vitals { flex-direction: row; border-top: none; border-left: 2px solid var(--border); padding: 0 0 0 8px; margin: 0; gap: 8px; }
 }

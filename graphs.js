@@ -396,7 +396,7 @@ function renderRotoCategoryGraph() {
     // Full Season reads ESPN's official per-category points/values; a "last N weeks" pill re-scores over the window's started-day components, the same data the Team Rankings and heatmap window against. period names the timeframe in the hover so the number is never oversold.
     const bounds = activeRotoWindow(sport);
     const win = bounds ? computeRotoWindow(sport, bounds.start, bounds.end) : null;
-    const period = win ? 'in this window' : 'for the season';
+    const period = win ? 'in this timeframe' : 'for the season';
     const valFor = (team, id) => win ? win.catValuesByTeam.get(team.id)?.[id] : team.seasonCats[id];
     const ptsFor = (team, id) => win ? win.pointsByStatByTeam.get(team.id)?.[id] : team.rotoPointsByStat[id];
 

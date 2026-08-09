@@ -9,7 +9,7 @@ import {
     defaultRecapWeek, buildRecapModel, buildRecapText,
     detectMyTeamId, buildTeamMatchupRecapModel, buildTeamMatchupText
 } from '../recap.js';
-import { orderStatIdsByRole, splitStatIdsByRole, buildMatchupPeriodMap, matchupOfPeriod, getTimeframeBounds, parseTimeframe, injuryLabel, injuryBadgeHtml, playerPoolErrorText } from '../utils.js';
+import { orderStatIdsByRole, splitStatIdsByRole, buildMatchupPeriodMap, matchupOfPeriod, getTimeframeBounds, parseTimeframe, injuryLabel, injuryBadgeHtml, playerPoolErrorText, openingSortDir, leagueSeasonYears } from '../utils.js';
 import { buildRosterGroups, rostersFromPayload, findOwnedTeamId } from '../myteam.js';
 import { buildGamePeriodIndex, buildProTeamAbbrevs, typicalMatchupLength, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor } from '../probables.js';
 import {
@@ -18,6 +18,17 @@ import {
     SHORT_REST_ADJUSTMENT, MLB_PARK_FACTORS
 } from '../matchup-difficulty.js';
 import { numericStat } from '../utils.js';
+import { isAllowedLogoUrl } from '../images.js';
+import { countApiRequest, countImageRequest, getRequestTally } from '../utils.js';
+import {
+    franchiseKeyOf, teamDisplayName, seasonFormat, championKeyOf, summarizeSeason,
+    buildFranchises, allTimeRecords, headToHead, categoryUnion, careerRate, buildCareers, teamAbbrev,
+    careerValue, sortCareers, seasonFinished, categoryRowHeight,
+    CATEGORY_ROW_MIN, CATEGORY_ROW_MAX, CATEGORY_ROWS_BUDGET,
+    rivalryDetail, rivalrySplit, isPostseasonGame, recordText, runSpanText,
+    defaultFranchiseIndex, coverageSentence,
+    RIVALRY_CARD_SECTIONS
+} from '../history.js';
 
 const results = [];
 function test(name, fn) {
@@ -1625,6 +1636,672 @@ test('difficultyLabel: the five bands, at their boundaries', () => {
 test('daysBetween: whole days, and null when a date is missing', () => {
     assertEq(daysBetween(0, 86400000 * 4), 4, 'four days');
     assertEq(daysBetween(null, 86400000), null, 'a missing date yields null');
+});
+
+// ==== League History ( M1). The fixtures below mirror what was MEASURED in a real three-season league (docs/DATA-SOURCES.md section 9): the same franchise renames itself every year, a team slot changes hands between owners, franchises come and go, and the league switched from roto to head-to-head partway through. Every expected value is hand-computed. ====
+
+const SWID_A = '{AAAAAAAA-1111}';
+const SWID_B = '{BBBBBBBB-2222}';
+const SWID_C = '{CCCCCCCC-3333}';
+const SWID_D = '{DDDDDDDD-4444}';
+
+// 2024, ROTO. A wins it (rankCalculatedFinal 1). C plays this season only.
+const HIST_2024 = {
+    seasonId: 2024,
+    settings: { scoringSettings: { scoringType: 'ROTO', scoringItems: [{ statId: 1 }, { statId: 2 }] } },
+    schedule: [],
+    teams: [
+        { id: 1, primaryOwner: SWID_A, name: 'Old Name A', rankCalculatedFinal: 1, record: { overall: {} } },
+        { id: 2, primaryOwner: SWID_B, name: 'Old Name B', rankCalculatedFinal: 2, record: { overall: {} } },
+        { id: 3, primaryOwner: SWID_C, name: 'One Season C', rankCalculatedFinal: 3, record: { overall: {} } }
+    ]
+};
+
+// 2025, ROTO, and a TIE at the top - measured ranks are not unique, so no champion is crowned.
+const HIST_2025 = {
+    seasonId: 2025,
+    settings: { scoringSettings: { scoringType: 'ROTO', scoringItems: [{ statId: 1 }, { statId: 2 }] } },
+    schedule: [],
+    teams: [
+        { id: 1, primaryOwner: SWID_A, name: 'Mid Name A', rankCalculatedFinal: 1, record: { overall: {} } },
+        { id: 2, primaryOwner: SWID_B, name: 'Mid Name B', rankCalculatedFinal: 1, record: { overall: {} } }
+    ]
+};
+
+// 2026, HEAD-TO-HEAD. Slot 2 has changed hands: it is D now, not B. B keeps playing in slot 5.
+const HIST_2026 = {
+    seasonId: 2026,
+    settings: { scoringSettings: { scoringType: 'H2H_MOST_CATEGORIES', scoringItems: [{ statId: 2 }, { statId: 9 }] } },
+    teams: [
+        { id: 1, primaryOwner: SWID_A, name: 'New Name A', rankCalculatedFinal: 2, record: { overall: { wins: 3, losses: 1, ties: 0 } } },
+        { id: 2, primaryOwner: SWID_D, name: 'Newcomer D', rankCalculatedFinal: 3, record: { overall: { wins: 1, losses: 3, ties: 0 } } },
+        { id: 5, primaryOwner: SWID_B, name: 'New Name B', rankCalculatedFinal: 1, record: { overall: { wins: 2, losses: 1, ties: 1 } } }
+    ],
+    schedule: [
+        { matchupPeriodId: 1, playoffTierType: 'NONE', winner: 'HOME', home: { teamId: 1 }, away: { teamId: 2 } },
+        { matchupPeriodId: 1, playoffTierType: 'NONE', winner: 'AWAY', home: { teamId: 2 }, away: { teamId: 5 } },
+        { matchupPeriodId: 2, playoffTierType: 'NONE', winner: 'TIE', home: { teamId: 1 }, away: { teamId: 5 } },
+        { matchupPeriodId: 3, playoffTierType: 'NONE', winner: 'UNDECIDED', home: { teamId: 1 }, away: { teamId: 2 } },
+        { matchupPeriodId: 4, playoffTierType: 'WINNERS_BRACKET', winner: 'HOME', home: { teamId: 1 }, away: { teamId: 5 } },
+        { matchupPeriodId: 5, playoffTierType: 'WINNERS_BRACKET', winner: 'AWAY', home: { teamId: 1 }, away: { teamId: 5 } }
+    ]
+};
+
+test('franchiseKeyOf: the SWID, normalized, and teamId only as the fallback', () => {
+    assertEq(franchiseKeyOf({ id: 7, primaryOwner: '{abcd-1}' }), 'ABCD-1', 'braces and case normalized');
+    assertEq(franchiseKeyOf({ id: 7, owners: ['{abcd-1}'] }), 'ABCD-1', 'falls to owners[0]');
+    assertEq(franchiseKeyOf({ id: 7 }), 'team:7', 'no ownership data, so teamId - prefixed');
+    assertEq(franchiseKeyOf({}), null, 'nothing to key on at all');
+});
+
+test('seasonFormat and championKeyOf: the rule differs per format', () => {
+    assertEq(seasonFormat(HIST_2024), 'roto', 'roto season');
+    assertEq(seasonFormat(HIST_2026), 'h2h', 'category head-to-head season');
+    assertEq(championKeyOf(HIST_2024), 'AAAAAAAA-1111', '2024 roto champion is A');
+    assertEq(championKeyOf(HIST_2025), null, 'a tie at the top crowns nobody');
+    assertEq(championKeyOf(HIST_2026), 'BBBBBBBB-2222', '2026 champion is the last bracket winner');
+});
+
+test('summarizeSeason: a roto season has no W-L-T, and says so with nulls', () => {
+    const roto = summarizeSeason(HIST_2024);
+    assertEq(roto.countsTowardRecords, false, 'roto keeps no record');
+    assertEq(roto.franchises[0].wins, null, 'null, not a fabricated 0');
+    const h2h = summarizeSeason(HIST_2026);
+    assertEq(h2h.countsTowardRecords, true, 'head-to-head does keep one');
+    assertEq(h2h.franchises[0].wins, 3, 'A won 3');
+});
+
+// rider: the card's fact values speak in abbreviations, so a franchise has to carry one.
+test('teamAbbrev: the abbreviation the league set, or the derived fallback', () => {
+    assertEq(teamAbbrev({ abbrev: 'IW', name: 'Ice Wolves' }), 'IW', 'the one the league set wins');
+    assertEq(teamAbbrev({ name: 'Rink Rats' }), 'RINK', 'four characters, uppercased, when none is set');
+    assertEq(teamAbbrev({ abbrev: '   ', name: 'Rink Rats' }), 'RINK', 'blank counts as none');
+    assertEq(teamAbbrev({ location: 'Ice', nickname: 'Wolves' }), 'ICE ', 'built from location and nickname like the name is');
+    assertEq(teamAbbrev({ name: 'AB' }), 'AB', 'a short name is not padded');
+    assertEq(teamAbbrev(null), '', 'and nothing is nothing');
+});
+
+test('buildFranchises: the abbreviation follows the name, latest season wins', () => {
+    const list = buildFranchises([HIST_2024, HIST_2026].map(summarizeSeason));
+    const a = list.find(f => f.key === 'AAAAAAAA-1111');
+    assertEq(a.name, 'New Name A', 'the latest name, as before');
+    assertEq(a.abbrev, teamAbbrev({ name: 'New Name A' }), 'and the abbreviation from that same season');
+});
+
+test('buildFranchises: most recent name wins, and the old ones are remembered', () => {
+    const seasons = [HIST_2026, HIST_2024, HIST_2025].map(summarizeSeason);
+    const all = buildFranchises(seasons);
+    assertEq(all.length, 4, 'A, B, C and D across the three seasons');
+    const a = all.find(f => f.key === 'AAAAAAAA-1111');
+    assertEq(a.name, 'New Name A', 'the 2026 name, because it is the most recent');
+    assertEq(a.formerNames, ['Old Name A', 'Mid Name A'], 'the earlier names, current one excluded');
+    assertEq(a.seasons, [2024, 2025, 2026], 'played all three');
+    const c = all.find(f => f.key === 'CCCCCCCC-3333');
+    assertEq(c.seasons, [2024], 'C played once and left');
+    const d = all.find(f => f.key === 'DDDDDDDD-4444');
+    assertEq(d.seasons, [2026], 'D arrived for 2026 and took the slot B used to hold');
+});
+
+test('allTimeRecords: only the seasons that keep a record are summed', () => {
+    const { rows, countedYears } = allTimeRecords([HIST_2024, HIST_2025, HIST_2026].map(summarizeSeason));
+    assertEq(countedYears, [2026], 'the two roto seasons contribute no games');
+    const b = rows.find(r => r.key === 'BBBBBBBB-2222');
+    assertEq([b.wins, b.losses, b.ties], [2, 1, 1], 'B summed over the one counted season');
+    assertEq(b.winPct, 0.625, 'a tie is half a win: (2 + 0.5) / 4');
+    assertEq(b.titles, 1, 'B won 2026');
+    assertEq(b.seasonsPlayed, 3, 'played all three even though only one counts for record');
+    const a = rows.find(r => r.key === 'AAAAAAAA-1111');
+    assertEq(a.titles, 1, 'A won the 2024 roto season');
+    const c = rows.find(r => r.key === 'CCCCCCCC-3333');
+    assertEq(c.winPct, null, 'C only ever played roto, so it has no win percentage at all');
+    assertEq(c.recordSeasons, 0, 'and no seasons that keep one');
+});
+
+test('headToHead: head-to-head seasons only, byes and undecided games ignored', () => {
+    const seasons = [HIST_2024, HIST_2025, HIST_2026].map(summarizeSeason);
+    const pairs = headToHead(seasons, { 2024: HIST_2024, 2025: HIST_2025, 2026: HIST_2026 });
+    const ab = pairs.find(p => p.a === 'AAAAAAAA-1111' && p.b === 'BBBBBBBB-2222');
+    // A and B meet three times in 2026: a tie in the regular season and two WINNERS_BRACKET games. Since item 1 the record is the regular season, so it is the tie alone - and the two bracket games ride alongside it rather than inside it. This expectation was [1, 1, 1] while the record counted everything, which is the disagreement with the standings that entry fixed.
+    assertEq([ab.aWins, ab.bWins, ab.ties], [0, 0, 1], 'the tie is the whole regular-season record');
+    assertEq(ab.postseason, 2, 'and both bracket games are counted beside it');
+    const ad = pairs.find(p => p.a === 'AAAAAAAA-1111' && p.b === 'DDDDDDDD-4444');
+    assertEq([ad.aWins, ad.bWins, ad.ties], [1, 0, 0], 'A beat D once');
+    assertEq(ad.postseason, 0, 'that pair never met in the postseason');
+    assertEq(pairs.length, 3, 'three pairings, and nothing from the roto seasons');
+});
+
+test('categoryUnion: every category ever scored, with the seasons it was scored in', () => {
+    const u = categoryUnion([HIST_2024, HIST_2025, HIST_2026].map(summarizeSeason));
+    assertEq(u.totalSeasons, 3, 'three seasons in the union');
+    const stat1 = u.stats.find(s => s.statId === '1');
+    const stat2 = u.stats.find(s => s.statId === '2');
+    const stat9 = u.stats.find(s => s.statId === '9');
+    assertEq(stat2.scoredIn, [2024, 2025, 2026], 'stat 2 survived the format change');
+    assertEq(stat1.scoredIn, [2024, 2025], 'stat 1 was dropped for 2026');
+    assertEq(stat9.scoredIn, [2026], 'stat 9 is new in 2026');
+    assertEq(u.stats[0].statId, '2', 'most-covered category sorts first');
+});
+
+test('careerRate: summed components, never averaged season rates', () => {
+    const spec = { numerator: ['h'], denominator: ['ab'] };
+    assertEq(careerRate({ h: 4 + 18, ab: 10 + 90 }, spec), 0.22, 'weighted by the components, not the seasons');
+    assertEq(careerRate({ h: 5 }, spec), null, 'a missing component is null, not a guess');
+    assertEq(careerRate({ h: 5, ab: 0 }, spec), null, 'no division by zero');
+    assertEq(careerRate({ er: 30, ip: 90 }, { numerator: ['er'], denominator: ['ip'], scale: 9 }), 3,
+        'the scale is applied once, after the division');
+});
+
+// League History M4: careers in this league. The pools below mirror what was measured - a season total sits at statSourceId 0 with statSplitTypeId 0, most of a pool is unrostered, and a player keeps his id while his printed name drifts. Every expected value is hand-computed.
+
+const seasonTotal = (stats) => ({ stats: [{ statSourceId: 0, statSplitTypeId: 0, stats }] });
+
+// 2024 roto: Alpha on team 1, Beta on team 2, and one free agent nobody owned.
+const POOL_2024 = { players: [
+    { id: 10, onTeamId: 1, player: { fullName: 'Al Alpha', ...seasonTotal({ '1': 40, '0': 100 }) } },
+    { id: 20, onTeamId: 2, player: { fullName: 'Bo Beta', ...seasonTotal({ '1': 10, '0': 50 }) } },
+    { id: 99, onTeamId: 0, player: { fullName: 'Never Owned', ...seasonTotal({ '1': 99, '0': 99 }) } }
+] };
+// 2026 head-to-head: Alpha has moved to team 5, and his printed name has changed.
+const POOL_2026 = { players: [
+    { id: 10, onTeamId: 5, player: { fullName: 'Alan Alpha', ...seasonTotal({ '1': 18, '0': 90 }) } },
+    { id: 30, onTeamId: 1, player: { fullName: 'Cy Gamma', ...seasonTotal({ '1': 25, '0': 75 }) } }
+] };
+
+// summarizeSeason output is what maps a team slot to a franchise, so the fixtures reuse the real shape rather than a hand-rolled one.
+const CAREER_SEASONS = {
+    2024: summarizeSeason({
+        seasonId: 2024,
+        settings: { scoringSettings: { scoringType: 'ROTO', scoringItems: [{ statId: 1 }] } },
+        schedule: [],
+        teams: [
+            { id: 1, primaryOwner: SWID_A, name: 'A', rankCalculatedFinal: 1, record: { overall: {} } },
+            { id: 2, primaryOwner: SWID_B, name: 'B', rankCalculatedFinal: 2, record: { overall: {} } }
+        ]
+    }),
+    2026: summarizeSeason({
+        seasonId: 2026,
+        settings: { scoringSettings: { scoringType: 'H2H_MOST_CATEGORIES', scoringItems: [{ statId: 1 }] } },
+        schedule: [],
+        teams: [
+            { id: 1, primaryOwner: SWID_A, name: 'A', rankCalculatedFinal: 1, record: { overall: { wins: 1, losses: 0, ties: 0 } } },
+            { id: 5, primaryOwner: SWID_B, name: 'B', rankCalculatedFinal: 2, record: { overall: { wins: 0, losses: 1, ties: 0 } } }
+        ]
+    })
+};
+
+// item 5. The bug: the franchise column read the pool's onTeamId, which is the roster at the MOMENT OF THE FETCH. A player dropped before it attributed to nobody - and the early return meant his stats and the season itself went too, so a drafted-and-dropped player lost a whole year. Measured on a real capture: 138 of 1039 pool entries were rostered at fetch time. The ruling is that any stint counts however short, so the transaction log decides. ownersByYear is { year: Map<playerId, teamId[]> } - see ownerTeamIdsByPlayer, unit-tested in the rank-engine suite. franchiseKeyOf strips the braces ESPN wraps a SWID in, so the keys a career row carries are the bare form. Named once here rather than re-derived in four expectations.
+const KEY_A = SWID_A.replace(/[{}]/g, '').toUpperCase();
+const KEY_B = SWID_B.replace(/[{}]/g, '').toUpperCase();
+
+const DROPPED_POOL = { players: [
+    // Rostered by nobody when the pool was read, but team 1 drafted and held him that season.
+    { id: 40, onTeamId: 0, player: { fullName: 'Drafted Then Dropped', ...seasonTotal({ '1': 7, '0': 30 }) } },
+    { id: 20, onTeamId: 2, player: { fullName: 'Bo Beta', ...seasonTotal({ '1': 10, '0': 50 }) } }
+] };
+
+test('buildCareers: a player dropped before the fetch still counts, with his franchise', () => {
+    const owners = { 2024: new Map([[40, [1]]]) };
+    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS, owners);
+    const dropped = rows.find(r => r.id === 40);
+    assert(!!dropped, 'he is in the table at all, which the onTeamId gate used to prevent');
+    assertEq(dropped.seasons, [2024], 'the season counts');
+    assertEq(dropped.totals['1'], 7, 'and so do his numbers for it');
+    assertEq(dropped.franchiseKeys, [KEY_A], 'attributed to the franchise that held him');
+});
+
+test('buildCareers: without the log, the old onTeamId basis is the fallback', () => {
+    // Golden rule 8: an unreadable season degrades to the incomplete answer rather than a blank one.
+    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS);
+    assertEq(rows.some(r => r.id === 40), false, 'the dropped player is missing, as he was before');
+    assertEq(rows.find(r => r.id === 20).franchiseKeys, [KEY_B], 'the rostered one is unaffected');
+});
+
+test('buildCareers: every franchise that held him that season, in the order they did', () => {
+    // Traded mid-season: both franchises count, because any stint counts.
+    const owners = { 2024: new Map([[20, [1, 2]]]) };
+    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS, owners);
+    assertEq(rows.find(r => r.id === 20).franchiseKeys, [KEY_A, KEY_B],
+        'both, first-held first, rather than only the one holding him at the fetch');
+});
+
+test('buildCareers: the log wins over onTeamId when they disagree', () => {
+    // A player picked up after the last transaction slice would read one team from the snapshot and another from the log. The log is the record of the season, so it decides.
+    const owners = { 2024: new Map([[20, [1]]]) };
+    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS, owners);
+    assertEq(rows.find(r => r.id === 20).franchiseKeys, [KEY_A], 'the log, not the snapshot');
+});
+
+test('buildCareers: components sum across seasons, and only rostered players count', () => {
+    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
+    assertEq(rows.some(r => r.id === 99), false, 'a player nobody ever rostered is not league history');
+    const alpha = rows.find(r => r.id === 10);
+    // 40 + 18 hits over 100 + 90 at-bats.
+    assertEq(alpha.totals['1'], 58, 'hits summed across both seasons');
+    assertEq(alpha.totals['0'], 190, 'at-bats summed across both seasons');
+    assertEq(alpha.seasons, [2024, 2026], 'both seasons, in order');
+});
+
+test('buildCareers: a roto season counts exactly like a head-to-head one', () => {
+    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
+    const alpha = rows.find(r => r.id === 10);
+    // 2024 was roto and 2026 head-to-head. Components are format-neutral, so both are in the total.
+    assertEq(alpha.totals['1'], 40 + 18, 'the roto season is not skipped the way records skip it');
+    const beta = rows.find(r => r.id === 20);
+    assertEq(beta.seasons, [2024], 'a roto-only player still has a career');
+    assertEq(beta.totals['1'], 10, 'and real totals in it');
+});
+
+test('buildCareers: a player who changed franchises carries both, newest name wins', () => {
+    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
+    const alpha = rows.find(r => r.id === 10);
+    // Team 1 in 2024 is SWID_A; team 5 in 2026 is SWID_B. Same player, two franchises.
+    assertEq(alpha.franchiseKeys, ['AAAAAAAA-1111', 'BBBBBBBB-2222'], 'both franchises, in the order played');
+    assertEq(alpha.name, 'Alan Alpha', 'the most recent spelling, since the id is the identity');
+});
+
+test('buildCareers: a player present in one season only', () => {
+    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
+    const gamma = rows.find(r => r.id === 30);
+    assertEq(gamma.seasons, [2026], 'arrived for the last season');
+    assertEq(gamma.totals['1'], 25, 'his one season is the whole career');
+    assertEq(gamma.franchiseKeys, ['AAAAAAAA-1111'], 'one franchise');
+});
+
+test('careerValue: a counting stat sums, a rate is rebuilt from the components', () => {
+    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
+    const alpha = rows.find(r => r.id === 10);
+    const specs = [{ out: '2', num: ['1'], den: ['0'] }];
+    assertEq(careerValue(alpha, '1', specs), 58, 'a counting stat is the sum');
+    // 58/190 =.30526..., NOT the average of.400 and.200 which would be.300.
+    const avg = careerValue(alpha, '2', specs);
+    assertEq(Math.round(avg * 100000) / 100000, 0.30526, 'the rate comes from summed components');
+    assert(avg !== 0.3, 'and is not the average of the two season averages');
+    assertEq(careerValue(alpha, '77', specs), null, 'a stat he has no component for is null');
+});
+
+// : a team logo loads only when ESPN is serving it. The request itself is the disclosure, so this gate decides whether an <img> is written at all - not whether one is hidden afterwards.
+test('isAllowedLogoUrl: ESPN family only, and the host is matched not searched', () => {
+    assert(isAllowedLogoUrl('https://g.espncdn.com/lm-static/logo-packs/core/Bears.svg'), 'the measured ESPN gallery host');
+    assert(isAllowedLogoUrl('https://a.espncdn.com/i/teamlogos/x.png'), 'any espncdn subdomain');
+    assert(isAllowedLogoUrl('https://espn.com/x.png'), 'the bare domain');
+    assert(isAllowedLogoUrl('https://fantasy.espn.com/x.png'), 'and its subdomains');
+    // The measured third-party case: a manager-pasted YouTube thumbnail.
+    assert(!isAllowedLogoUrl('https://i.ytimg.com/vi/abc/hqdefault.jpg'), 'YouTube is not ESPN');
+    // A substring test would pass this, which is exactly why the check is host equality.
+    assert(!isAllowedLogoUrl('https://g.espncdn.com.evil.example/spoof.png'), 'a lookalike host is refused');
+    assert(!isAllowedLogoUrl('https://notespn.com/x.png'), 'and so is a suffix without the dot');
+    assert(!isAllowedLogoUrl('http://g.espncdn.com/x.png'), 'plain http is refused even on an allowed host');
+    assert(!isAllowedLogoUrl('javascript:alert(1)'), 'not a fetchable scheme');
+    assert(!isAllowedLogoUrl('not a url at all'), 'unparseable is refused, not guessed at');
+    assert(!isAllowedLogoUrl(''), 'empty');
+    assert(!isAllowedLogoUrl(null), 'absent, which is the common case');
+});
+
+// item 4: the rivalry card's facts. Two franchises, six meetings, hand-counted below - the numbers here are worked out from the fixture by hand and not read off the implementation. 2024 p1 A beat B 2025 p1 A beat B 2024 p2 B beat A 2025 p2 A beat B 2024 p3 tie 2024 p20 A beat B, playoff 2023 roto, so it contributes nothing at all TWO BASES ON ONE CARD, which ruled and this fixture is built to show: RATIO facts - the record and the season bars - count the five REGULAR meetings: A 3, B 1, one tie. They have to reconcile with the rivalry row and the standings. SEQUENCE facts - the streak and the longest run - count all SIX, playoff included, because a run that survives a playoff loss is not a run. So this fixture deliberately prints "3 straight" beside a 3-1-1 record, and the playoff-meetings fact is what reconciles them.
+const RIV_A = 'KEY-A';
+const RIV_B = 'KEY-B';
+const rivGame = (period, winner, tier) => ({
+    matchupPeriodId: period,
+    playoffTierType: tier || 'NONE',
+    winner,
+    home: { teamId: 1 },
+    away: { teamId: 2 }
+});
+const RIV_SEASONS = [
+    { year: 2023, countsTowardRecords: false, franchises: [{ teamId: 1, key: RIV_A }, { teamId: 2, key: RIV_B }] },
+    { year: 2024, countsTowardRecords: true, franchises: [{ teamId: 1, key: RIV_A }, { teamId: 2, key: RIV_B }] },
+    { year: 2025, countsTowardRecords: true, franchises: [{ teamId: 1, key: RIV_A }, { teamId: 2, key: RIV_B }] }
+];
+const RIV_PAYLOADS = {
+    2023: { schedule: [rivGame(1, 'HOME'), rivGame(2, 'HOME')] },
+    // Deliberately out of order, since a schedule array's order is not promised to be chronological and every claim below is about order.
+    2024: { schedule: [rivGame(20, 'HOME', 'WINNERS_BRACKET'), rivGame(2, 'AWAY'), rivGame(1, 'HOME'), rivGame(3, 'TIE')] },
+    2025: { schedule: [rivGame(1, 'HOME'), rivGame(2, 'HOME')] }
+};
+
+test('rivalryDetail: the record, per season, from the first franchise point of view', () => {
+    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
+    assertEq(d.meetings.length, 6, 'six counted meetings - the roto season contributes none');
+    assertEq(d.total, { w: 3, l: 1, t: 1 }, 'hand-counted over the five regular-season meetings');
+    assertEq(d.seasons.map(s => `${s.year} ${s.w}-${s.l}-${s.t}`), ['2024 1-1-1', '2025 2-0-0'],
+        'and split by season, oldest first, the playoff game left out of 2024');
+});
+
+test('rivalryDetail: meetings are ordered by matchup period, not by array order', () => {
+    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
+    assertEq(d.meetings.map(m => `${m.year}.${m.period}`),
+        ['2024.1', '2024.2', '2024.3', '2024.20', '2025.1', '2025.2'],
+        '2024 was fed in shuffled and comes back in order');
+    assertEq(`${d.last.year}.${d.last.period}`, '2025.2', 'so the last meeting is the real last one');
+    assertEq(d.last.result, 'a', 'which the first franchise won');
+});
+
+test('rivalryDetail: a tie ends a streak, and the playoff win is inside it (B175)', () => {
+    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
+    // Backwards over ALL meetings: 2025 p2 (A), 2025 p1 (A), 2024 p20 (A, playoff) - then 2024 p3 is a tie and stops it. Three, hand-counted, where the regular-season-only basis said two.
+    assertEq(d.streak, { side: 'a', count: 3 }, 'three straight, the playoff win among them');
+    assertEq(d.longest, {
+        side: 'a',
+        count: 3,
+        meetings: [
+            { year: 2024, period: 20, playoff: true },
+            { year: 2025, period: 1, playoff: false },
+            { year: 2025, period: 2, playoff: false }
+        ]
+    }, 'and that run is also the longest, carrying every meeting and which kind it was');
+    assertEq(runSpanText(d.longest), 'Season 2024 Matchup 20 Playoffs, Season 2025 Matchup 1, and 2',
+        'the enumeration marks the playoff coordinate in place');
+    // The ratio facts are untouched by any of that - item 1 still holds.
+    assertEq(d.total, { w: 3, l: 1, t: 1 }, 'the record still counts the regular season only');
+    assertEq(d.seasons.map(s => `${s.year} ${s.w}-${s.l}-${s.t}`), ['2024 1-1-1', '2025 2-0-0'],
+        'and so do the season bars');
+});
+
+// The two cases the ruling names, staged rather than reasoned about.
+test('rivalryDetail: a playoff WIN extends a run', () => {
+    const seasons = [RIV_SEASONS[2]];
+    const payloads = { 2025: { schedule: [
+        rivGame(1, 'HOME'),
+        rivGame(2, 'HOME'),
+        rivGame(25, 'HOME', 'WINNERS_BRACKET')
+    ] } };
+    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
+    assertEq(d.streak, { side: 'a', count: 3 }, 'two regular wins and the playoff win is a run of three');
+    assertEq(d.total, { w: 2, l: 0, t: 0 }, 'while the record still shows the two regular wins');
+    assertEq(runSpanText(d.longest), 'Season 2025 Matchup 1, 2, and 25 Playoffs', 'the playoff game named as one');
+});
+
+test('rivalryDetail: a playoff LOSS breaks a run - the case the owner caught', () => {
+    // A wins two, loses the playoff game, wins one more. The old basis skipped the loss entirely and called it a run of three; it is a run of one, and the run of two before it is the longest.
+    const seasons = [RIV_SEASONS[2]];
+    const payloads = { 2025: { schedule: [
+        rivGame(1, 'HOME'),
+        rivGame(2, 'HOME'),
+        rivGame(25, 'AWAY', 'WINNERS_BRACKET'),
+        rivGame(26, 'HOME')
+    ] } };
+    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
+    assertEq(d.streak, { side: 'a', count: 1 }, 'the current streak is one - the playoff loss stopped it');
+    assertEq(d.longest.count, 2, 'and the longest run is the two before that loss, not three');
+    assertEq(runSpanText(d.longest), 'Season 2025 Matchup 1 and 2', 'named without the game that ended it');
+    assertEq(d.total, { w: 3, l: 0, t: 0 }, 'the record is unmoved - it never counted the playoff loss');
+    assertEq(d.playoff, { total: 1, aWins: 0, bWins: 1, ties: 0 }, 'which the playoff fact reports instead');
+});
+
+test('rivalryDetail: postseason meetings are counted apart from the rest', () => {
+    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
+    assertEq(d.playoff, { total: 1, aWins: 1, bWins: 0, ties: 0 }, 'one, and the first franchise won it');
+});
+
+test('rivalryDetail: reversing the pair reverses every answer', () => {
+    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_B, RIV_A);
+    assertEq(d.total, { w: 1, l: 3, t: 1 }, 'the same meetings read from the other side');
+    assertEq(d.streak, { side: 'b', count: 3 }, 'the streak belongs to the other franchise now');
+    assertEq(d.playoff.aWins, 0, 'and so does the playoff win');
+});
+
+test('rivalryDetail: two franchises who never met answer with zeroes, not with nulls', () => {
+    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, 'KEY-NOBODY');
+    assertEq(d.meetings.length, 0, 'no meetings');
+    assertEq(d.total, { w: 0, l: 0, t: 0 }, 'an empty record rather than a missing one');
+    assertEq(d.streak, null, 'nothing to have a streak about');
+    assertEq(d.last, null, 'and no last meeting');
+    assertEq(rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_A).meetings.length, 0,
+        'and nobody is their own rival');
+});
+
+test('rivalryDetail: an undecided game is not a meeting yet', () => {
+    const payloads = { 2025: { schedule: [rivGame(1, 'HOME'), rivGame(2, 'UNDECIDED')] } };
+    const seasons = [RIV_SEASONS[2]];
+    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
+    assertEq(d.meetings.length, 1, 'the week that has not been played does not count');
+    assertEq(d.total, { w: 1, l: 0, t: 0 }, 'and cannot be a loss for anybody');
+});
+
+// item 1. The bug: the pager summed every decided game and the standings sum ESPN's own record.overall, which counts the regular season only - diagnosed across 11 real captures, where every league with a postseason tier disagreed for every team and every league without one agreed. The owner's case was 11-9-1 against 12-10-1, that franchise's two postseason games.
+test('headToHead: the pair record counts the regular season, matching the standings basis', () => {
+    const pairs = headToHead(RIV_SEASONS, RIV_PAYLOADS);
+    assertEq(pairs.length, 1, 'one pair');
+    const p = pairs[0];
+    const aFirst = p.a === RIV_A;
+    assertEq(aFirst ? p.aWins : p.bWins, 3, 'three regular-season wins, not four');
+    assertEq(aFirst ? p.bWins : p.aWins, 1, 'one loss');
+    assertEq(p.ties, 1, 'one tie');
+    assertEq(p.postseason, 1, 'and the playoff game is carried beside the record, not inside it');
+});
+
+test('headToHead: a pair whose only meeting was a playoff game is still a pair', () => {
+    // Otherwise the row would read "Never met" about two franchises who met in a final.
+    const payloads = { 2025: { schedule: [rivGame(20, 'HOME', 'WINNERS_BRACKET')] } };
+    const pairs = headToHead([RIV_SEASONS[2]], payloads);
+    assertEq(pairs.length, 1, 'the pair exists');
+    assertEq(pairs[0].aWins + pairs[0].bWins + pairs[0].ties, 0, 'with an empty record');
+    assertEq(pairs[0].postseason, 1, 'and one postseason meeting to explain it');
+});
+
+test('recordText: one W-L-T form, so the same record cannot read as two values', () => {
+    assertEq(recordText(54, 9, 0), '54-9', 'a zero tie is dropped');
+    assertEq(recordText(33, 27, 3), '33-27-3', 'a real tie is kept');
+    assertEq(recordText(0, 0, 0), '0-0', 'and an empty record is still a record');
+    assertEq(recordText(null, undefined, NaN), '0-0', 'missing numbers read as none, never as NaN');
+});
+
+test('isPostseasonGame: NONE and a missing tier are the regular season, everything else is not', () => {
+    assert(!isPostseasonGame({ playoffTierType: 'NONE' }), 'the measured regular-season value');
+    assert(!isPostseasonGame({}), 'a game with no tier field at all');
+    assert(isPostseasonGame({ playoffTierType: 'WINNERS_BRACKET' }), 'the bracket');
+    assert(isPostseasonGame({ playoffTierType: 'WINNERS_CONSOLATION_LADDER' }), 'and both ladders');
+    assert(isPostseasonGame({ playoffTierType: 'LOSERS_CONSOLATION_LADDER' }), 'measured in the fixtures');
+});
+
+// item 3: the pane opens on the reader's own franchise, the way the other tabs do.
+test('defaultFranchiseIndex: the SWID wins, whatever order the franchises came in', () => {
+    const list = [{ key: 'AAAA-1' }, { key: 'BBBB-2' }, { key: 'CCCC-3' }];
+    assertEq(defaultFranchiseIndex(list, '{bbbb-2}'), 1, 'braces and case are normalized on both sides');
+    assertEq(defaultFranchiseIndex(list, 'CCCC-3'), 2, 'a bare SWID matches too');
+    assertEq(defaultFranchiseIndex(list, 'ZZZZ-9'), 0, 'a league the reader is not in opens on the first');
+    assertEq(defaultFranchiseIndex(list, ''), 0, 'and so does a session with no SWID at all');
+    assertEq(defaultFranchiseIndex([], 'AAAA-1'), 0, 'an empty league cannot throw');
+});
+
+// item 6: the owner's sentence, with both year lists computed.
+test('coverageSentence: names what is covered and what is not, and stays quiet when all of it is', () => {
+    assertEq(coverageSentence([2026], [2024, 2025, 2026]),
+        'Covers 2026. 2024 and 2025 are not applicable given they are not head to head.',
+        "the owner's template, verbatim, with the years filled in");
+    assertEq(coverageSentence([2025, 2026], [2024, 2025, 2026]),
+        'Covers 2025 and 2026. 2024 is not applicable given it is not head to head.',
+        'one leftover year takes the singular verb');
+    assertEq(coverageSentence([2026], [2022, 2023, 2024, 2026]),
+        'Covers 2026. 2022, 2023, and 2024 are not applicable given they are not head to head.',
+        'three or more take the Oxford comma');
+    assertEq(coverageSentence([2025, 2026], [2025, 2026]), '',
+        'nothing to say when every season is head to head');
+    assertEq(coverageSentence([], [2024, 2025]), '',
+        'and nothing to say when none of them is - the empty-pane note covers that');
+});
+
+// The split and the depth are the two sizing rules the pane computes, and both read counts against constants rather than measuring what was rendered (the rule).
+test('rivalrySplit: even while the list is short, list-heavy once it is long', () => {
+    assertEq(rivalrySplit(5), 0.5, 'a six-team league splits down the middle');
+    assertEq(rivalrySplit(8), 0.5, 'and still does at the top of the even band');
+    assertEq(rivalrySplit(19), 0.6, 'a twenty-team league gives the list three fifths');
+    assertEq(rivalrySplit(12), 0.55, 'and the middle is interpolated, not stepped');
+    assert(rivalrySplit(0) === 0.5 && rivalrySplit(-2) === 0.5, 'a nonsense count still splits evenly');
+});
+
+// : the run says WHEN. Same season collapses the second season name. item 2: the meetings are named, not ranged. "Matchup 10 to 20" described eleven matchups when the run was two wins.
+const runOf = (...pairs) => ({ meetings: pairs.map(([year, period]) => ({ year, period })) });
+
+test('runSpanText: the run names its meetings, restating the season only when it changes', () => {
+    assertEq(runSpanText(runOf([2026, 10])), 'Season 2026 Matchup 10', 'one meeting');
+    assertEq(runSpanText(runOf([2026, 10], [2026, 20])), 'Season 2026 Matchup 10 and 20', 'two');
+    assertEq(runSpanText(runOf([2026, 10], [2026, 15], [2026, 20])), 'Season 2026 Matchup 10, 15, and 20',
+        'three or more take the Oxford comma VOICE.md asks for');
+    assertEq(runSpanText(runOf([2023, 20], [2024, 2], [2024, 5])),
+        'Season 2023 Matchup 20, Season 2024 Matchup 2, and 5',
+        'the season is restated where the year changes, and only there');
+    assertEq(runSpanText(runOf([2026, 10], [2026, 20])), 'Season 2026 Matchup 10 and 20',
+        'a list of two takes no comma, which is the same rule rather than an exception');
+    assertEq(runSpanText(null), '', 'no run, nothing to say');
+    assertEq(runSpanText({ count: 3 }), '', 'and a run with no meetings says nothing rather than guessing');
+});
+
+test('runSpanText: a playoff meeting is marked where it sits (B175)', () => {
+    const withPlayoff = { meetings: [
+        { year: 2025, period: 19, playoff: false },
+        { year: 2026, period: 2, playoff: true },
+        { year: 2026, period: 5, playoff: false }
+    ] };
+    assertEq(runSpanText(withPlayoff), 'Season 2025 Matchup 19, Season 2026 Matchup 2 Playoffs, and 5',
+        'the marker rides without a comma, which inside a list would read as another item');
+    assertEq(runSpanText({ meetings: [{ year: 2026, period: 25, playoff: true }] }),
+        'Season 2026 Matchup 25 Playoffs', 'a run of one playoff game still says which kind it was');
+});
+
+// item 1: the last meeting is about recency, so it is the only fact that counts playoff games.
+test('rivalryDetail: the last meeting is the last of ANY kind, playoffs included', () => {
+    const seasons = [RIV_SEASONS[2]];
+    const payloads = { 2025: { schedule: [
+        rivGame(2, 'HOME'),
+        rivGame(25, 'AWAY', 'WINNERS_BRACKET')
+    ] } };
+    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
+    assertEq(d.last.period, 25, 'the playoff game is the most recent meeting, so it is the last one');
+    assert(d.last.playoff === true, 'and it is marked, so the card can say so');
+    assertEq(d.total, { w: 1, l: 0, t: 0 }, 'while the RECORD still counts the regular season only');
+    assertEq(d.playoff.total, 1, 'with the playoff meeting counted in its own fact');
+});
+
+// item 3. The bug was a table told to be 100% tall handing its surplus to the row boxes; the replacement is this arithmetic, so the rule that used to live in a stylesheet is testable.
+test('categoryRowHeight: a budget divided by a count, clamped at both ends', () => {
+    assertEq(categoryRowHeight(2), CATEGORY_ROW_MAX, 'two seasons cannot each take 160px - the cap holds');
+    assertEq(categoryRowHeight(4), CATEGORY_ROW_MAX, 'and four still ask for more than the cap allows');
+    assertEq(categoryRowHeight(10), Math.floor(CATEGORY_ROWS_BUDGET / 10), 'ten fit under it and take their share');
+    assertEq(categoryRowHeight(40), CATEGORY_ROW_MIN, 'a long league stops shrinking and scrolls instead');
+    assertEq(categoryRowHeight(1), CATEGORY_ROW_MAX, 'one season is a cap case, not a whole-pane row');
+});
+
+test('categoryRowHeight: a nonsense count still returns a usable pitch', () => {
+    assertEq(categoryRowHeight(0), CATEGORY_ROW_MAX, 'no seasons cannot divide by zero');
+    assertEq(categoryRowHeight(-3), CATEGORY_ROW_MAX, 'nor by a negative one');
+    assertEq(categoryRowHeight(2.7), CATEGORY_ROW_MAX, 'a fraction floors to a whole count');
+});
+
+// item 8: the session request tally. One live counter, so every assertion is a DELTA - the page under test has already made calls of its own and a test that expected absolute numbers would pass alone and fail in the suite.
+test('request tally: two groups that never mix, split by host and kind', () => {
+    const t = getRequestTally();
+    const before = JSON.parse(JSON.stringify(t));
+    countApiRequest('https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/x', 'league');
+    countApiRequest('https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/y', 'weekly');
+    countApiRequest('https://fan.api.espn.com/apis/v2/fans/x', 'league list');
+    countImageRequest('https://a.espncdn.com/i/headshots/nhl/players/full/1.png');
+
+    assertEq(t.api.total - before.api.total, 3, 'three api calls');
+    assertEq(t.images.total - before.images.total, 1, 'and one image, counted apart from them');
+    assertEq((t.api.byHost['lm-api-reads.fantasy.espn.com'] || 0) - (before.api.byHost['lm-api-reads.fantasy.espn.com'] || 0), 2,
+        'two on the fantasy read host');
+    assertEq((t.api.byHost['fan.api.espn.com'] || 0) - (before.api.byHost['fan.api.espn.com'] || 0), 1,
+        'one on the discovery host');
+    assertEq((t.api.byKind['weekly'] || 0) - (before.api.byKind['weekly'] || 0), 1, 'kinds are counted separately from hosts');
+    assertEq((t.images.byHost['a.espncdn.com'] || 0) - (before.images.byHost['a.espncdn.com'] || 0), 1,
+        'the image host lives in the image group only');
+    assertEq(t.images.byHost['lm-api-reads.fantasy.espn.com'], before.images.byHost['lm-api-reads.fantasy.espn.com'],
+        'and an api host never appears in it');
+});
+
+test('request tally: a url nobody can parse is counted under a name, not dropped', () => {
+    const t = getRequestTally();
+    const before = { total: t.api.total, unknown: t.api.byHost['unknown'] || 0, kind: t.api.byKind['other'] || 0 };
+    countApiRequest('not a url at all', null);
+    assertEq(t.api.total - before.total, 1, 'still one request - it was still made');
+    assertEq((t.api.byHost['unknown'] || 0) - before.unknown, 1, 'under an honest host name');
+    assertEq((t.api.byKind['other'] || 0) - before.kind, 1, 'and an honest kind');
+});
+
+// item 3: the tab's season set is never anchored to the loaded year.
+test('leagueSeasonYears: the loaded season cannot shrink the league', () => {
+    // The reported bug: the stub omits the unfinished 2026, and 2025 is what is loaded.
+    assertEq(leagueSeasonYears([2024, 2025], 2025, 2026), [2024, 2025, 2026],
+        'loading a past season still finds the current one');
+    assertEq(leagueSeasonYears([2024, 2025], 2026, 2026), [2024, 2025, 2026],
+        'and loading the current one gives the identical set');
+    assertEq(leagueSeasonYears([2024, 2025], 2024, 2026), [2024, 2025, 2026],
+        'from two seasons back, the same again');
+    // A league that ended years ago names a year ESPN will refuse, which each season fetch already survives one at a time - the set is allowed to be optimistic, the fetch is not.
+    assertEq(leagueSeasonYears([2019, 2020], 2020, 2026), [2019, 2020, 2026], 'the real year is always a candidate');
+    assertEq(leagueSeasonYears([], 2026, 2026), [2026], 'no stub at all still gives the loaded season');
+    assertEq(leagueSeasonYears(null, null, 2026), [2026], 'and nothing but the year still works');
+    assertEq(leagueSeasonYears([2025, 2025], 2025, 2025), [2025], 'duplicates collapse');
+});
+
+// item 5: a finished league's careers are settled. The pair below is ESPN's own, measured on four real payloads - two roto seasons, a categories season and a points season - where latest was above final on every one and every one was in fact complete.
+test('seasonFinished: the scoring-period pair decides, not the year and not isActive', () => {
+    assertEq(seasonFinished({ status: { latestScoringPeriod: 193, finalScoringPeriod: 192 } }), true,
+        'past the last period is finished');
+    assertEq(seasonFinished({ status: { latestScoringPeriod: 192, finalScoringPeriod: 192 } }), true,
+        'on the last period is finished');
+    assertEq(seasonFinished({ status: { latestScoringPeriod: 120, finalScoringPeriod: 192 } }), false,
+        'short of it is still being played');
+    // isActive reads true on seasons two years done, so it is not the signal.
+    assertEq(seasonFinished({ status: { isActive: true, latestScoringPeriod: 197, finalScoringPeriod: 196 } }), true,
+        'isActive does not override the periods');
+    // A season nobody can measure says nothing rather than claiming to be live.
+    assertEq(seasonFinished({ status: {} }), true, 'no periods means no live claim');
+    assertEq(seasonFinished({}), true, 'no status at all, same');
+    assertEq(seasonFinished(null), true, 'no payload, same');
+});
+
+// item 0: one opening-direction rule for every sortable table in the app. Tested here rather than in either table, because the whole point of the ruling is that neither owns it.
+test('openingSortDir: the first click shows the best value', () => {
+    const hockey = new Set(['10', '2', '4']);   // GAA, L, GA - lower is better
+    assertEq(openingSortDir('10', hockey), 'asc', 'GAA opens on the lowest, which is the best');
+    assertEq(openingSortDir('13', hockey), 'desc', 'goals open on the highest, which is the best');
+    const baseball = new Set(['47', '41']);     // ERA, WHIP
+    assertEq(openingSortDir('47', baseball), 'asc', 'ERA opens ascending');
+    assertEq(openingSortDir('41', baseball), 'asc', 'WHIP too');
+    assertEq(openingSortDir('5', baseball), 'desc', 'a counting stat does not');
+    // The leaderboard and the career table pass different key spaces through the same rule.
+    assertEq(openingSortDir('seasons', baseball), 'desc', 'a non-stat column is not inverse');
+    assertEq(openingSortDir('47', null), 'desc', 'no set given means nothing is inverse');
+    assertEq(openingSortDir('47', new Set()), 'desc', 'an empty set is the same');
+});
+
+// : sorting the career table. The rows below are hand-made rather than built, so the expected order is readable from the fixture. Ivy has no goalie components at all, which is the blank case.
+const SORT_ROWS = [
+    { id: 1, name: 'Ann', seasons: [2024, 2025], franchiseKeys: ['A'], totals: { g: 30, sv: 90, sa: 100 } },
+    { id: 2, name: 'Bob', seasons: [2025], franchiseKeys: ['B'], totals: { g: 50, sv: 180, sa: 200 } },
+    { id: 3, name: 'Cal', seasons: [2024], franchiseKeys: ['A'], totals: { g: 30, sv: 270, sa: 300 } },
+    { id: 4, name: 'Ivy', seasons: [2024, 2025, 2026], franchiseKeys: ['C'], totals: { g: 10 } }
+];
+const SORT_SPECS = [{ out: 'svpct', num: ['sv'], den: ['sa'] }];
+const order = (spec) => sortCareers(SORT_ROWS, spec).map(r => r.name);
+
+test('sortCareers: a counting column, both directions, ties by name', () => {
+    // g: Bob 50, Ann 30, Cal 30, Ivy 10. Ann before Cal on the tie, both ways.
+    assertEq(order({ key: 'g', dir: 'desc' }), ['Bob', 'Ann', 'Cal', 'Ivy'], 'highest first');
+    assertEq(order({ key: 'g', dir: 'asc' }), ['Ivy', 'Ann', 'Cal', 'Bob'], 'lowest first, tie still A before C');
+});
+
+test('sortCareers: a rate column is derived, and a player with no components sorts last both ways', () => {
+    // .900,.900,.900 - so it is the blank that this proves. Ivy has no sv or sa at all.
+    assertEq(order({ key: 'svpct', dir: 'desc', rateSpecs: SORT_SPECS }), ['Ann', 'Bob', 'Cal', 'Ivy'],
+        'blank last when descending');
+    assertEq(order({ key: 'svpct', dir: 'asc', rateSpecs: SORT_SPECS }), ['Ann', 'Bob', 'Cal', 'Ivy'],
+        'and still last when ascending, since no save percentage is not the lowest one');
+});
+
+test('sortCareers: name and seasons columns', () => {
+    assertEq(order({ key: 'name', dir: 'asc' }), ['Ann', 'Bob', 'Cal', 'Ivy'], 'A to Z');
+    assertEq(order({ key: 'name', dir: 'desc' }), ['Ivy', 'Cal', 'Bob', 'Ann'], 'Z to A');
+    assertEq(order({ key: 'seasons', dir: 'desc' }), ['Ivy', 'Ann', 'Bob', 'Cal'], 'longest tenure first');
+});
+
+test('sortCareers: no key leaves the order alone, and never mutates the input', () => {
+    const before = SORT_ROWS.map(r => r.name);
+    assertEq(order({ key: null, dir: 'desc' }), before, 'unsorted is the order it was given');
+    sortCareers(SORT_ROWS, { key: 'g', dir: 'asc' });
+    assertEq(SORT_ROWS.map(r => r.name), before, 'the caller keeps its array');
 });
 
 // Report ---------------------------------------------------------------------------

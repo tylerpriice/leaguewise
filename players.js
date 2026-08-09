@@ -1,6 +1,6 @@
 import { buildPlayerAvatarHtml, wirePlayerAvatars } from './images.js';
 import { AppState, ESPN_STAT_MAPS, POSITION_MAPS, SLOT_POSITION_MAPS, PITCHER_POSITIONS, PITCHING_IDS, GOALIE_IDS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS } from './state.js';
-import { escapeHtml, getNiceMax, setDebugContext, setActiveDebugKind, hasDebugContext, setDebugLoading, getTimeframeBounds, splitScoredAdvanced, percentileColor, attachDataTooltips, statValue, unwrapStats, axisUnit, buildMatchupPeriodMap, matchupOfPeriod, parseTimeframe, injuryBadgeHtml, injuryLabel, playerPoolErrorText } from './utils.js';
+import { escapeHtml, getNiceMax, setDebugContext, setActiveDebugKind, hasDebugContext, setDebugLoading, getTimeframeBounds, splitScoredAdvanced, percentileColor, attachDataTooltips, statValue, unwrapStats, axisUnit, buildMatchupPeriodMap, matchupOfPeriod, parseTimeframe, injuryBadgeHtml, injuryLabel, playerPoolErrorText, openingSortDir, wirePushPanel } from './utils.js';
 import { fetchPlayerData, fetchPlayerWeeklyStats, fetchPlayersWeeklyChunk, WEEKLY_CHUNK_SIZE, WEEKLY_MAX_CONCURRENT_CHUNKS, fetchDraftDetail, harvestTransactions, harvestRosters } from './api.js';
 import { buildRosterTimeline, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from './roster-timeline.js';
 // All ranking/percentile MATH lives in the pure, unit-tested rank engine (see its purity contract; tests in tests/rank-engine.test.html). This file owns the impure half. Choosing pools, reading AppState/DOM, and building the ctx objects the engine functions take.
@@ -81,7 +81,7 @@ const SPECIFIC_PITCHER_SLOTS = new Set(["14", "15"]);
 // Canonical display order - unrecognized names (shouldn't happen given SLOT_POSITION_MAPS) sort after everything else instead of disappearing.
 const POSITION_ORDER = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "DH", "P", "SP", "RP"];
 
-function computeEligiblePositions(eligibleSlots, slotMap) {
+export function computeEligiblePositions(eligibleSlots, slotMap) {
     const activeSlots = AppState.leagueActiveSlots;
     const leagueUsesSpecificOF = activeSlots.size > 0 && Array.from(OF_SPECIFIC_SLOTS).some(s => activeSlots.has(s));
     const slotSet = new Set(eligibleSlots.map(s => s.toString()));
@@ -1689,7 +1689,8 @@ export function renderPlayerLeaderboard() {
                 AppState.playerSortDir = AppState.playerSortDir === 'asc' ? 'desc' : 'asc';
             } else {
                 AppState.playerSortStat = key;
-                AppState.playerSortDir = 'desc';
+                // The first click shows the best, so a lower-is-better column opens ascending ( item 0). Sorting by ERA used to lead with the worst pitcher in the league.
+                AppState.playerSortDir = openingSortDir(key, INVERSE_STATS[sport] || new Set());
             }
             renderPlayerLeaderboard();
         });
@@ -2202,6 +2203,8 @@ function renderPlayerDetail(player) {
         rankBreakdownEl.addEventListener('toggle', () => {
             AppState.playerDetailRankBreakdownOpen = rankBreakdownEl.open;
         });
+        // Same ruling as the diagnostic console ( item 2). The chart below kept being squeezed smaller to make room for the explanation of the number above it, which is the wrong trade: the explanation pushes the chart down and the view scrolls while it is open.
+        wirePushPanel(rankBreakdownEl, document.getElementById('player-trend-chart'));
     }
 
     const picker = document.getElementById('player-stat-picker');
@@ -2462,7 +2465,7 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
     const totalStatHtml = isWeeklyRank ? '' : `<div>${totalLabel}: <strong>${isWeeklyPoints ? Number(actualTotal).toFixed(1) : formatStatValue(actualTotal)}</strong></div>`;
     // Matchup Score is our own computed stat (not an ESPN number), so it's the one chart that needs to explain itself - every other selectable stat is a familiar box-score category.
     const matchupScoreInfo = isWeeklyRank
-        ? `<span class="hint" style="margin-left:4px;" tabindex="0" role="button" aria-label="About Matchup Score" data-hint="${escapeHtml(`Scores each ${axisUnit().long.toLowerCase()} from 0 to 100. The player's numbers in every scored category are compared against other ranked players over the same stretch, and those percentiles are averaged. 50 is mid-pack.`)}">ⓘ</span>`
+        ? `<span class="hint" style="margin-left:4px;" tabindex="0" role="button" aria-label="About Matchup Score" data-hint="${escapeHtml(`Scores each ${axisUnit().long.toLowerCase()} from 0 to 100. The player's numbers in every scored category are compared against the other ranked players, and those percentiles are averaged. 50 is mid-pack.`)}">ⓘ</span>`
         : '';
     // The heading names the axis under it, so it follows the same swap the tick labels do.
     const trendLabel = dayAxis ? 'Day' : axisUnit().long;

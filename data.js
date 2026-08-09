@@ -2,8 +2,7 @@ import { AppState, TEAM_COLORS } from './state.js';
 import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, collapseSettingsBar } from './controls.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, resetRankingsViewState } from './graphs.js';
 import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData } from './players.js';
-import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat } from './utils.js';
-import { resetMyTeamView, renderMyTeamTab } from './myteam.js';
+import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat, resetLeagueViews, renderActiveLeagueView, leagueSeasonYears } from './utils.js';
 
 // ESPN's own game ids, the authoritative statement of what sport a payload IS. Only the two this app supports are mapped; anything else falls back to the form (see AppState.loadedSport).
 const GAME_ID_SPORTS = { 2: 'flb', 4: 'fhl' };
@@ -31,8 +30,8 @@ export function processCoreData() {
     resetLeaderboardWeeklyFetchState();
     // Rankings box view position is not data. The viewed category and any sections flipped to a pie both belong to the league that was on screen, so a new league starts from its own first category with every section back on bars (B79/).
     resetRankingsViewState();
-    // The scouted team belongs to the league that was on screen, so a new league starts on its own owner's team again.
-    resetMyTeamView();
+    // Every tab that keeps per-league state, cleared in one call ( item 6). Each tab registers its own reset in its own file, so this call site never needs editing when a tab is added - which is what went wrong three times, most recently when League History shipped without one.
+    resetLeagueViews();
     // A stale AppState.timeframe selection from a previous season (e.g. "reg", forced by a playoff-less season) would otherwise silently carry over and hide postseason data on this fetch - handled by rebuildTimeframeOptions(true) below, which forces the correct default once this season's own hasPlayoffs is known. (The Bar/Pie dropdown that used to be reset alongside it is gone - pies live behind each section's own arrow now, and resetRankingsViewState above clears those.)
 
     const data = AppState.apiData;
@@ -320,7 +319,8 @@ export function processCoreData() {
     const apiSeasonId = data.seasonId || currentYearVal;
     const thisRealYear = new Date().getFullYear();
 
-    let availableYears = new Set([currentYearVal, apiSeasonId, thisRealYear, ...AppState.leagueHistoryYears]);
+    // Through the shared rule, so this list and the History tab's can never disagree again - they derived the same set separately and one of them was missing a term ( item 3).
+    let availableYears = new Set([currentYearVal, ...leagueSeasonYears(AppState.leagueHistoryYears, apiSeasonId, thisRealYear)]);
 
     const sortedYears = Array.from(availableYears).sort((a, b) => b - a);
     yearSelect.innerHTML = '';
@@ -339,8 +339,8 @@ export function processCoreData() {
     renderLeftColumn();
     renderRightColumn();
     renderHeatmapBand();
-    // My Team too, for the same reason the Team Metrics boxes re-render here. A fetch committed while that tab is the one on screen otherwise leaves the PREVIOUS league's roster sitting there, the stale-view rule applied to the third tab. resetMyTeamView above has already cleared the scouted team, so this redraws on the new league's own owner.
-    renderMyTeamTab();
+    // And whichever tab is actually on screen, for the same reason the Team Metrics boxes re-render here. A fetch committed while another tab is showing otherwise leaves the PREVIOUS league sitting there - the stale-view rule, which had to be applied by hand to the third tab and was then missed on the fourth. The registry answers it for every tab at once, including ones that do not exist yet. Team Metrics is already drawn by the three calls above, so its own entry re-runs them; that is cheap and keeps the rule with no exceptions to remember.
+    renderActiveLeagueView();
 
     // Start pulling the (big, ~5s) Player Metrics pool in the background right away, so the tab opens near-instantly when it's eventually clicked - see prefetchPlayerData.
     prefetchPlayerData();
