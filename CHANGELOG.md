@@ -1,4 +1,8 @@
-# Changelog
+﻿# Changelog
+
+## 1.4.1 (2026-08-09)
+- Fixed: the utility rail down the right edge sat a scrollbar-width short of the edge, with a strip of empty background beside it.
+- The diagnostic panel is a drawer at the foot of the window now, over the page rather than under it, and scrolls inside itself. With it switched on the page no longer scrolls, which is what left that strip beside the rail.
 
 ## 1.4.0 (2026-08-08)
 - League History: a fourth tab covering every season your league has played.

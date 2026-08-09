@@ -159,8 +159,7 @@
 html {
     height: 100vh;
     margin: 0;
-    /* The gutter is reserved whether or not a scrollbar is showing, so the scrollbar arriving with a transient panel cannot narrow the viewport under the content ( items 1 and 2). Without it the ruling was true for height and false for width: the chart held its 372px and lost 15px of width the moment the page gained a scrollbar - a resize, just not the one anybody was looking for. Firefox 97+ and Chrome 94+; the manifest floor is Firefox 115. */
-    scrollbar-gutter: stable;
+    /* NO scrollbar-gutter here, and it is a deletion with a history (B176/). The root once reserved the gutter so a transient panel's scrollbar could not narrow the chart - but the reserved column turned out to be dead space nothing can ever occupy: fixed elements at right: 0 stop at its inner edge, an element moved into it loses its clicks, and paint is CLIPPED there exactly like hits (all four measured, B176-). The rail therefore sat 15px off the glass in every steady state, permanently, to protect against a 15px narrowing that is transient and, at viewports past the container's 1400px cap, invisible. removed the only PERSISTENT page scroller (the diagnostic panel is an overlay drawer now), so steady state has no viewport scrollbar and right: 0 means the glass. A transient push still scrolls the page and its scrollbar briefly narrows the viewport - that is the accepted price, not a bug. */
 }
 
 /* height, NOT min-height. The flex chain below needs a DEFINITE height to divide, and relaxing this to min-height left the leaderboard taking its own content height instead of a share - 17,873px of page scroll on Player Metrics, found while fixing and caused by B169's first cut. The page still grows when a transient panel pushes: body keeps overflow:auto, so the push scrolls the body rather than stretching it. */
@@ -351,7 +350,7 @@ h2 {
     position: relative;
 }
 
-/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. The rail owns the fixed placement now; its buttons are ordinary children of it. Centred on the viewport's middle, which is where the lone gear tab already sat. */
+/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. The rail owns the fixed placement now; its buttons are ordinary children of it. Centred on the viewport's middle, which is where the lone gear tab already sat. THE GLASS EDGE. right: 0 reaches it because the root reserves no scrollbar gutter - see the html rule at the top of this sheet for why that reservation is gone. While it existed, FOUR fixes were measured against the 15px gap it opened beside this rail, and every one of them failed: - ANCHORING OFF 100vw cannot reach the glass. With a root gutter reserved, 100vw resolves to the narrowed width - 1685 at a 1700px viewport, the same number right: 0 already gives. - MOVING THE RESERVATION TO body reaches the glass and loses B169's width guarantee. Measured at 1280 with the page genuinely scrolling: the chart went 683 to 674. Only a ROOT gutter reserves for a viewport scrollbar, because the viewport is the thing that scrolls. - PULLING THE RAIL RIGHT by the measured gutter breaks the buttons. The reserved column is outside the document's hit region: measured, a 26px gear with 11px of it clickable. - PAINTING THE COLUMN with a pseudo-element does not paint. Element paint is clipped at the gutter exactly like hits - the pseudo's geometry occupied the strip while the pixels stayed page background, which is why a geometry probe passed and a pixel read failed. Screenshots are the only evidence that counts at this edge. The reserved column cannot be occupied, clicked or painted; the only fix was to stop reserving it, which made safe by removing the last persistent page scroller. When a transient push briefly gives the page a real scrollbar, the rail yields 15px to it and comes back - a scrollbar owns its column, and that is not this bug. */
 .utility-rail {
     position: fixed;
     right: 0;
@@ -2805,24 +2804,40 @@ button:hover {
 }
 
 
-/* Never shrinks and never grows. It is a fixed cost the container flexes around, and its own <pre> already scrolls internally once opened. */
+/* AN OVERLAY DRAWER, the way devtools does it. It used to sit in the flow under the container, which made it the only PERSISTENT below-the-fold content on the page - everything else that scrolls is transient under B169's ruling. Enabled, it pushed the document past the viewport, a REAL viewport scrollbar took the reserved column, and browsers paint viewport scrollbars above all page content: nothing the page draws can reach the glass while one is there. B176's painted strip covers the IDLE gutter and is still right; it could never have covered a live scrollbar, and no rail-side change ever will. So the panel leaves the flow. Fixed to the bottom, full width, a constant share of the viewport when open, scrolling inside itself with the app's usual reserved gutter. The document stops overflowing, the viewport scrollbar stops existing, and every tab's tuned layout is untouched because nothing above it moved. The in-flow alternative - a band inside the 100vh column with the tabs shrinking above it - was set aside deliberately: it would interact with every tab's computed layout, for a panel that is off by default. z-index 55 is above the page content and BELOW the utility rail (61) and the settings drawer (60), so the app's own controls stay reachable while the drawer is open. */
 .debug-console {
-    max-width: 1400px;
-    width: 100%;
-    flex: 0 0 auto;
-    max-height: 45vh;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 55;
+    /* A devtools-like share, constant rather than measured. */
+    height: 40vh;
     overflow-y: auto;
-    margin: 15px auto 0 auto;
+    /* The same reservation the rest of the app uses, so the panel's own scrollbar appearing cannot shift its contents sideways. */
+    scrollbar-gutter: stable;
+    margin: 0;
     padding: 12px;
     background: #222;
     color: #0f0;
-    border-radius: 6px;
     font-family: monospace;
     font-size: 11px;
     box-sizing: border-box;
 }
 
+/* Shut, the drawer is just its own handle - no share of the viewport reserved for a panel nobody has opened. */
+.debug-console:not([open]) {
+    height: auto;
+}
+
+/* Pinned, so the control that closes the drawer never scrolls out of it. Sticky rather than a restructured header, because the readout's blocks are siblings of this summary and wrapping them would be a markup change for nothing. */
 .debug-console summary {
+    position: sticky;
+    top: -12px;
+    z-index: 1;
+    margin: -12px -12px 0 -12px;
+    padding: 12px 12px 6px 12px;
+    background: #222;
     cursor: pointer;
     outline: none;
     font-size: 11px;

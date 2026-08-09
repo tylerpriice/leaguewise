@@ -341,8 +341,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // The panel's own <details> lazily skips serializing its payload while collapsed (see setDebugContext/renderActiveDebugContext in utils.js) - catch it up whenever it's opened, in case its active context changed in the background while it sat collapsed. Opening is also the trigger for the drill-down's on-demand diagnostic capture (see ensurePlayerDetailDiagnostic). A no-op unless a player is open with nothing captured yet.
     const debugPanel = document.getElementById('debug-panel');
-    // The container keeps the exact height it had while the console is open ( item 1). The page scrolls instead, which is the ruling: a transient panel pushes content down, never resizes it.
-    wirePushPanel(debugPanel, document.querySelector('.container'));
+    // NO PUSH ANY MORE. B169's ruling is about TRANSIENT panels - open one, read it, close it - and it still governs the rank explanation, which still pins and still scrolls the page. The diagnostic panel is not transient: it is a setting, so once enabled it stays, and a page left permanently overflowing keeps a real viewport scrollbar in the column the utility rail needs. It is an overlay drawer now (see.debug-console), so there is nothing to push and nothing to pin - the document never grows past the viewport in the first place.
     debugPanel.addEventListener('toggle', () => {
         refreshDebugPanel();
         if (debugPanel.open) ensurePlayerDetailDiagnostic();
