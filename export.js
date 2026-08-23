@@ -84,7 +84,7 @@ function sortedTeamSummaries(start, end) {
 export function buildStandingsExport() {
     const { start, end } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
-    // Roto standings are ESPN's own numbers rendered as-is (B31-FULL): the season total, then each scored category's season value alongside the roto points it awarded. Two columns per category rather than one, because the value alone doesn't say what it earned and the points alone don't say what produced them.
+    // Roto standings are ESPN's own numbers rendered as-is: the season total, then each scored category's season value alongside the roto points it awarded. Two columns per category rather than one, because the value alone doesn't say what it earned and the points alone don't say what produced them.
     if (AppState.isRotoLeague) {
         const sport = AppState.loadedSport;
         const statMap = ESPN_STAT_MAPS[sport] || {};

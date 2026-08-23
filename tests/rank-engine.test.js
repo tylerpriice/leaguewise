@@ -1,12 +1,14 @@
-// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static server (file:// won't work - browsers block ES module imports without a real origin;.claude/serve.ps1 is a zero-dependency option) - green means every assertion held. Every expected value here is hand-computed from the documented formulas, so a failure means the ENGINE changed behavior, not that a snapshot went stale.
+// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static server (file:// won't work - browsers block ES module imports without a real origin; python -m http.server is a zero-dependency option) - green means every assertion held. Every expected value here is hand-computed from the documented formulas, so a failure means the ENGINE changed behavior, not that a snapshot went stale.
 import {
     MIN_PLAYING_TIME_FRACTION, MIN_OPPORTUNITY_FRACTION,
     countLessThan, countGreaterThan, percentileFor,
     inningsPitchedOf, statValueForRanking, opportunityGateFor,
     computeRotoRanks, computePointsRanks, computeCategoryBreakdown, computeStatRankInPool,
-    buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis,
-    rotoPointsForCategory, scoreRotoWeek
-, competitionRanks, formatRank } from '../rank-engine.js';
+    buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis, scoreWeekByCategory,
+    rotoPointsForCategory, scoreRotoWeek, competitionRanks, formatRank, comparePlayerCategories,
+    perDayAverages, scoreDayAgainstSelf, dayVerdict, typicalDayScore, presentDayScore, DAY_SCORE_TYPICAL, DAY_SCORE_CAP,
+    DAY_SIGNATURE_RATIO, DAY_ORDINARY_BAND
+} from '../rank-engine.js';
 import { buildRosterTimeline, ownerTeamIdsByPlayer, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from '../roster-timeline.js';
 
 const results = [];
@@ -431,6 +433,22 @@ test('scoreWeekAgainstBasis: inverse rate stat: a lower weekly value scores high
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis, 0.5), 50, 'partial week leaves ERA alone');
 });
 
+test('scoreWeekByCategory: the rows the explainer draws, and their mean IS the score', () => {
+    const pool = [P(1, { '5': 20, '2': 0.300, '47': 3.0 }), P(2, { '5': 10, '2': 0.250, '47': 4.0 })];
+    const bctx = { relevantStatIds: ['5', '2', '47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['2', '47']), weeksElapsed: 10 };
+    const basis = buildCategoryRateBasis(pool, bctx);
+    // HR 2.5 beats [1,2] -> 100; AVG.280 beats [.25] -> 50; ERA 3.5 (inverse) beats [4.0] -> 50
+    const rows = scoreWeekByCategory(pool[0], { '5': 2.5, '2': 0.280, '47': 3.5 }, basis);
+    assert(rows.length === 3, 'one row per scoreable category');
+    assertClose(rows.find(r => r.id === '5').percentile, 100, 'HR row');
+    assertClose(rows.find(r => r.id === '2').percentile, 50, 'AVG row');
+    assertClose(rows.find(r => r.id === '47').percentile, 50, 'ERA row');
+    assert(rows.find(r => r.id === '47').inverse === true, 'the inverse flag rides along for the label');
+    assertClose(rows.find(r => r.id === '5').value, 2.5, 'value is the compared figure');
+    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 2.5, '2': 0.280, '47': 3.5 }, basis), 200 / 3, 'the score is the mean of the rows');
+    assert(scoreWeekByCategory(pool[0], null, basis).length === 0, 'no week -> no rows');
+});
+
 test('scoreWeekAgainstBasis: exact percentiles, and null for unscoreable weeks', () => {
     const pool = [P(1, { '5': 20, '2': 0.300 }), P(2, { '5': 10, '2': 0.250 })];
     const bctx = { relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10 };
@@ -563,7 +581,7 @@ test('Matchup Score min-games decision: excluding part-timers from the weekly-va
     // DECISION (see buildWeeklyRateBasis in players.js): exclude part-timers. Comparing a regular's week to OTHER REGULARS' real weeks is the more diagnostic peer group - the previous test (part-timers included) still let the same bad week read 33% instead of this sharper 0%, because the part-timers' real-but-weak weeks acted as a soft floor under the whole distribution - a milder version of the exact problem this basis exists to fix.
 });
 
-// ==== Roto standings scoring (: the Roto Race) ====
+// ==== Roto standings scoring ====
 
 test('rotoPointsForCategory: position points, best gets n and worst gets 1', () => {
     // 4 teams, higher is better. Values 40 > 30 > 20 > 10 -> 4, 3, 2, 1 points.
@@ -622,7 +640,7 @@ test('scoreRotoWeek: sums per-category points, with a tie and an inverse categor
     assertClose(totals.get('C'), 2, 'C: worst in both (1 + 1)');
 });
 
-// ==== Roster timeline (: transaction-accurate rosters) ====
+// ==== Roster timeline ====
 
 // Item factory (only the fields buildRosterTimeline reads).
 const IT = (playerId, type, toTeamId) => ({ playerId, type, toTeamId });
@@ -699,7 +717,7 @@ test('buildRosterTimeline: non-EXECUTED transactions never change a roster', () 
 });
 
 test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () => {
-    // LINEUP is a bench/start slot move (skipped - that history is B66/); a DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
+    // LINEUP is a bench/start slot move (skipped - that history is ); a DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
     const tl = buildRosterTimeline({
         picks: [{ playerId: 10, teamId: 1 }],
         transactions: [
@@ -870,6 +888,176 @@ test('formatRank: shared ranks read T-N, unique ranks keep the hash', () => {
     assert(formatRank(3, []) === '#3', 'no rank list is not a tie');
     assert(formatRank(1, [1, 1, 1]) === 'T1', 'everyone tied');
 });
+
+// : head-to-head comparison. One pool, two players, hand-computed from computeStatRankInPool's documented percentile ((total - rank) / (total - 1) * 100) and the competition-ranking tie rule. ---------------------------------------------------------------------------
+
+// HR higher-is-better, ERA lower-is-better. Five players, with a deliberate tie at 25 HR.
+const cmpPool = [
+    P(1, { '5': 30, '47': 2.00 }),
+    P(2, { '5': 25, '47': 3.00 }),
+    P(3, { '5': 25, '47': 4.00 }),
+    P(4, { '5': 10, '47': 5.00 }),
+    P(5, { '5': 5, '47': 6.00 })
+];
+const cmpCtx = {
+    statIds: ['5', '47'],
+    inverseStatIds: new Set(['47']),
+    statMap: { '5': 'HR', '47': 'ERA' }
+};
+
+test('comparePlayerCategories: both sides read off ONE pool, ranks and percentiles hand-computed', () => {
+    const { rows, tally } = comparePlayerCategories(cmpPool, 2, 4, cmpCtx);
+    assert(rows.length === 2, 'one row per requested category');
+
+    // HR sorted desc: 30, 25, 25, 10, 5 -> competition ranks 1, 2, 2, 4, 5.
+    const hr = rows[0];
+    assert(hr.name === 'HR' && hr.inverse === false, 'labelled and not inverse');
+    assert(hr.a.rank === 2 && hr.a.total === 5, 'player 2 is second of five on HR');
+    assertClose(hr.a.percentile, 75, 'HR percentile for rank 2 of 5');
+    assert(hr.b.rank === 4, 'player 4 is fourth on HR');
+    assertClose(hr.b.percentile, 25, 'HR percentile for rank 4 of 5');
+    assert(hr.edge === 'a', '25 HR beats 10 HR');
+
+    // ERA sorted asc (lower is better): 2, 3, 4, 5, 6 -> ranks 1..5, no ties.
+    const era = rows[1];
+    assert(era.inverse === true, 'ERA is inverse');
+    assert(era.a.rank === 2 && era.b.rank === 4, 'ERA ranks follow the ascending order');
+    assertClose(era.a.percentile, 75, 'ERA percentile for rank 2 of 5');
+    assert(era.edge === 'a', 'the LOWER ERA takes the edge');
+
+    assert(tally.a === 2 && tally.b === 0 && tally.tie === 0, 'a sweeps both');
+});
+
+test('comparePlayerCategories: an equal value is a tie, counted as neither side', () => {
+    const { rows, tally } = comparePlayerCategories(cmpPool, 2, 3, cmpCtx);
+    const hr = rows[0];
+    assert(hr.a.rank === 2 && hr.b.rank === 2, 'both share the run first rank, not 2 and 3');
+    assertClose(hr.a.percentile, 75, 'a tie shares the percentile too');
+    assertClose(hr.b.percentile, 75, 'both sides of the tie');
+    assert(hr.edge === 'tie', '25 against 25');
+    // ERA still splits them, so the tally is one edge and one tie.
+    assert(rows[1].edge === 'a', 'a 3.00 ERA beats a 4.00');
+    assert(tally.a === 1 && tally.b === 0 && tally.tie === 1, 'the tie is its own count');
+});
+
+test('comparePlayerCategories: inverse edges do not silently flip', () => {
+    const { rows, tally } = comparePlayerCategories(cmpPool, 5, 1, cmpCtx);
+    assert(rows[0].edge === 'b', '5 HR loses to 30');
+    assert(rows[1].edge === 'b', 'a 6.00 ERA loses to a 2.00 - the higher number is the worse one');
+    assert(tally.b === 2 && tally.a === 0, 'b sweeps');
+});
+
+test('comparePlayerCategories: a category only one player has keeps its row and scores for nobody', () => {
+    const pool = cmpPool.map(p => p.id === 4 ? P(4, { '5': 10 }) : p);
+    const { rows, tally } = comparePlayerCategories(pool, 2, 4, cmpCtx);
+    const era = rows[1];
+    assert(era.b === null, 'the side with no value is absent, not a zero');
+    // The ERA pool is now four players: 2.00, 3.00, 4.00, 6.00 -> player 2 is second of four.
+    assert(era.a.rank === 2 && era.a.total === 4, 'the category pool shrinks with the missing value');
+    assertClose(era.a.percentile, (4 - 2) / (4 - 1) * 100, 'percentile is against the four who have one');
+    assert(era.edge === 'none', 'nothing to compare');
+    assert(tally.a === 1 && tally.b === 0 && tally.tie === 0, 'only the HR edge counted');
+});
+
+test('comparePlayerCategories: a player outside the pool leaves both sides honest', () => {
+    const { rows, tally } = comparePlayerCategories(cmpPool, 2, 99, cmpCtx);
+    assert(rows.every(r => r.b === null), 'the unknown id has no side');
+    assert(rows.every(r => r.a !== null), 'the known one still reports');
+    assert(tally.a === 0 && tally.b === 0 && tally.tie === 0, 'no edges without two sides');
+});
+
+
+// : THE DAY STRIP'S VERDICT. Scored against the player's OWN days, counting categories only. Every expectation below is hand-computed from the numbers in the fixture. ---------------------------------------------------------------------------
+
+test('perDayAverages: averages over PLAYED days only', () => {
+    const days = {
+        10: { games: 1, sums: { '1': 2, '5': 1 } },
+        11: { games: 1, sums: { '1': 0, '5': 0 } },
+        12: { games: 0, sums: {} },          // off day - must not dilute the average
+        13: { games: 1, sums: { '1': 4, '5': 2 } }
+    };
+    const avg = perDayAverages(days, ['1', '5']);
+    // Hand-computed: three played days. H 2+0+4 = 6 over 3 = 2. HR 1+0+2 = 3 over 3 = 1.
+    assert(avg['1'] === 2, 'H average is 2, got ' + avg['1']);
+    assert(avg['5'] === 1, 'HR average is 1, got ' + avg['5']);
+    assert(perDayAverages({}, ['1'])['1'] === undefined, 'no played days yields no baseline');
+});
+
+test('scoreDayAgainstSelf: a day is a multiple of the average day', () => {
+    const avg = { '1': 2, '5': 1 };
+    // 4 hits is 2x, 2 homers is 2x -> mean 2.
+    assert(scoreDayAgainstSelf({ '1': 4, '5': 2 }, avg, ['1', '5']) === 2, 'twice the usual');
+    // 2 hits and 1 homer is exactly the average day.
+    assert(scoreDayAgainstSelf({ '1': 2, '5': 1 }, avg, ['1', '5']) === 1, 'an average day scores 1');
+    // 1 hit (0.5x) and no homers (0x) -> mean 0.25.
+    assert(scoreDayAgainstSelf({ '1': 1, '5': 0 }, avg, ['1', '5']) === 0.25, 'a quiet day');
+    // A blank day is 0, not null - it played and produced nothing.
+    assert(scoreDayAgainstSelf({}, avg, ['1', '5']) === 0, 'played, nothing recorded');
+});
+
+test('scoreDayAgainstSelf: a category with no baseline is skipped, not scored as zero', () => {
+    // The player has never stolen a base, so SB has no average. Counting it as a zero would drag every day down by a category the player never contributes in.
+    const avg = { '1': 2, '23': 0 };
+    // Only H is scored: 4/2 = 2, not (2 + 0)/2 = 1.
+    assert(scoreDayAgainstSelf({ '1': 4, '23': 0 }, avg, ['1', '23']) === 2, 'SB is not a baseline');
+    assert(scoreDayAgainstSelf({ '1': 1 }, {}, ['1']) === null, 'no baselines at all yields null');
+});
+
+test('typicalDayScore: the MEDIAN day, which is why the strip is not all red', () => {
+    // The shape that broke the first build: four quiet days and one huge one. The MEAN is 1.4, so every quiet day would read below average and the strip would be red with a gold fleck. The median is 1, so the quiet days read ordinary and the big one reads signature.
+    const scores = [1, 1, 1, 1, 3];
+    assert(typicalDayScore(scores) === 1, 'median 1, where the mean is 1.4');
+    assert(typicalDayScore([2, 4]) === 3, 'even count averages the middle pair');
+    assert(typicalDayScore([]) === null, 'no days, no baseline');
+    assert(typicalDayScore([null, 2, null]) === 2, 'unscoreable days are not zeros');
+});
+
+test('dayVerdict: the four tiers land on the named constants, against the typical day', () => {
+    assert(DAY_SIGNATURE_RATIO === 1.75 && DAY_ORDINARY_BAND === 0.15, 'the constants are the ruling');
+    assert(dayVerdict(2.0, false, 1) === 'signature', '2x the typical day');
+    assert(dayVerdict(1.75, false, 1) === 'signature', 'exactly the ratio counts');
+    assert(dayVerdict(1.5, false, 1) === 'above', 'over the band but under the ratio');
+    assert(dayVerdict(1.16, false, 1) === 'above', 'just outside the band');
+    assert(dayVerdict(1.15, false, 1) === 'ordinary', 'the band edge is still ordinary');
+    assert(dayVerdict(1.0, false, 1) === 'ordinary', 'the typical day');
+    assert(dayVerdict(0.85, false, 1) === 'ordinary', 'the low edge of the band');
+    assert(dayVerdict(0.84, false, 1) === 'below', 'under the band');
+    assert(dayVerdict(0, false, 1) === 'below', 'a blank day is a bad day');
+});
+
+test('presentDayScore: a typical day reads 50, twice typical reads 100, and nothing reads past the cap', () => {
+    assert(DAY_SCORE_TYPICAL === 50 && DAY_SCORE_CAP === 100, 'the constants are the ruling (B202 item 1)');
+    assert(presentDayScore(1) === 50, 'the typical day: 1 x 50');
+    assert(presentDayScore(2) === 100, 'twice typical: 2 x 50');
+    assert(presentDayScore(3.1) === 100, '3.1 x 50 = 155, capped at 100');
+    assert(presentDayScore(1.3) === 65, '1.3 x 50 = 65');
+    assert(presentDayScore(0.37) === 19, '0.37 x 50 = 18.5, rounds to 19');
+    assert(presentDayScore(0) === 0, 'a blank day is 0');
+    assert(presentDayScore(null) === null, 'no score is no figure, not 0');
+});
+
+test('dayVerdict: the ratio is against the TYPICAL day, not against 1', () => {
+    // A player whose typical day scores 2: a day at 2 is ordinary for him, and 3.5 is his signature.
+    assert(dayVerdict(2, false, 2) === 'ordinary', 'his own typical day is ordinary');
+    assert(dayVerdict(3.5, false, 2) === 'signature', '1.75x of 2');
+    assert(dayVerdict(1, false, 2) === 'below', 'half his usual is a poor day');
+});
+
+test('dayVerdict: a signature day overrules the ratio, in both directions', () => {
+    // A two-homer game in a huge season can score under the ratio. The sport's own statement wins.
+    assert(dayVerdict(0.9, true, 1) === 'signature', 'the rule beats a middling ratio');
+    assert(dayVerdict(null, true, 1) === 'signature', 'and beats an unscoreable day');
+    assert(dayVerdict(0.9, false, 1) === 'ordinary', 'no flag, no gold');
+});
+
+test('dayVerdict: an unscoreable day, or no baseline, reads ordinary rather than bad', () => {
+    // null means nothing could be compared, which is not the same as a poor day, and a red border would be an accusation the data does not support.
+    assert(dayVerdict(null, false, 1) === 'ordinary', 'null is not zero');
+    assert(dayVerdict(undefined, false, 1) === 'ordinary', 'and neither is undefined');
+    assert(dayVerdict(3, false, null) === 'ordinary', 'no typical day yet, no verdict');
+    assert(dayVerdict(3, false, 0) === 'ordinary', 'and a zero typical is not a divisor');
+});
+
 
 // Report ---------------------------------------------------------------------------
 

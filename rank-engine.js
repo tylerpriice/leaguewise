@@ -197,13 +197,13 @@ export function computeCategoryBreakdown(player, groupPlayers, ctx) {
     });
 
     const avg = included.length ? included.reduce((s, r) => s + r.adjPct, 0) / included.length : 0;
-    // qualifiedCount is the basis size the score was actually computed against (the pool that clears the min-games threshold), so the drill-down can label it honestly instead of citing the full group pool it does NOT rank against (: no more "of 942" when the basis was 731).
+    // qualifiedCount is the basis size the score was actually computed against (the pool that clears the min-games threshold), so the drill-down can label it honestly instead of citing the full group pool it does NOT rank against.
     return { rows: included, excluded, shrink, avg, qualifiedCount: qualifiedPlayers.length };
 }
 
 // ==== Single-stat ranking (drill-down stat chips) ====
 
-// Rank playerId within pool on one stat. Competition ranking ("1-2-2-4") - ties in a raw stat total are common (two players with 30 HR each), and breaking them by sort-array position handed tied players different ranks (and different percentile tints) purely by luck of the sort order. Every value in a run of ties shares the rank of the run's first member; the next distinct value picks back up at its true positional rank. Rank 1 is always "best" - pass inverse=true for lower-is-better stats. The app's ONE tie convention, lifted out of computeStatRankInPool so nothing has to restate it ( item 3). Competition ranking over an ALREADY-SORTED list of comparison keys: every entry in a run of equal keys shares the rank of the run's first member, and the next distinct key picks back up at its true positional rank - 1, 1, 3, not 1, 1, 2. Keys, not objects, because the callers sort by different things: a stat total here, a win total and points on My Team's record line. Sorting stays the caller's job; agreeing about ties does not.
+// Rank playerId within pool on one stat. Competition ranking ("1-2-2-4") - ties in a raw stat total are common (two players with 30 HR each), and breaking them by sort-array position handed tied players different ranks (and different percentile tints) purely by luck of the sort order. Every value in a run of ties shares the rank of the run's first member; the next distinct value picks back up at its true positional rank. Rank 1 is always "best" - pass inverse=true for lower-is-better stats. The app's ONE tie convention, lifted out of computeStatRankInPool so nothing has to restate it. Competition ranking over an ALREADY-SORTED list of comparison keys: every entry in a run of equal keys shares the rank of the run's first member, and the next distinct key picks back up at its true positional rank - 1, 1, 3, not 1, 1, 2. Keys, not objects, because the callers sort by different things: a stat total here, a win total and points on My Team's record line. Sorting stays the caller's job; agreeing about ties does not.
 export function competitionRanks(sortedKeys) {
     const ranks = new Array(sortedKeys.length);
     for (let i = 0; i < sortedKeys.length; i++) {
@@ -212,7 +212,7 @@ export function competitionRanks(sortedKeys) {
     return ranks;
 }
 
-// A rank that is SHARED reads as T-N, so a three-way tie for first is not silently presented as a first, a second and a third ( item 3).
+// A rank that is SHARED reads as T-N, so a three-way tie for first is not silently presented as a first, a second and a third.
 export function formatRank(rank, ranks) {
     const shared = (ranks || []).filter(r => r === rank).length > 1;
     return `${shared ? 'T' : '#'}${rank}`;
@@ -291,20 +291,26 @@ export function buildWeeklyValueBasis(weeklyValuesByPlayer, ctx) {
 
 // One week's Matchup Score for one player: percentile of each scored category's real weekly value against a peer basis's rates, averaged with equal weight (same convention as computeRotoRanks). Basis-agnostic on purpose - categoryRates can come from either buildWeeklyValueBasis (preferred: real peer weeks) or buildCategoryRateBasis (fallback: typical peer weeks), since both produce the exact same { id, inverse, isRate, rates, opportunityOf, minOpportunity } shape. null when the week has no scoreable categories at all. partialWeekFraction (0..1] handles an IN-PROGRESS matchup. A counting stat from a half-played matchup would otherwise be compared against full-matchup peer rates and lose almost automatically, so it's compared "on pace" instead - the value scaled up by the elapsed fraction (equivalent to scaling every peer rate down by it). Rate stats are never prorated: a batting average from 3 days is already a rate.
 export function scoreWeekAgainstBasis(player, weekStats, categoryRates, partialWeekFraction = 1) {
-    if (!weekStats) return null;
-    let sum = 0, count = 0;
+    const rows = scoreWeekByCategory(player, weekStats, categoryRates, partialWeekFraction);
+    if (!rows.length) return null;
+    return rows.reduce((a, r) => a + r.percentile, 0) / rows.length;
+}
+
+// The same score, one row per category, BEFORE the average: [{ id, value, percentile }]. This is the Matchup Score explainer's raw material - the owner could not see how the number was made from the number alone, and the honest way to show it is the per-category percentiles it averages, for a real week. scoreWeekAgainstBasis is this list's mean, by construction rather than by a second copy of the loop, so the figure in the explainer cannot drift from the one on the chart. `value` is the figure that was actually compared (prorated for a partial week, per-game when the basis is), which is the figure the explainer has to print beside the bar.
+export function scoreWeekByCategory(player, weekStats, categoryRates, partialWeekFraction = 1) {
+    if (!weekStats) return [];
+    const rows = [];
     categoryRates.forEach(({ id, inverse, isRate, rates, opportunityOf, minOpportunity }) => {
         if (weekStats[id] === undefined) return;
         if (opportunityOf && opportunityOf(player) < minOpportunity) return;
         const val = (!isRate && partialWeekFraction < 1) ? weekStats[id] / partialWeekFraction : weekStats[id];
         const worseCount = inverse ? countGreaterThan(rates, val) : countLessThan(rates, val);
-        sum += (worseCount / rates.length) * 100;
-        count++;
+        rows.push({ id, value: val, inverse: !!inverse, percentile: (worseCount / rates.length) * 100 });
     });
-    return count > 0 ? sum / count : null;
+    return rows;
 }
 
-// ==== Roto standings scoring (: the Roto Race) The ONLY place in the app that computes roto points rather than displaying ESPN's own - the season-end standings stay verbatim from the payload (see rotoPoints in data.js). Used to reconstruct the standings race over time from weekly roster stats, where ESPN gives no snapshot. Pure: no DOM, no AppState, no fetches. ====
+// ==== Roto standings scoring The ONLY place in the app that computes roto points rather than displaying ESPN's own - the season-end standings stay verbatim from the payload (see rotoPoints in data.js). Used to reconstruct the standings race over time from weekly roster stats, where ESPN gives no snapshot. Pure: no DOM, no AppState, no fetches. ====
 
 // Roto points for ONE category across a set of teams. entries: [{ id, value }], value possibly undefined when a team posted nothing in this category. inverse = true when a LOWER value wins (GAA, losses,...). With n entries the best gets n points and the worst 1; a run of tied values shares the average of the positions it spans - which is exactly how ESPN's own pointsByStat reports halves (validated against the FGB captures, where a two-way tie for 2nd of 5 shows 3.5 each). A team with no value ranks below every team that has one, and several such teams tie at the bottom and split, so "didn't compete" never accidentally beats a real last-place value.
 export function rotoPointsForCategory(entries, inverse) {
@@ -375,4 +381,108 @@ export function computePointsRanks(groupPlayers, ctx) {
     ranked.forEach((p, i) => ranks.set(p.id, i + 1));
 
     return { scores, ranks, ranked, total: ranked.length };
+}
+
+// ==== Head-to-head comparison ====
+
+// Two players, one category at a time, against ONE pool. The shared pool is the whole point: the comparison view's mirrored bars only mean something if both sides were measured with the same ruler, so this takes the pool once and reads both players out of the same per-category ordering rather than being called twice and hoping the callers agreed. Per category it reuses computeStatRankInPool, which is the same call the drill-down's stat chips already make - so a player's rank and percentile read identically whether you are looking at them alone or beside someone else. Building a second percentile definition for this view would have put two numbers with the same name and different values on two screens one click apart. The edge is decided on the VALUES, inverse-aware, not on the ranks. They agree today (both come off the same competition ranking of the same key), but the values are what the row shows, and a tally that could ever disagree with the numbers printed beside it is not worth having. A category only one of them has - a rate a player never posted, a pitching line for a batter - is reported with that side null and no edge to either. It stays in the rows so the table can show what is missing, which is information; dropping it would silently shorten the table. ctx: { statIds, inverseStatIds: Set, statMap } - the same shapes rotoContext already builds.
+export function comparePlayerCategories(pool, idA, idB, ctx) {
+    const { statIds, inverseStatIds, statMap = {} } = ctx;
+    const rows = [];
+    const tally = { a: 0, b: 0, tie: 0 };
+
+    statIds.forEach(id => {
+        const inverse = inverseStatIds.has(id);
+        // Same scoping computeStatRank uses on the drill-down: a player with no value for this category is not part of its ordering, rather than sorting as an undefined.
+        const catPool = pool.filter(p => p.seasonTotals[id] !== undefined);
+        const a = sideOf(catPool, idA, id, inverse);
+        const b = sideOf(catPool, idB, id, inverse);
+
+        let edge = 'none';
+        if (a && b) {
+            if (a.value === b.value) edge = 'tie';
+            else if (inverse) edge = a.value < b.value ? 'a' : 'b';
+            else edge = a.value > b.value ? 'a' : 'b';
+            tally[edge === 'tie' ? 'tie' : edge] += 1;
+        }
+
+        rows.push({ id, name: statMap[id] || `Stat ${id}`, inverse, a, b, edge });
+    });
+
+    return { rows, tally };
+}
+
+// One side of a row. Trimmed to the four numbers the view draws, because computeStatRankInPool also hands back the sorted pool and its rank array - a copy of the whole pool per category per player, kept alive by the returned model for no reader.
+function sideOf(catPool, playerId, statId, inverse) {
+    const r = computeStatRankInPool(catPool, playerId, statId, inverse);
+    if (!r) return null;
+    return { value: catPool.find(p => p.id === playerId).seasonTotals[statId], rank: r.rank, total: r.total, percentile: r.percentile };
+}
+
+// ==== THE DAY STRIP'S VERDICT. Pure, and scored against the PLAYER'S OWN days. ====
+
+// THE BRIEF'S SOURCE DOES NOT EXIST, and this is what replaces it. The ruling asked for "the day's existing Matchup Score, which the drill-down chart already computes". It does not: the Matchup Score is scored per PERIOD against a pool of other players' periods, and buildDayAxisSeries in players.js refuses it for exactly this reason - "a single day has no meaning for them". There is no per-day score anywhere to compare against. What a day DOES have is its raw counting line, so the verdict is built from that and compared against the same player's other days. That is also closer to what the ruling actually wanted - "above the player's OWN rate" is a self-comparison, and a self-comparison needs no pool at all. COUNTING CATEGORIES ONLY, deliberately. A rate on one day is either noise or undefined: a pitcher who did not pitch has no ERA, and a batter's one-for-one is a 1.000 average that means nothing. Ratios of counting stats are stable, and the categories a league actually scores are what a day should be judged on. Rate categories are filtered out by the caller, which is where the league's own AVERAGE_STATS set lives. Everything arrives as arguments, per this module's purity contract - including whether the day is a signature one, because "quality start" and "multi-homer game" are sport knowledge and this module holds none.
+
+// A day at least this many times the player's own average is a signature day on the strength of the ratio alone, whatever the sport-specific rules say. DECISIONS-NEEDED: 1.75 and the 0.15 band are working defaults, chosen so that on a real 2026 batter's season the four tiers land at roughly a fifth signature or above, a third ordinary, and the rest split either side - a strip where every chip is coloured says nothing. Owner may want them tighter or looser once the strip is on screen; they are two named constants and a test.
+export const DAY_SIGNATURE_RATIO = 1.75;
+// How far either side of the player's own average still reads as an ordinary day.
+export const DAY_ORDINARY_BAND = 0.15;
+
+// The player's own per-PLAYED-DAY average for each stat, off the same days the strip draws. Built from the daily data rather than from season totals over games played, because the two universes differ - a season total counts days this map may not hold - and a verdict that compares a day against an average drawn from somewhere else is comparing two different things.
+export function perDayAverages(daysByPeriod, statIds) {
+    const totals = {};
+    let played = 0;
+    Object.keys(daysByPeriod || {}).forEach(period => {
+        const day = daysByPeriod[period];
+        if (!day || !day.games) return;
+        played += 1;
+        statIds.forEach(id => { totals[id] = (totals[id] || 0) + (Number((day.sums || {})[id]) || 0); });
+    });
+    const avg = {};
+    if (!played) return avg;
+    statIds.forEach(id => { avg[id] = (totals[id] || 0) / played; });
+    return avg;
+}
+
+// One day's score as a multiple of the player's own average day. 1 is a typical day, 2 is twice the usual production. Null when nothing can be compared - no category has a baseline - which the caller renders as an ordinary chip rather than inventing a verdict.
+export function scoreDayAgainstSelf(daySums, avgByStat, statIds) {
+    let sum = 0;
+    let counted = 0;
+    statIds.forEach(id => {
+        const avg = avgByStat[id];
+        // A category the player has never produced in has no baseline to beat, and dividing by it would be either infinity or a silent zero. Skipped rather than scored.
+        if (!avg || avg <= 0) return;
+        sum += (Number((daySums || {})[id]) || 0) / avg;
+        counted += 1;
+    });
+    return counted ? sum / counted : null;
+}
+
+// THE TYPICAL DAY, which is the median of the player's day scores and not their mean. This exists because the first build compared each day against the MEAN and produced a strip with six red chips, three gold, and nothing in between - no ordinary days and no green ones at all. That is not a bug in the arithmetic, it is what ratio-to-mean does to counting stats: a handful of three-hit, two-homer nights drag the mean above the day the player actually has most often, so the common day scores below 1 by construction and the strip reads as a season of failure. The median is taken of the composite SCORES rather than per stat, and that ordering matters. A per-stat median is 0 for anything sparse - most batters homer on a minority of days - which would drop those categories out of the baseline entirely and take the strip's whole signal with them. Scoring each day against per-stat means first, then asking where that day sits among the player's other days, keeps every category contributing and still lands the typical day at 1.
+export function typicalDayScore(scores) {
+    const real = (scores || []).filter(s => s !== null && s !== undefined).sort((a, b) => a - b);
+    if (!real.length) return null;
+    const mid = Math.floor(real.length / 2);
+    return real.length % 2 ? real[mid] : (real[mid - 1] + real[mid]) / 2;
+}
+
+// Which border a chip wears. `signature` short-circuits everything: the sport rules that set it (a quality start, a two-homer game) are statements about the day being remarkable that no ratio gets to overrule - a two-homer game in an otherwise huge season can score under 1.75.
+export function dayVerdict(score, signature, typical) {
+    if (signature) return 'signature';
+    if (score === null || score === undefined) return 'ordinary';
+    // Against the player's own typical day. A typical of 0 means the player's median day produced nothing scoreable, so there is no baseline to be above or below and every day reads ordinary until there is one.
+    if (!typical || typical <= 0) return 'ordinary';
+    const ratio = score / typical;
+    if (ratio >= DAY_SIGNATURE_RATIO) return 'signature';
+    if (ratio > 1 + DAY_ORDINARY_BAND) return 'above';
+    if (ratio < 1 - DAY_ORDINARY_BAND) return 'below';
+    return 'ordinary';
+}
+
+// The day score as a figure a person reads. scoreDayAgainstSelf lands a typical day at 1, which is a fine ratio and a useless number to print - "1.3" says nothing next to the Matchup Score chips, which already taught the register where 50 is mid-pack and 100 is the ceiling. So 50 IS the player's own typical day, a day twice as good reads 100, and anything past that is capped rather than shown as 140 and read as a percentage. Rounded to an integer because a decimal on this scale is false precision.
+export const DAY_SCORE_TYPICAL = 50;
+export const DAY_SCORE_CAP = 100;
+export function presentDayScore(score) {
+    if (score === null || score === undefined || !isFinite(score)) return null;
+    return Math.min(DAY_SCORE_CAP, Math.round(score * DAY_SCORE_TYPICAL));
 }

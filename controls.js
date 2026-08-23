@@ -57,9 +57,15 @@ export function collapseSettingsBar() {
 
 // Replaced simple label update with dynamic option reconstruction for Playoffs forceDefault is set on a genuine new-season fetch (see processCoreData) - otherwise a selection made on a playoff-less season (which falls back to "reg", see below) would silently carry over and stay stuck on "reg" for the NEXT season fetched too, even one that does have playoffs, hiding its postseason bars for no visible reason.
 export function rebuildTimeframeOptions(forceDefault = false) {
-    // Roto has no matchup periods, and ESPN only ever serves ONE cumulative season standing - so at league-load time the only honest view is the full season. Windows become possible only once the started-day snapshot harvest lands, which happens asynchronously after this runs; syncRotoTimeframePills below adds the pills THEN, exactly once, so the row never appears/disappears/relabels while the harvest streams in (: the ladder is for failure, not latency). Start hidden and season-only every fetch; the reset here lets a new league re-decide.
+    // Roto has no matchup periods, and ESPN only ever serves ONE cumulative season standing - so at league-load time the only honest view is the full season. Windows become possible only once the started-day snapshot harvest lands, which happens asynchronously after this runs; syncRotoTimeframePills below adds the pills THEN, exactly once, so the row never appears/disappears/relabels while the harvest streams in. Start hidden and season-only every fetch; the reset here lets a new league re-decide.
     const toggleEl = document.getElementById('timeframe-toggle');
     if (AppState.isRotoLeague) {
+        // ONLY A GENUINE NEW LEAGUE TEARS THE ROW DOWN. This branch used to run on every call, and the pill CLICK handler calls this function - so clicking a roto window set the timeframe, then immediately reset it to 'all', emptied the row and hid it. The window never applied and the pills never came back, because the only thing that rebuilds them is the weekly-progress hook, which has long since stopped firing by the time anyone clicks. So the roto windows have never actually been selectable. Found while adding the Current pill, and confirmed on the untouched Last 4 pill rather than assumed: click it and the row disappears. The forceDefault flag already means "a genuine new league/season fetch" for every other league type, and it is exactly the condition this reset wanted all along.
+        if (!forceDefault) {
+            // The H2H path highlights the new pill as a side effect of rebuilding the whole row. Returning early skips that, so roto moves the highlight itself - otherwise the window would apply with every pill still looking unselected.
+            if (toggleEl) setActiveTimeframeChip(toggleEl, AppState.timeframe);
+            return;
+        }
         AppState.timeframe = 'all';
         rotoPillsShown = false;
         if (toggleEl) {
@@ -115,7 +121,7 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     renderTimeframeToggle(options);
 }
 
-// A row of always-visible pill buttons (same visual language as.filter-flex/.legend-item elsewhere in this file) - lives directly in.tabs-container (dashboard.html) so it's visible regardless of which tab is active. AppState.timeframe is the real source of truth now (no backing <select> anymore - see state.js). League History answers "how has this league gone", which no timeframe narrows - its seasons are its own axis. So the pills are absent there ( V1), and absent is the word: the CONTAINER stays in the row and keeps its flex, so it still absorbs the free space between the tabs and the right edge exactly as it does when full. Hiding the container instead would hand that space back to the tabs and slide them, which is the reflow the ruling forbids.
+// A row of always-visible pill buttons (same visual language as.filter-flex/.legend-item elsewhere in this file) - lives directly in.tabs-container (dashboard.html) so it's visible regardless of which tab is active. AppState.timeframe is the real source of truth now (no backing <select> anymore - see state.js). League History answers "how has this league gone", which no timeframe narrows - its seasons are its own axis. So the pills are absent there, and absent is the word: the CONTAINER stays in the row and keeps its flex, so it still absorbs the free space between the tabs and the right edge exactly as it does when full. Hiding the container instead would hand that space back to the tabs and slide them, which is the reflow the ruling forbids.
 export function setTimeframeVisible(visible) {
     const toggle = document.getElementById('timeframe-toggle');
     if (toggle) toggle.classList.toggle('timeframe-hidden', !visible);
@@ -157,7 +163,10 @@ function renderTimeframeToggle(options) {
             // A window pill toggles. Clicking the active one drops back to the whole span, which is how "the whole regular season" stays reachable without spending a pill on saying so. A span pill carries the current window across, so switching Regular Season to Playoffs keeps you on "last 4" rather than silently widening the view.
             const cur = parseTimeframe(AppState.timeframe);
             let next;
-            if (opt.group === 'recent') {
+            if (AppState.isRotoLeague) {
+                // ROTO'S PILLS DO NOT COMPOSE. Every other league type offers two segmented controls that combine - a season span and a recent window, so "the last 4 of the regular season" is expressible. Roto has no season spans at all: it has one official standing and a set of lookback windows over it, so its row is a plain single-select and its options carry no `group`. Without this branch they fell through to the span arm, which carries the current WINDOW across - so clicking Last 4 while on Current produced "last4+last1", a value no pill matches and no reader asked for. It never surfaced before because the row was being destroyed on every roto click anyway (see rebuildTimeframeOptions).
+                next = opt.value;
+            } else if (opt.group === 'recent') {
                 next = cur.window === opt.window ? cur.span : `${cur.span}+last${opt.window}`;
             } else {
                 next = cur.window ? `${opt.value}+last${cur.window}` : opt.value;
@@ -182,9 +191,12 @@ export function syncRotoTimeframePills() {
 
     // Full Season stays the default and shows ESPN's OFFICIAL standings verbatim (never a computed window). The lookback pills re-score the categories over ONLY that window's started-day components. Roto has no matchup periods, so windows are day-buckets grouped to WEEKS and labelled by week, the same convention as the Roto Race's x-axis. A window is only offered when the season is longer than it, so it always means something different from the full season.
     const maxWeek = rotoWindowMaxWeek(sport);
-    const options = [{ value: 'all', text: 'Full Season', title: "ESPN's official season standings" }];
+    // GROUPED LIKE EVERY OTHER FORMAT'S ROW. The pills used to carry no `group`, so all of them fell into the SPAN segment and the "Week" caption - which belongs between the two segments - trailed off the end of the row. A fifth pill pushed it past the right edge and clipped it. Roto's one official standing is the span; its lookbacks are the recent windows. Saying so puts the caption where it belongs and makes the row read the way the other formats' rows do, which is the whole point of standardizing Current across them.
+    const options = [{ value: 'all', text: 'Full Season', title: "ESPN's official season standings", group: 'span' }];
+    // CURRENT, which roto did not offer at all until - the pill row went Full Season straight to Last 4, so the one window every other format opens on was the one roto could not select. It is the same last1 window the other formats use, named the same way, in the same position in the row. Offered only once the season is longer than a week, on the same "a window has to mean something different from the full season" rule the lookbacks follow. It is also what makes the day-level roto surfaces reachable: both the Roto Race and the category race under the ranking bars already had a window === 1 branch that drew days, and with no Current pill neither branch could ever run.
+    if (maxWeek > 1) options.push({ value: 'last1', text: 'Current', title: 'The current week, day by day', group: 'recent', window: 1 });
     [4, 8, 12].forEach(n => {
-        if (maxWeek > n) options.push({ value: `last${n}`, text: `Last ${n} Weeks` });
+        if (maxWeek > n) options.push({ value: `last${n}`, text: `Last ${n} Weeks`, group: 'recent', window: n });
     });
     if (options.length === 1) return; // season too short for any honest window - keep the row hidden
 

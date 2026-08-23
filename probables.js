@@ -1,6 +1,27 @@
-// Projected pitching starts. PURE - no DOM, no AppState, no fetches, so the counting rule is unit-testable and stated in one place rather than scattered through a render. The chain, all of it ESPN's own data: starterStatusByProGame a pitcher's games, each PROBABLE or NOTSTARTING (player pool) proGamesByScoringPeriod which day each pro game falls on (season schedule) the league's own day-to-matchup history (B93's map) VALIDATED: every game id in the first resolves against the second, 3441 of 3441, and ESPN lists a full projected rotation up to 58 days ahead. Nothing here estimates a rotation.
+// Projected pitching starts. PURE - no DOM, no AppState, no fetches, so the counting rule is unit-testable and stated in one place rather than scattered through a render. The chain, all of it ESPN's own data: starterStatusByProGame a pitcher's games, each PROBABLE or NOTSTARTING (player pool) proGamesByScoringPeriod which day each pro game falls on (season schedule) the league's own day-to-matchup history VALIDATED: every game id in the first resolves against the second, 3441 of 3441, and ESPN lists a full projected rotation up to 58 days ahead. Nothing here estimates a rotation.
 
-// Flattens the proTeamSchedules_wl response to gameId -> { period, date, home, away }. String keys throughout, because that is how the ids arrive in starterStatusByProGame. The date and the two team ids ride along so a start can name its day and its opponent without a second lookup. Both come off the same game object.
+// Flattens the proTeamSchedules_wl response to gameId -> { period, date, home, away }. String keys throughout, because that is how the ids arrive in starterStatusByProGame. The date and the two team ids ride along so a start can name its day and its opponent without a second lookup. Both come off the same game object. SCORING PERIOD -> CALENDAR DATE, off the same schedule the probables machinery already reads. PURE. shipped chips labelled "Day 1, Day 2" because nothing in the LEAGUE payload dates a period, and the one candidate anchor was tested and rejected - standingsUpdateDate tracks the day mid-season and drifts by six days on a finished hockey league, so it is a last-touched timestamp rather than a date. The pro-team schedule has the real thing: every game carries its own date, and a scoring period is the day its games are played on. The EARLIEST game of a period is the period's date. A period holds a whole slate, and games run into the small hours of the next day in UTC - taking the earliest keeps a Tuesday slate on Tuesday instead of letting a 00:05 finish drag the label to Wednesday. (The same UTC edge showed up in the anchor test on opening day.)
+export function datesByScoringPeriod(scheduleResponse) {
+    const byPeriod = new Map();
+    const teams = (scheduleResponse && scheduleResponse.settings && scheduleResponse.settings.proTeams) || [];
+    teams.forEach(team => {
+        const games = team && team.proGamesByScoringPeriod;
+        if (!games) return;
+        Object.keys(games).forEach(key => {
+            (games[key] || []).forEach(game => {
+                if (!game || !game.date) return;
+                const period = Number(game.scoringPeriodId ?? key);
+                if (!Number.isFinite(period)) return;
+                const at = Number(game.date);
+                if (!Number.isFinite(at)) return;
+                const held = byPeriod.get(period);
+                if (held === undefined || at < held) byPeriod.set(period, at);
+            });
+        });
+    });
+    return byPeriod;
+}
+
 export function buildGamePeriodIndex(scheduleResponse) {
     const index = new Map();
     const teams = (scheduleResponse && scheduleResponse.settings && scheduleResponse.settings.proTeams) || [];

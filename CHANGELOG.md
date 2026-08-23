@@ -1,5 +1,31 @@
 ﻿# Changelog
 
+## 1.5.0 (2026-08-22)
+
+Added
+- Boxscore, a second look, black and gold in both sports. It is now the default; the previous look is Modern. Style and theme are under Display in the settings.
+- Pennants and banners on the League History wall take their colour from the team's logo.
+- Player comparison. Open a player, press Compare, and pick another player of the same role. Both lines draw on one chart, with a category strip and a ledger of who leads where.
+- The player chart colours each matchup point: gold ring for the season's best, green above the player's own typical week, red below.
+- Click a matchup point to open that matchup day by day. The axis shows the dates; hovering a day shows its score and the stat line.
+- Matchup Score explainer. The info mark on the chart opens a worked example from the player's own week: the week's line, one percentile bar per category, and the average that is the score.
+- Roto leagues get the Current timeframe, and the race draws the matchup being played day by day.
+- The careers pane in League History shows a spinner while loading and a chip per season. Two seasons load at once; the others load when their chip is clicked.
+
+Changed
+- Records count finished matchups only. The matchup being played contributes to live scores and nothing else.
+- Live data is re-read five minutes after the last read rather than on every render, and large fetches are paced. Fewer requests reach ESPN.
+- The crown marks a champion only. During the season the leader is first in the standings, with no crown.
+- The diagnostic panel's tally separates API calls from image loads.
+
+Fixed
+- Live matchup scores could sit a day stale. The scoreboard reads ESPN's live tally, and games started updates with it.
+- Reopening the dashboard did not refresh the league. It revalidates on open without changing the tab you are on.
+- Changing the timeframe while comparing two players did not redraw the comparison.
+- The Current timeframe on the first day of a matchup showed nothing.
+- Rate categories in the race chart were summed across days instead of recomputed.
+- The category heatmap's tint had no dark mode.
+
 ## 1.4.1 (2026-08-09)
 - Fixed: the utility rail down the right edge sat a scrollbar-width short of the edge, with a strip of empty background beside it.
 - The diagnostic panel is a drawer at the foot of the window now, over the page rather than under it, and scrolls inside itself. With it switched on the page no longer scrolls, which is what left that strip beside the rail.

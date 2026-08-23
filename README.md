@@ -8,7 +8,7 @@
 </p>
 
 
-Standings, trend lines, category heatmaps, a ranked player leaderboard, your league's whole history, and shareable weekly recaps for your ESPN Fantasy Baseball and Hockey leagues. Weekly head to head, points, and season-long roto formats are all supported.
+Analytics for your ESPN Fantasy Baseball and Hockey league: how every team is doing, how every player rates, and everything the league has ever done. Head to head, points, and roto formats are all supported.
 
 ## Built with AI, reviewed by humans
 
@@ -28,25 +28,26 @@ Each tab provides a different view into your league.
 
 - **Team Metrics**, how the league is doing. Season trend lines, per-category rankings, a category heatmap, and live scoreboards for the matchup being played.
 
-<p align="center"><img src="screenshots/1.4.0/team-metrics-1.4.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
+<p align="center"><img src="screenshots/1.5.0/team-metrics-1.5.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
 
-- **Player Metrics**. Every player in your league ranked in your league's own categories, adjusted for playing time, with search and position filters. Open any player for a more in depth view.
+- **Player Metrics**. Every player in your league ranked in your league's own categories. Open any player for a more in depth view and player comparisons.
 
-<p align="center"><img src="screenshots/1.4.0/player-metrics-1.4.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
+<p align="center"><img src="screenshots/1.5.0/player-metrics-1.5.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
 
-<p align="center"><img src="screenshots/1.4.0/player-drill-down-1.4.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
+<p align="center"><img src="screenshots/1.5.0/player-drill-down-1.5.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
 
 - **My Team**, your roster at a glance. Every player with their rank and category line. Pitchers have a schedule view with projected matchup difficulties based on the opponent's batting and park factor.
 
-<p align="center"><img src="screenshots/1.4.0/my-team-schedule-1.4.0.png" width="900" alt="My Team tab: the roster grouped by role with each player's rank and category line, and the pitchers' projected starts on the matchup calendar"></p>
+<p align="center"><img src="screenshots/1.5.0/my-team-schedule-1.5.0.png" width="900" alt="My Team tab: the roster grouped by role with each player's rank and category line, and the pitchers' projected starts on the matchup calendar"></p>
 
 - **League History**, everything the league has ever done. Every season it has played, with the champions down the side as pennants for baseball and rafter banners for hockey.
 
-  Pick an opponent and the rivalry opens: who leads, a bar for each season, the current streak, the last meeting, the longest run and the matchups it spanned, playoff meetings, and titles. Player careers total every player across every season.
 
-<p align="center"><img src="screenshots/1.4.0/league-history-1.4.0.png" width="900" alt="League History tab: champions down the side as pennants, all-time standings, and a rivalry opened to its season bars and facts"></p>
+<p align="center"><img src="screenshots/1.5.0/league-history-1.5.0.png" width="900" alt="League History tab: champions down the side as pennants, all-time standings, and a rivalry opened to its season bars and facts"></p>
 
 One timeframe control drives Team Metrics, Player Metrics, and My Team. Pick a part of the season you want to see in more detail.
+
+Two looks, Boxscore and Modern, each in light and dark, under Display in the settings.
 
 - **Export and Recap**: CSV or clipboard export of any view, and a shareable image recap of a matchup week for the league group chat.
 
@@ -91,10 +92,6 @@ What changed in each release is in the [changelog](CHANGELOG.md).
 
 - **Microsoft Edge.**
 - **Firefox for Android.**
-
-## Contributions
-
-Outside contributions aren't being accepted right now. Issues are welcome.
 
 ## License
 

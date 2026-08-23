@@ -1,4 +1,4 @@
-/* Design tokens - the single source of truth for color (see ROADMAP "theming"). Light is the default in:root. Dark applies two ways. Automatically via prefers-color-scheme (unless the user forced light), and explicitly when the Settings toggle stamps data-theme="dark" on <html> (which always wins). The canvas recap image has its own JS palette (recap.js) and stays light on purpose. Orange (--brand) is a restrained secondary accent; blue (--accent) stays the primary interactive color. */
+/* Design tokens - the single source of truth for color (see ROADMAP "theming"). This block is the MODERN style: the look the extension shipped with, and the baseline the Boxscore block further down overrides. It applies whatever data-style says, so a token Boxscore has not restated keeps a Modern value in the correct mode. Light is the default in:root. Dark applies two ways. Automatically via prefers-color-scheme (unless the user forced light), and explicitly when the Settings toggle stamps data-theme="dark" on <html> (which always wins). The canvas recap image has its own JS palette (recap.js) and stays light on purpose. Orange (--brand) is a restrained secondary accent; blue (--accent) stays the primary interactive color. */
 :root {
     color-scheme: light;
 
@@ -59,6 +59,16 @@
     --medal-gold: #b8860b;
     --medal-silver: #767676;
     --medal-bronze: #a4581e;
+
+    /* Figures. Modern sets the numerals in the UI face; Boxscore swaps a serif in. `inherit` makes the shared.numerals rule cost nothing here rather than needing a Modern-only exception. */
+    --font-numeral: inherit;
+
+    /* HEADLINE figures, split off the numeral slot in item 4. The ruling put the slab serif on headline figures ONLY and sent tables and small figures back to the plain tabular sans, so the two need separate names - one token cannot be a serif in a scoreboard panel and a sans in an 11px table cell. Modern sets both to inherit for the same reason it set the first one. */
+    --font-headline: inherit;
+
+    /* The two series in a 1v1 comparison. Stated once, in terms of tokens BOTH styles set, so each style gets its own pair without a second declaration to keep in sync - Modern draws blue against orange, Boxscore the deep colour against the gold, and both keep a hue's distance in light and dark. --compare-a is the accent the single-player trend line has always used, so adding the token changed nothing about a chart with one player on it. */
+    --compare-a: var(--accent);
+    --compare-b: var(--brand);
 
     /* Shadows */
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -156,19 +166,239 @@
     --shadow-lg: 0 12px 44px rgba(0, 0, 0, 0.6);
 }
 
+/* BOXSCORE - the themed style. Everything above is MODERN: the look the extension shipped with, untouched, and the baseline Boxscore overrides. Anything Boxscore has not dressed yet falls back to a Modern value in the right MODE, because Modern's dark block matches on data-theme alone and keeps applying underneath. Boxscore is the default for new installs. theme-init.js stamps data-style on the root before first paint from the efv-style key, so neither style ever flashes into the other, and the Display group's select changes it. THREE ATTRIBUTES COMPOSE. data-style picks the token SET (Modern above, Boxscore here), data-theme / prefers-color-scheme picks light or dark within it, and data-sport picks the ramp - baseball's ballpark set or hockey's rink set. Sport is read from the loaded league and never chosen (setSportAttribute in data.js); an app with no league loaded shows the baseball set, since light baseball is the showcase the store shoots in. HOW THE VALUES ARE ORGANISED, because the alternative is four near-identical blocks that drift. Each sport states its nine approved hexes ONCE, as -l/-d pairs. The mode blocks then select a pair half into the unsuffixed --k- names, nine lines each. The mapping onto the app's real tokens is written ONCE and reads only the unsuffixed names. So a third sport is nine hexes and no new mapping, and a mapping fix cannot land in two states out of four. Order does not matter between them: custom properties resolve at computed-value time, so the sport override below reaches a mapping written above it. Values the approved mocks pin are used literally. Values they do not pin are MIXED from the ones they do rather than invented, always in the direction that is correct in both modes - a "softer" border steps toward the card and a "stronger" one steps toward the ink, which lightens in dark and darkens in light without a second value. See the DECISIONS-NEEDED notes for the two the mocks genuinely leave open. */
+
+/* THE BOXSCORE SET. One palette, every sport. IT USED TO BE TWO. A ballpark set in navy and brick on striped flannel, and a rink set in Pittsburgh black and gold, selected by data-sport. The owner put them side by side and ruled that the black and gold wins outright, for baseball as much as for hockey - so the two sets collapse into the one below and the navy, the brick and the pinstripes all retire with the split. THE COLLAPSE IS DELIBERATE, NOT AN OMISSION. The per-sport structure was built and is gone on purpose, so nobody re-adds it thinking it was never there. data-sport still selects plenty - which SHAPE hangs on the History wall, which EMBLEM sits at the centre of a section divider - but it no longer selects a single colour in Boxscore. If a third sport arrives it inherits this palette and brings a shape and an emblem, which is now the whole of what a sport contributes to the look. THE GOLD PROBLEM, inherited from item 3 and now governing everywhere rather than the rink alone. --k-accent is not just a fill: it is the colour the active tab's own LABEL takes, and a bright gold on white paper measures about 1.8:1, which is not text. So LIGHT uses gold the way a printer would, pulled down to #8a6a08 - still gold beside the black, and 4.94:1 on the card. DARK has no such constraint and takes the bright #f0c04a. The bright gold still appears in light, but only where it always did: ON the black band, through --gold, which is a figure colour rather than an ink. Values the approved mocks pin are used literally; the rest are mixed from them in the direction that is correct in both modes. */
+:root[data-style="boxscore"] {
+    --k-page-l: #f6f4ee;
+    --k-page-d: #0c0d0e;
+    --k-card-l: #fdfcf9;
+    --k-card-d: #141618;
+    --k-border-l: #d9d4c7;
+    --k-border-d: #2b2e32;
+    --k-deep-l: #101112;
+    --k-deep-d: #101112;
+    /* The deep colour is the same in both modes; what changes is that on a dark page it needs an edge to separate from the card, so the dark half gets a lighter one. In light the edge IS the deep colour, which makes every tint below read the same expression in both modes without a mode test. Lighter than the black by enough for the masthead block to lift off a near-black card (1.47:1 measured) while the gold slab on it still reads at 7.87:1 - a black block on a black page cannot do better without ceasing to be black. */
+    --k-deep-edge-l: #101112;
+    --k-deep-edge-d: #5c6169;
+    --k-accent-l: #8a6a08;
+    --k-accent-d: #f0c04a;
+    --k-ink-l: #16181a;
+    --k-ink-d: #efe9dc;
+    /* #636058 rather than a lighter grey so the faint rung of the text ladder clears 3.0:1 (3.15 measured). Both retired sets missed it - the old rink at 2.29, the old ballpark at 2.58. */
+    --k-muted-l: #636058;
+    --k-muted-d: #9a978f;
+    --k-track-l: #e8e4d8;
+    --k-track-d: #202327;
+}
+
+/* Light is the unqualified state, exactly as Modern's:root is, and it carries the one copy of the mapping. The dark blocks below only re-point the nine names. */
+:root[data-style="boxscore"] {
+    --k-page: var(--k-page-l);
+    --k-card: var(--k-card-l);
+    --k-border: var(--k-border-l);
+    --k-deep: var(--k-deep-l);
+    --k-deep-edge: var(--k-deep-edge-l);
+    --k-accent: var(--k-accent-l);
+    --k-ink: var(--k-ink-l);
+    --k-muted: var(--k-muted-l);
+    --k-track: var(--k-track-l);
+
+    /* Gold is the one constant across all eight states - it is the thread the brand keeps once the orange retires, so it is stated here rather than per sport or per mode. It is a figure colour ON the deep band, never a colour on a pale surface, where it has no contrast to give. */
+    --gold: #f4d06f;
+
+    /* The identity's own, named for what they are rather than for a colour, so a third sport does not make the names lie. Boxscore-only on purpose: the leader band and the serif figures are this style's personality, and Modern is meant to look like Modern. */
+    --deep: var(--k-deep);
+    --deep-edge: var(--k-deep-edge);
+
+    /* THE TYPE SPLIT. Georgia-everywhere retires: it was on every figure in the app, which made a scoreboard read like a menu, and the ruling put a SLAB serif on headline figures only. Rockwell is the named face and Georgia is the named fallback, so the stack is exactly the ruling with a generic serif behind it - no webfont, no fetch, nothing to download (the privacy posture forbids it and a headline figure is not worth a request either way). Tables and small figures take the plain UI sans back, with tabular figures so columns still line up - which is what a table actually needed from the serif and the only thing it got. */
+    --font-headline: Rockwell, 'Rockwell Nova', Georgia, 'Times New Roman', serif;
+    --font-numeral: inherit;
+
+    /* THE MASTHEAD. A solid navy block with cream slab type on it, the way a scorecard prints its section titles. The ink is fixed rather than derived: the block is navy in BOTH modes, so an ink that followed the mode would go navy-on-navy the moment the page went dark. Cream is the road uniform's own, which is why it is the same cream. Measured against the block below. MIXED FROM THE EDGE, which is the same trick --deep-edge itself exists for and it costs no mode test. In LIGHT the edge and the deep colour are the same hex, so this mix resolves to exactly --k-deep and the block is the ruled navy on cream. In DARK the edge is a lighter navy, so the block lifts to #294977 - and it has to, because the road uniform's card is already navy and a --k-deep block on it measured 1.05:1 against its own card. It vanished: the screenshot showed cream slab type floating with no masthead under it at all, which is the sort of thing only a picture reports. At 1.74:1 the block reads as a block, and the cream on it still measures 7.59:1. */
+    --masthead: color-mix(in srgb, var(--k-deep-edge) 45%, var(--k-deep));
+    /* Gold slab type on the black block, and one value for every sport now that the palette is one. Mode-independent because the block is: the masthead is black in light and in dark, so an ink that followed the mode would go black on black in one of them. */
+    --masthead-ink: #f7c948;
+
+    /* The bar track INSIDE a leader band. Mixed from the band, not from the page, which is the whole of the fix - a track coloured off the page surface cut the band in two. Gold rather than white so the lift stays inside the identity's two colours. */
+    --leader-track: color-mix(in srgb, var(--gold) 15%, var(--deep));
+
+    /* The pennant wall's felts. A bracket title hangs in the sport's deep colour and a roto title in its brick - the two ways a league can be won, told apart by cloth rather than by a word. The undecided season is the same felt drained toward the page, so it reads as a pennant nobody has claimed rather than as a different object. The brass plate is gold pulled toward the ink, which is what brass is: gold that has been handled. All three are mixed from hexes already stated, so a third sport still costs nine values. */
+    --felt-bracket: var(--k-deep);
+    /* THE ROTO FELT IS A DARK GOLD, NOT THE GOLD. It was --k-accent, which was a brick when P2 wrote it. made the accent GOLD for every sport and nobody re-measured this: a roto champion got gold cloth under gold type, measuring 3.40:1 in light and 1.14:1 in dark, which the screenshot shows as a name that is not there. Mixed 30% into the deep colour instead, the gold type reads 9.28:1 and 6.22:1 - and the felts stay 1.37:1 and 2.04:1 apart, so the two formats are still told apart by cloth, with the brass plate printing the word as well since. Readability wins the trade: a pennant nobody can read is not a quieter pennant, it is a blank one. */
+    --felt-roto: color-mix(in srgb, var(--k-accent) 30%, var(--k-deep));
+    --felt-open: color-mix(in srgb, var(--k-muted) 55%, var(--k-page));
+    /* THE BLANK FELT. The last rung of the dye ladder, for a champion with no logo colour and no chart colour to borrow. Theme black on a near-black page made the pennant disappear - a title that reads as a hole in the wall. A charcoal lifted off the DEEP colour toward the ink keeps it black-family while giving it an edge to be seen by, in both modes: in light the page is cream and this is dark against it anyway, in dark the page is #0c0d0e and this sits well above it. Measured in pixels rather than reasoned about - see the entry. */
+    --felt-blank: color-mix(in srgb, var(--k-deep) 62%, var(--k-muted));
+    /* BRASS, the adaptive one: gold pulled toward the ink, so it darkens on a light page and lightens on a dark one. This is the RULE-AND-MARK brass - the tab rule, the section rule, the rail's icons, the score panel's edge - all of which are ink and have to follow the mode like any other ink does. */
+    --brass: color-mix(in srgb, var(--gold) 62%, var(--k-ink));
+
+    /* THE PLAQUE, which is a different thing and now has different values. A brass plate screwed under a pennant is a physical object: it looks the same in a lit room and a dark one, so unlike the rule-brass above it does NOT follow the mode. That is also what fixes it - the adaptive brass put mid-brass figures on a mid-brass fill in light, which measured 2.2:1 and was the owner's "unreadable". MEASURED, not eyeballed. The mock's pair is #f7ecd2 on #8a6d3b, which computes to 4.11:1 - fine for large text and short of the 4.5:1 a 10px plate needs. The ruling allows darkening the plate until the figures pass, so the fill drops one shade to #7d6234 and the pair measures 4.85:1. The cream is the mock's, unchanged. */
+    --plate: #7d6234;
+    --plate-ink: #f7ecd2;
+    --plate-edge: #5c4726;
+
+    /* THE PUCK, also a physical object and also mode-independent. It was drawn from --k-ink, which is dark on a light page and LIGHT on a dark one - so in dark mode the divider hung a white pill in the middle of the rule. A puck is near-black in any light. */
+    --puck: #131518;
+
+    /* Shapes drawn as masks, so the colour under them is always a token (golden rule 3) and the mark itself carries none. A mask is alpha only - the path needs no fill, so there is no hex hiding inside the data URI. Kept here with the palette because every one of them is painted from it. The rail's three are line-art in the identity's language: a ticket stub with a torn perforation for Export, a pennant for Recap, a rulebook for Legend. SETTINGS KEEPS THE GEAR in both styles (owner) - it is the one mark everybody already knows, and a clever replacement for it would cost recognition to gain nothing. */
+    --crown-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 18'%3E%3Cpath d='M0 18V3l6 5 6-8 6 8 6-5v15z'/%3E%3C/svg%3E");
+    --ticket-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M2 6h20v3a3 3 0 0 0 0 6v3H2v-3a3 3 0 0 0 0-6zm13 1h1.4v2H15zm0 4h1.4v2H15zm0 4h1.4v2H15z'/%3E%3C/svg%3E");
+    --pennant-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 3h1.7v18H4zm3 1.6 14 4-14 4z'/%3E%3C/svg%3E");
+    --rulebook-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 4h9v1.6H8zm0 4h9v1.6H8zm0 4h6v1.6H8z'/%3E%3C/svg%3E");
+
+    /* THE BASEBALL. The seam-stitch band that used to run along baseball's divider retires with the flannel: the ruling makes both sports use one line-emblem-line divider, so baseball gets a BALL at the centre, the twin of hockey's puck. AN EMBLEM CARRIES ITS OWN COLOURS, which the ruling states explicitly - a ball is cream with red seams the way a team logo is whatever it is, and neither is a palette member. They are still declared here as tokens rather than written into a rule, so golden rule 3 holds: no hex outside the:root token blocks, and both halves stay swappable if the owner rules otherwise. The seams are a MASK, so the shape itself carries no colour - the same reason the crown and the rail icons are masks. Two filled crescents rather than stroked arcs, because a stroke would need a stroke colour spelled out inside the data URI and a filled path defaults to opaque, which is all a mask reads. */
+    --ball-face: #f4efe3;
+    --ball-edge: #cbbfa8;
+    --ball-seam: #b3202b;
+    --ball-seam-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M5.2 2A7.84 7.84 0 0 0 5.2 12A21.13 21.13 0 0 1 5.2 2Z'/%3E%3Cpath d='M8.8 2A7.84 7.84 0 0 1 8.8 12A21.13 21.13 0 0 0 8.8 2Z'/%3E%3C/svg%3E");
+
+    /* Surfaces. Elevation steps toward the INK, which reads as a step down on a pale page and a step up on a dark one - the same direction Modern's two hand-picked ramps take, expressed once. The sunken step is the mocks' track colour, since the bar backing is what that token mostly paints. */
+    --bg: var(--k-page);
+    --surface: var(--k-card);
+    --surface-2: color-mix(in srgb, var(--k-card) 94%, var(--k-ink));
+    --surface-3: var(--k-track);
+    --surface-accent: color-mix(in srgb, var(--k-deep-edge) 10%, var(--k-card));
+    --surface-accent-strong: color-mix(in srgb, var(--k-deep-edge) 24%, var(--k-card));
+
+    /* Borders. Soft steps toward the card (less border), strong toward the ink (more). */
+    --border: var(--k-border);
+    --border-soft: color-mix(in srgb, var(--k-border) 60%, var(--k-card));
+    --border-strong: color-mix(in srgb, var(--k-border) 70%, var(--k-ink));
+    --border-muted: var(--k-border);
+
+    /* Text. The mocks pin two levels, ink and muted; the app asks for five. Body and heading share the ink because flat type with real weight hierarchy is the point of the style. The quiet three are a ladder built AROUND the pinned muted rather than below it - one step toward the ink, the pinned value itself, one step toward the card - because a ladder that only ever lightens ends its bottom rung below what Modern's own faintest text manages. Measured against Modern in all four states before it was written this way: subtle sitting one step light of muted put the tab bar's idle labels at 2.96:1 on the rink card, under Modern's 3.5, and this ladder clears it. */
+    --text: var(--k-ink);
+    --text-body: var(--k-ink);
+    --text-muted: color-mix(in srgb, var(--k-muted) 70%, var(--k-ink));
+    --text-subtle: var(--k-muted);
+    --text-faint: color-mix(in srgb, var(--k-muted) 70%, var(--k-card));
+
+    /* Accent. Brick for baseball, red for hockey, on the underline and anything live. Hover and pressed step toward the ink, which darkens in light and lightens in dark. */
+    --accent: var(--k-accent);
+    --accent-hover: color-mix(in srgb, var(--k-accent) 82%, var(--k-ink));
+    --accent-strong: color-mix(in srgb, var(--k-accent) 66%, var(--k-ink));
+    --accent-contrast: var(--k-card);
+
+    /* --brand is the warmth token: the trend chart's average line and a few soft tints. Gold cannot take it - gold is only legible against the deep band, and the average line draws on the pale chart surface - so it stays the deep colour's edge. PULLED TOWARD THE INK, and that is a fix rather than a flourish. The plain edge measured 2.91:1 against a dark card once the palette went near-black, which is under the 3.0 a meaningful graphic needs - an average line the reader is supposed to compare against. introduced that when the rink's edge became a near-black grey and this entry spread it to every sport, so it is fixed here for both. 70% edge and 30% ink measures 5.24:1 in dark and 18.13:1 in light, where the plain edge measured 18.42 - so the light half is untouched to the eye and the dark half becomes visible. */
+    --brand: color-mix(in srgb, var(--k-deep-edge) 70%, var(--k-ink));
+    --brand-strong: var(--k-deep);
+    --brand-soft: color-mix(in srgb, var(--k-deep-edge) 12%, var(--k-card));
+
+    /* Charts read as ruled paper: the grid is the border relaxed toward the card, the axis is the muted ink. */
+    --chart-grid: color-mix(in srgb, var(--k-border) 60%, var(--k-card));
+    --chart-axis: var(--k-muted);
+    --chart-boundary: var(--k-border);
+}
+
+/* NOT overridden here, deliberately, and each falls back to a Modern value that is already mode-correct: the semantic trio (success / danger / warning), which mean the same thing in any style and whose meaning is worth more than the palette; the medals, which are their own metal ramp and are the one place gold already had a legible pale-surface value; the tooltip and scoreboard bubbles, which are dark in both Modern modes by design; and the shadows. P2 revisits them per component rather than in bulk. */
+
+/* Dark, the automatic path. Same nine names, the -d half. */
+@media (prefers-color-scheme: dark) {
+    :root[data-style="boxscore"]:not([data-theme="light"]) {
+        --k-page: var(--k-page-d);
+        --k-card: var(--k-card-d);
+        --k-border: var(--k-border-d);
+        --k-deep: var(--k-deep-d);
+        --k-deep-edge: var(--k-deep-edge-d);
+        --k-accent: var(--k-accent-d);
+        --k-ink: var(--k-ink-d);
+        --k-muted: var(--k-muted-d);
+        --k-track: var(--k-track-d);
+    }
+}
+
+/* Dark, the explicit path. */
+:root[data-style="boxscore"][data-theme="dark"] {
+    --k-page: var(--k-page-d);
+    --k-card: var(--k-card-d);
+    --k-border: var(--k-border-d);
+    --k-deep: var(--k-deep-d);
+    --k-deep-edge: var(--k-deep-edge-d);
+    --k-accent: var(--k-accent-d);
+    --k-ink: var(--k-ink-d);
+    --k-muted: var(--k-muted-d);
+    --k-track: var(--k-track-d);
+}
+
+/* The two treatments P1 owes beyond colour. THE ACTIVE-TAB UNDERLINE is already what the identity asks for -.tab-button.active has carried a 3px bottom border in --accent since long before this - so it needs no rule here. Under Boxscore that border becomes the gold. Written down because "nothing to do" and "forgotten" look identical in a diff. THE SERIF FIGURES and THE LEADER BAND are below. Both are scoped to the style rather than expressed as tokens Modern also sets, because they are personality rather than palette: Modern is supposed to keep looking like Modern, and a token both styles set would invite a Modern rule to drift into the identity. */
+
+/* TABLE AND SMALL FIGURES. These are the 11-13px numbers in rows and cells, and the ruling sends them back to the plain UI sans - so --font-numeral is now `inherit` under Boxscore too, and what this rule still buys is the TABULAR figures. That is the part a column of numbers actually needed: same advance width per digit, so 11 and 88 occupy the same space and a column reads down. The serif was giving it that as a side effect of being Georgia. */
+.numerals,
+.bar-value,
+.vcol-value {
+    font-family: var(--font-numeral);
+    font-variant-numeric: tabular-nums;
+}
+
+/* HEADLINE FIGURES, the slab's whole territory: the drill-down's rank chips at 14px and the live band's matchup score at 15px. Two surfaces, both of them a number somebody reads from across the room rather than scans in a column. Modern's --font-headline is `inherit`, so this costs it nothing, exactly as the numeral rule already did. */
+.rank-chip-value,
+.h2h-head-score {
+    font-family: var(--font-headline);
+    font-variant-numeric: tabular-nums;
+}
+
+/* THE CHAMPION'S BAND. A solid filled band in the sport's deep colour with gold figures and a crown, which is how a scoreboard has always said who WON. IT IS NOT A LEADER BAND ANY MORE. It marked whoever was top of the table, which meant a team leading in May wore the winner's livery; had already taken the crown off that row, and this ruling takes the band too. In-season the leader is first in the list, in Team Rankings and in Category Rankings alike - the ordering is the statement, and a list does not need to shout its own first row. ON.is-champion ALONE, and that fixed a second bug rather than causing one. wrote the crown as.is-leader.is-champion, on the assumption that a champion is top of the table. Champions frequently are not - a bracket is not a ladder - and the first finished season staged here proves it: Designated Sitters led at 16W-4L and Big Inning won the title at 15W-8L-1T, so the compound selector matched NOTHING and the crown had been invisible for exactly the team it exists to celebrate. Dropping.is-leader is what "crown for champions" always meant. Band and crown share the one selector deliberately, because the gold figures below only work ON the deep band - separate them and a champion's name goes gold on cream. A category-ranking row can never be a champion, so those rows lose the treatment outright, which is the same ruling read from the other end. Painted on the row, so it costs no markup and no height - the band is background and colour only, and every fitted-grid pitch above it still computes from counts. Ties all get the band: two teams level ARE both leading, and picking one by sort order would be a claim the data does not make. L1, THE FIX: the band must run UNDER the bar track too. P1 painted the row and left the track on its own page-surface colour, so a band that was meant to read as one filled row came out as two patches with a pale slab between them - the owner read it as a rendering glitch, which is the correct reading of what it looked like. The track now takes a lighter panel MIXED FROM THE BAND ITSELF rather than from the page, so the row is continuous and the track still reads as a track. The segments drawn inside it are the team's own colours and are data, so they are left alone. */
+:root[data-style="boxscore"] .bar-row.is-champion {
+    background: var(--deep);
+    border-radius: 4px;
+}
+
+:root[data-style="boxscore"] .bar-row.is-champion .bar-track {
+    background: var(--leader-track);
+}
+
+:root[data-style="boxscore"] .bar-row.is-champion .bar-title,
+:root[data-style="boxscore"] .bar-row.is-champion .bar-value {
+    color: var(--gold);
+}
+
+/* The crown, drawn as a MASK rather than as a glyph or an image. A glyph would be whatever crown the machine happens to have - most systems answer with a colour emoji, which is the one thing a gold-on-green band cannot take - and an inline SVG with a fill would be a colour outside the token blocks (golden rule 3). A mask is a shape; the colour under it is --gold, so it follows the palette like everything else. On the::before of the title rather than in the markup, because sizeBarTitles measures the name SPANS inside.bar-title, not the title box - so the crown cannot widen the measured label column and push every other row's track right. It does eat a few pixels of the leader's own ellipsis room, which is why the abbreviated modes below get a smaller one. IT SHRINKS, IT DOES NOT GO AWAY, and getting there took two wrong answers that only a screenshot could show. First it was suppressed under.std-tiny, on the assumption that tiny means the label has gone - it does not, tiny only drops the type to 9px. Then it was suppressed under every abbreviated mode, which measured correct and rendered nothing: a ten-team ladder and a six-team ladder alike sit in.std-2col.std-tiny at 1280, so "hide it where the label is short" turned out to mean "hide it always". A 3-letter code at 9px is about 20px in a 34px column, which leaves room for a 10px crown but not a 16px one - so the mode gets its own size and the champion keeps its mark everywhere. THE CROWN IS FOR CHAMPIONS, NOT FOR LEADERS. P2 put it on every.is-leader row, which meant a team top of the table in May wore the same mark as a team that had actually won the thing - the band says who is ahead, and only a finished season can say who won. So the selector gains.is-champion, which the standings row already knew about (it has computed isChampion for the tier tooltip since ) and now spends on a class. A season in progress leaves championTeamId null, so an in-progress leader gets the band and no crown for free, with no "is the season over" test anywhere in the CSS. Only the STANDINGS rows can be champions. A category-ranking leader and a single-week leader are leaders of a column of numbers, so those rows keep the band and lose the crown entirely, which is the same ruling read the other way. */
+:root[data-style="boxscore"] .bar-row.is-champion .bar-title::before {
+    content: '';
+    display: inline-block;
+    width: 12px;
+    height: 9px;
+    margin-right: 4px;
+    vertical-align: -1px;
+    background: var(--gold);
+    -webkit-mask: var(--crown-mask) center / contain no-repeat;
+    mask: var(--crown-mask) center / contain no-repeat;
+}
+
+:root[data-style="boxscore"] .std-2col .bar-row.is-champion .bar-title::before,
+:root[data-style="boxscore"] .std-tiny .bar-row.is-champion .bar-title::before,
+:root[data-style="boxscore"] .cat-2col .bar-row.is-champion .bar-title::before {
+    width: 8px;
+    height: 6px;
+    margin-right: 2px;
+    vertical-align: 0;
+}
+
+/* The name's own crown glyph, which is Modern's champion mark and stays visible there. Boxscore hides it because the gold crown above is saying the same thing better - see the NAME_CROWN note in graphs.js for why the glyph is in a span at all. */
+:root[data-style="boxscore"] .bar-title-crown {
+    display: none;
+}
+
+/* A single-matchup ranking draws columns rather than rows, and a column has no band to fill - the fill IS the column. Its figure takes the deep colour instead, which is the same statement in the shape that view has. */
+:root[data-style="boxscore"] .vcol-leader .vcol-value {
+    color: var(--deep);
+}
+
+
 html {
     height: 100vh;
     margin: 0;
-    /* NO scrollbar-gutter here, and it is a deletion with a history (B176/). The root once reserved the gutter so a transient panel's scrollbar could not narrow the chart - but the reserved column turned out to be dead space nothing can ever occupy: fixed elements at right: 0 stop at its inner edge, an element moved into it loses its clicks, and paint is CLIPPED there exactly like hits (all four measured, B176-). The rail therefore sat 15px off the glass in every steady state, permanently, to protect against a 15px narrowing that is transient and, at viewports past the container's 1400px cap, invisible. removed the only PERSISTENT page scroller (the diagnostic panel is an overlay drawer now), so steady state has no viewport scrollbar and right: 0 means the glass. A transient push still scrolls the page and its scrollbar briefly narrows the viewport - that is the accepted price, not a bug. */
+    /* NO scrollbar-gutter here, and it is a deletion with a history. The root once reserved the gutter so a transient panel's scrollbar could not narrow the chart - but the reserved column turned out to be dead space nothing can ever occupy: fixed elements at right: 0 stop at its inner edge, an element moved into it loses its clicks, and paint is CLIPPED there exactly like hits (all four measured, ). The rail therefore sat 15px off the glass in every steady state, permanently, to protect against a 15px narrowing that is transient and, at viewports past the container's 1400px cap, invisible. removed the only PERSISTENT page scroller (the diagnostic panel is an overlay drawer now), so steady state has no viewport scrollbar and right: 0 means the glass. A transient push still scrolls the page and its scrollbar briefly narrows the viewport - that is the accepted price, not a bug. */
 }
 
-/* height, NOT min-height. The flex chain below needs a DEFINITE height to divide, and relaxing this to min-height left the leaderboard taking its own content height instead of a share - 17,873px of page scroll on Player Metrics, found while fixing and caused by B169's first cut. The page still grows when a transient panel pushes: body keeps overflow:auto, so the push scrolls the body rather than stretching it. */
+/* height, NOT min-height. The flex chain below needs a DEFINITE height to divide, and relaxing this to min-height left the leaderboard taking its own content height instead of a share - 17,873px of page scroll on Player Metrics, found while fixing and caused by the first cut. The page still grows when a transient panel pushes: body keeps overflow:auto, so the push scrolls the body rather than stretching it. */
 body {
     height: 100vh;
     margin: 0;
 }
 
-/* A flex column, so the container and the debug console's COLLAPSED bar share the viewport instead of stacking past the bottom of it - that part of stands, and is why a page with the console present but shut still scrolls by nothing. What changed (, owner): the console EXPANDING no longer shrinks the container. read any page scroll as the bug and made the container absorb the console at every size, so opening the diagnostic silently resized every box on the tab behind it. The owner ruled that backwards: a transient panel pushes content down and the page scrolls while it is open, and nothing resizes. min-height rather than height is what lets the body grow to accommodate that push. */
+/* A flex column, so the container and the debug console's COLLAPSED bar share the viewport instead of stacking past the bottom of it - that part of stands, and is why a page with the console present but shut still scrolls by nothing. What changed: the console EXPANDING no longer shrinks the container. read any page scroll as the bug and made the container absorb the console at every size, so opening the diagnostic silently resized every box on the tab behind it. The owner ruled that backwards: a transient panel pushes content down and the page scrolls while it is open, and nothing resizes. min-height rather than height is what lets the body grow to accommodate that push. */
 body {
     font-family: Arial, sans-serif;
     background: var(--bg);
@@ -209,7 +439,7 @@ h2 {
     text-align: center;
 }
 
-/* Brand banner in the top bar: League[W]ise, the sparkline mark slotted in as the word's own "w" (see the markup comment in dashboard.html). align-items:baseline (not center) is what makes the mark sit ON the text baseline like a letter - an inline SVG's flex baseline is its bottom edge, and the banner viewBox is cropped so that edge IS the glyph's bottom. The <a> deliberately has no href yet - once the product website exists it becomes a real link. THE header row ( V1, item 4): wordmark left, matchup indicator right. The indicator used to own a row of its own below this one, which spent a band of vertical height to say six words while the wordmark's line sat empty to its right. Baseline-aligned so the two read as one line. */
+/* Brand banner in the top bar: League[W]ise, the sparkline mark slotted in as the word's own "w" (see the markup comment in dashboard.html). align-items:baseline (not center) is what makes the mark sit ON the text baseline like a letter - an inline SVG's flex baseline is its bottom edge, and the banner viewBox is cropped so that edge IS the glyph's bottom. The <a> deliberately has no href yet - once the product website exists it becomes a real link. THE header row: wordmark left, matchup indicator right. The indicator used to own a row of its own below this one, which spent a band of vertical height to say six words while the wordmark's line sat empty to its right. Baseline-aligned so the two read as one line. */
 .brand-lockup {
     display: flex;
     justify-content: space-between;
@@ -304,7 +534,7 @@ h2 {
     background-color: var(--accent-hover);
 }
 
-/* FORM ROW ALIGNMENT - flex-end forces everything to strictly lock to the bottom edge The row the matchup indicator used to sit in is gone with it ( item 4) - the settings aside is the only thing that was ever beside it, and it is its own fixed panel. The rule stays because.form-row still dresses the settings fields inside that aside; only the outer row went. */
+/* FORM ROW ALIGNMENT - flex-end forces everything to strictly lock to the bottom edge The row the matchup indicator used to sit in is gone with it - the settings aside is the only thing that was ever beside it, and it is its own fixed panel. The rule stays because.form-row still dresses the settings fields inside that aside; only the outer row went. */
 .form-row {
     display: flex;
     gap: 15px;
@@ -350,7 +580,7 @@ h2 {
     position: relative;
 }
 
-/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. The rail owns the fixed placement now; its buttons are ordinary children of it. Centred on the viewport's middle, which is where the lone gear tab already sat. THE GLASS EDGE. right: 0 reaches it because the root reserves no scrollbar gutter - see the html rule at the top of this sheet for why that reservation is gone. While it existed, FOUR fixes were measured against the 15px gap it opened beside this rail, and every one of them failed: - ANCHORING OFF 100vw cannot reach the glass. With a root gutter reserved, 100vw resolves to the narrowed width - 1685 at a 1700px viewport, the same number right: 0 already gives. - MOVING THE RESERVATION TO body reaches the glass and loses B169's width guarantee. Measured at 1280 with the page genuinely scrolling: the chart went 683 to 674. Only a ROOT gutter reserves for a viewport scrollbar, because the viewport is the thing that scrolls. - PULLING THE RAIL RIGHT by the measured gutter breaks the buttons. The reserved column is outside the document's hit region: measured, a 26px gear with 11px of it clickable. - PAINTING THE COLUMN with a pseudo-element does not paint. Element paint is clipped at the gutter exactly like hits - the pseudo's geometry occupied the strip while the pixels stayed page background, which is why a geometry probe passed and a pixel read failed. Screenshots are the only evidence that counts at this edge. The reserved column cannot be occupied, clicked or painted; the only fix was to stop reserving it, which made safe by removing the last persistent page scroller. When a transient push briefly gives the page a real scrollbar, the rail yields 15px to it and comes back - a scrollbar owns its column, and that is not this bug. */
+/* Small gear that replaces the settings fields once data has loaded - clicking it toggles them back open. Sized to match the fields' input height rather than the global 100%-width button rule. The rail's own handle, riding its outer edge. A gear in the top-left opening a panel on the far right acted at a distance; attached to the rail it is the same control in the same place whether the rail is open or shut, and it slides with it. Centred with top + margin rather than translateY, because the attention hop below owns transform. The rail owns the fixed placement now; its buttons are ordinary children of it. Centred on the viewport's middle, which is where the lone gear tab already sat. THE GLASS EDGE. right: 0 reaches it because the root reserves no scrollbar gutter - see the html rule at the top of this sheet for why that reservation is gone. While it existed, FOUR fixes were measured against the 15px gap it opened beside this rail, and every one of them failed: - ANCHORING OFF 100vw cannot reach the glass. With a root gutter reserved, 100vw resolves to the narrowed width - 1685 at a 1700px viewport, the same number right: 0 already gives. - MOVING THE RESERVATION TO body reaches the glass and loses the width guarantee. Measured at 1280 with the page genuinely scrolling: the chart went 683 to 674. Only a ROOT gutter reserves for a viewport scrollbar, because the viewport is the thing that scrolls. - PULLING THE RAIL RIGHT by the measured gutter breaks the buttons. The reserved column is outside the document's hit region: measured, a 26px gear with 11px of it clickable. - PAINTING THE COLUMN with a pseudo-element does not paint. Element paint is clipped at the gutter exactly like hits - the pseudo's geometry occupied the strip while the pixels stayed page background, which is why a geometry probe passed and a pixel read failed. Screenshots are the only evidence that counts at this edge. The reserved column cannot be occupied, clicked or painted; the only fix was to stop reserving it, which made safe by removing the last persistent page scroller. When a transient push briefly gives the page a real scrollbar, the rail yields 15px to it and comes back - a scrollbar owns its column, and that is not this bug. */
 .utility-rail {
     position: fixed;
     right: 0;
@@ -709,7 +939,7 @@ button:hover {
     height: auto;
 }
 
-/* Category Rankings layout ( pass 3, uniform-pitch rework in - see renderCategoryBlocks). The blocks divide the box WIDTH in one row (cat-fill); inside each block the rows sit at ONE canonical pitch everywhere (cat-capped, always on now), never flex-stretched to fill, and the leftover height above them goes to the per-category race sparkline. Scoped to these classes so the Team Rankings bars, which share.team-block/.bar-row, are untouched. */
+/* Category Rankings layout. The blocks divide the box WIDTH in one row (cat-fill); inside each block the rows sit at ONE canonical pitch everywhere (cat-capped, always on now), never flex-stretched to fill, and the leftover height above them goes to the per-category race sparkline. Scoped to these classes so the Team Rankings bars, which share.team-block/.bar-row, are untouched. */
 .cat-fill {
     display: flex;
     height: 100%;
@@ -821,7 +1051,7 @@ button:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* PAGING, not scrolling. The pager fills the box at a fixed rect and never changes size with the selection or the page - the arrows swap what is inside it (the B59/ stability). Padding on the paged state reserves the arrow gutters so blocks never sit under an arrow. */
+/* PAGING, not scrolling. The pager fills the box at a fixed rect and never changes size with the selection or the page - the arrows swap what is inside it (the stability). Padding on the paged state reserves the arrow gutters so blocks never sit under an arrow. */
 .cat-pager {
     position: relative;
     height: 100%;
@@ -841,7 +1071,7 @@ button:hover {
     min-height: 0;
 }
 
-/* The shared arrow affordance is flat and muted, with no chrome of its own. Used by the Category Rankings pager (positioned in the box's gutters) and by each standings section's bars/pie flip (, inline in the section header), so both read as the same control rather than two look-alikes. Overrides the global input/select/button height/width hard-lock. */
+/* The shared arrow affordance is flat and muted, with no chrome of its own. Used by the Category Rankings pager (positioned in the box's gutters) and by each standings section's bars/pie flip, so both read as the same control rather than two look-alikes. Overrides the global input/select/button height/width hard-lock. */
 .chrome-arrow {
     background: none;
     border: none;
@@ -888,7 +1118,7 @@ button:hover {
     box-sizing: border-box;
 }
 
-/* The single-matchup ranking blocks get that same inset. They are the Team Rankings tab in the This Matchup timeframe, so they answer to B86's no-jump standard too - without this their header and every bar under it sat 16px left of the Category Rankings tab's, which is exactly the sideways shift that rule exists to remove. */
+/* The single-matchup ranking blocks get that same inset. They are the Team Rankings tab in the This Matchup timeframe, so they answer to the no-jump standard too - without this their header and every bar under it sat 16px left of the Category Rankings tab's, which is exactly the sideways shift that rule exists to remove. */
 .single-week-wrap {
     padding: 0 16px;
     box-sizing: border-box;
@@ -1032,7 +1262,7 @@ button:hover {
     overflow: hidden;
 }
 
-/* Compact position indicators. Deliberately just "n / m" and "a-b of c" - the arrows are self evident, and an explanatory sentence is exactly what this box is not allowed to grow. Reserved width + tabular figures so the indicator does not move as the numbers change. "1 / 21" is narrower than "12 / 21", and being centre-anchored that shifted its own left edge 6px on every other press (B69's rule - a control that reports position must not itself move). 8ch covers the widest form a real league produces. */
+/* Compact position indicators. Deliberately just "n / m" and "a-b of c" - the arrows are self evident, and an explanatory sentence is exactly what this box is not allowed to grow. Reserved width + tabular figures so the indicator does not move as the numbers change. "1 / 21" is narrower than "12 / 21", and being centre-anchored that shifted its own left edge 6px on every other press. 8ch covers the widest form a real league produces. */
 .cat-page-dots {
     position: absolute;
     bottom: 0;
@@ -1083,7 +1313,7 @@ button:hover {
     font-size: 10px;
 }
 
-/* Sub-canonical pitch. When even two columns at 28px cannot hold every team, the PITCH yields rather than the team list. Fitting everyone outranks the fixed pitch that B76/B79/ held. The row sheds what it can spare as it tightens - the header's margin first, then at.cat-rows-tiny the value label (the bar segments already carry the number in their hover) and the type size. The bar track itself is the last thing standing, because a short bar still ranks. The header keeps its shared margin even in shrunk mode. Tightening it here reclaimed a few px of row space, but it did so by making the category tab's content start at a different y than the standings tab's - which is the exact jump this header treatment exists to remove. The fit computes a slightly smaller pitch instead. */
+/* Sub-canonical pitch. When even two columns at 28px cannot hold every team, the PITCH yields rather than the team list. Fitting everyone outranks the fixed pitch that held. The row sheds what it can spare as it tightens - the header's margin first, then at.cat-rows-tiny the value label (the bar segments already carry the number in their hover) and the type size. The bar track itself is the last thing standing, because a short bar still ranks. The header keeps its shared margin even in shrunk mode. Tightening it here reclaimed a few px of row space, but it did so by making the category tab's content start at a different y than the standings tab's - which is the exact jump this header treatment exists to remove. The fit computes a slightly smaller pitch instead. */
 
 .cat-rows-tiny .bar-title {
     font-size: 9px;
@@ -1640,7 +1870,7 @@ button:hover {
     margin-bottom: 4px;
 }
 
-/* A crumb is a word in a sentence, so it has to stop being a CONTROL-shaped box. The base sheet hard-locks every input, select and button to `display: block; width: 100%; height: 35px` so the settings form's rows line up, and a button used as inline text inherits all three - which is why the back control this replaces was a 35px block sitting in a 12px line, reading as part of the heading rather than as something to click ( item 1). Undone explicitly, height included. */
+/* A crumb is a word in a sentence, so it has to stop being a CONTROL-shaped box. The base sheet hard-locks every input, select and button to `display: block; width: 100%; height: 35px` so the settings form's rows line up, and a button used as inline text inherits all three - which is why the back control this replaces was a 35px block sitting in a 12px line, reading as part of the heading rather than as something to click. Undone explicitly, height included. */
 .mt-crumb {
     display: inline;
     width: auto;
@@ -2117,7 +2347,7 @@ button:hover {
     min-height: 0;
 }
 
-/* Playoff series strip ( pass 3, see playoffSeriesLabelHtml) - a small caption at the top of a card during the playoffs saying which bracket the matchup is FOR. Only rendered for playoff games, so a regular-season card never carries it. Championship reads in the accent; a consolation ladder is deliberately quieter. */
+/* Playoff series strip - a small caption at the top of a card during the playoffs saying which bracket the matchup is FOR. Only rendered for playoff games, so a regular-season card never carries it. Championship reads in the accent; a consolation ladder is deliberately quieter. */
 .h2h-series {
     font-size: 10px;
     font-weight: 700;
@@ -2276,7 +2506,7 @@ button:hover {
     z-index: 1;
 }
 
-/* table-layout: fixed is what makes the sort emphasis free. With the default auto layout the table sizes to its CONTENT, so B61's two emphasis cues both grew the sorted column - bold glyphs are wider than regular ones, and the direction arrow added a glyph the other headers didn't have. The table got wider, the band got wider, and the trends/rankings row above it reflowed on every sort click. Fixed layout takes column widths from the header row alone and ignores cell content, so weight and arrow changes move nothing. Same fix used on the leaderboard. */
+/* table-layout: fixed is what makes the sort emphasis free. With the default auto layout the table sizes to its CONTENT, so the two emphasis cues both grew the sorted column - bold glyphs are wider than regular ones, and the direction arrow added a glyph the other headers didn't have. The table got wider, the band got wider, and the trends/rankings row above it reflowed on every sort click. Fixed layout takes column widths from the header row alone and ignores cell content, so weight and arrow changes move nothing. Same fix used on the leaderboard. */
 .dominance-heatmap {
     border-collapse: separate;
     border-spacing: 2px;
@@ -2381,13 +2611,18 @@ button:hover {
     border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
-/* Value cells carry a light pastel rank shade (percentileColor) in both themes, so their text stays a fixed dark - same treatment as the player stat chips. */
+/* Value cells carry a light pastel rank shade (percentileColor) in both themes, so their text stays a fixed dark - same treatment as the player stat chips. THE PERCENTILE TINT. Above the 50th percentile the cell mixes toward --success, below it toward --danger, and at 50 it is the plain card. --pct is set inline per cell as a NUMBER (see percentileVar in utils.js); the colour is decided here, which is the only place that can see which mode is on. It used to be an rgb() string computed in JS, interpolating white -> pastel green and pastel red -> white, with the near-black text colour below pinned to survive it. That had no dark half: in dark mode the heatmap was a slab of near-white cells with dark text sitting on a navy page, inverting the page's own structure inside its own borders. 38% IS THE CEILING, at the extremes only. The old ramp topped out around a 35% tint and the comment on it was right about why - a saturated cell cannot carry legible text at either end of the scale. Mixing from --surface rather than from white is what gives it a dark half for free: the same expression paints a cream cell on the flannel page and a deep navy one on the road-uniform page. Both mixes are always present and only one is ever non-zero, which is what max(0%,...) buys - it saves a second rule and a:where() to pick between them. */
 .dominance-heatmap td.dh-cell {
     text-align: center;
     padding: 5px 5px;
     border-radius: 4px;
     font-variant-numeric: tabular-nums;
-    color: #1a1d21;
+    color: var(--text-body);
+    background: color-mix(in srgb,
+        var(--success) calc(max(0%, (var(--pct, 50) - 50) * 0.76%)),
+        color-mix(in srgb,
+            var(--danger) calc(max(0%, (50 - var(--pct, 50)) * 0.76%)),
+            var(--surface)));
     cursor: help;
     white-space: nowrap;
 }
@@ -2462,7 +2697,7 @@ button:hover {
     margin-bottom: 6px;
 }
 
-/* Fixed-width, single-line, ellipsized - the same treatment the standings rows already got via.bar-row-group.bar-title below. The width was always fixed, but the title used to wrap (white-space: normal + word-break: break-word), so a long team name became a two-line title, which made ITS row taller than the others and opened a visibly bigger gap to the next bar (: reported on Category Rankings, which builds plain.bar-row rows). Truncating instead keeps every row exactly one track tall no matter how long the name is; both bar-row builders in graphs.js already carry the full name in a native title="" tooltip for the hover. */
+/* Fixed-width, single-line, ellipsized - the same treatment the standings rows already got via.bar-row-group.bar-title below. The width was always fixed, but the title used to wrap (white-space: normal + word-break: break-word), so a long team name became a two-line title, which made ITS row taller than the others and opened a visibly bigger gap to the next bar. Truncating instead keeps every row exactly one track tall no matter how long the name is; both bar-row builders in graphs.js already carry the full name in a native title="" tooltip for the hover. */
 .bar-title {
     /* Measured per container by sizeBarTitles; the fallback is the old fixed width, used only before that first measurement lands. */
     width: var(--bar-title-w, 140px);
@@ -2663,7 +2898,7 @@ button:hover {
 }
 
 
-/* BOTH pop-outs dock their filters in the real Data Filters box ( chrome, parity, trends joined in ): the panel carries.control-panel and.control-panel-body in the markup, so its border, radius, background, header row, caret rotation and collapse behaviour all come from those one set of rules rather than look-alike variants. Only the overlay-specific sizing lives here - the panel hugs its content at the bottom of the overlay instead of taking a share of a column's height, and it drops.control-panel's top margin because.trends-overlay-body already gaps its children. */
+/* BOTH pop-outs dock their filters in the real Data Filters box: the panel carries.control-panel and.control-panel-body in the markup, so its border, radius, background, header row, caret rotation and collapse behaviour all come from those one set of rules rather than look-alike variants. Only the overlay-specific sizing lives here - the panel hugs its content at the bottom of the overlay instead of taking a share of a column's height, and it drops.control-panel's top margin because.trends-overlay-body already gaps its children. */
 .overlay-filters-panel {
     flex: 0 0 auto;
     max-height: 45%;
@@ -2804,7 +3039,7 @@ button:hover {
 }
 
 
-/* AN OVERLAY DRAWER, the way devtools does it. It used to sit in the flow under the container, which made it the only PERSISTENT below-the-fold content on the page - everything else that scrolls is transient under B169's ruling. Enabled, it pushed the document past the viewport, a REAL viewport scrollbar took the reserved column, and browsers paint viewport scrollbars above all page content: nothing the page draws can reach the glass while one is there. B176's painted strip covers the IDLE gutter and is still right; it could never have covered a live scrollbar, and no rail-side change ever will. So the panel leaves the flow. Fixed to the bottom, full width, a constant share of the viewport when open, scrolling inside itself with the app's usual reserved gutter. The document stops overflowing, the viewport scrollbar stops existing, and every tab's tuned layout is untouched because nothing above it moved. The in-flow alternative - a band inside the 100vh column with the tabs shrinking above it - was set aside deliberately: it would interact with every tab's computed layout, for a panel that is off by default. z-index 55 is above the page content and BELOW the utility rail (61) and the settings drawer (60), so the app's own controls stay reachable while the drawer is open. */
+/* AN OVERLAY DRAWER, the way devtools does it. It used to sit in the flow under the container, which made it the only PERSISTENT below-the-fold content on the page - everything else that scrolls is transient under the ruling. Enabled, it pushed the document past the viewport, a REAL viewport scrollbar took the reserved column, and browsers paint viewport scrollbars above all page content: nothing the page draws can reach the glass while one is there. the painted strip covers the IDLE gutter and is still right; it could never have covered a live scrollbar, and no rail-side change ever will. So the panel leaves the flow. Fixed to the bottom, full width, a constant share of the viewport when open, scrolling inside itself with the app's usual reserved gutter. The document stops overflowing, the viewport scrollbar stops existing, and every tab's tuned layout is untouched because nothing above it moved. The in-flow alternative - a band inside the 100vh column with the tabs shrinking above it - was set aside deliberately: it would interact with every tab's computed layout, for a panel that is off by default. z-index 55 is above the page content and BELOW the utility rail (61) and the settings drawer (60), so the app's own controls stay reachable while the drawer is open. */
 .debug-console {
     position: fixed;
     left: 0;
@@ -2905,7 +3140,7 @@ button:hover {
     color: #222;
 }
 
-/* The session request tally ( item 8). The console is the app's one deliberate exception to the custom-property rule - it is a fixed green-on-black terminal in both themes on purpose - so these inherit that palette rather than introducing variables the rest of the block does not use. */
+/* The session request tally. The console is the app's one deliberate exception to the custom-property rule - it is a fixed green-on-black terminal in both themes on purpose - so these inherit that palette rather than introducing variables the rest of the block does not use. */
 .debug-tally {
     margin-top: 10px;
     padding-top: 8px;
@@ -3013,7 +3248,7 @@ button:hover {
     overflow: auto;
     align-items: stretch;
     padding-top: 0;
-    /* Reserve the vertical scrollbar's gutter permanently. Without it, a filter that narrows the pool enough to fit without scrolling (a search matching a handful of players) reclaims the scrollbar's ~17px, which widens the table and moves every column - the same horizontal jump table-layout: fixed above removes for content changes, arriving by a different route (: measured 1104px with the bar, 1119px without). Holding the gutter keeps the table one width at every pool size. */
+    /* Reserve the vertical scrollbar's gutter permanently. Without it, a filter that narrows the pool enough to fit without scrolling (a search matching a handful of players) reclaims the scrollbar's ~17px, which widens the table and moves every column - the same horizontal jump table-layout: fixed above removes for content changes, arriving by a different route. Holding the gutter keeps the table one width at every pool size. */
     scrollbar-gutter: stable;
 }
 
@@ -3327,7 +3562,7 @@ button:hover {
     flex-shrink: 0;
 }
 
-/* Note: the chip background is painted inline by percentileColor (players.js) as a light "heat" tint and the text colors below stay fixed-dark on purpose - these cells read as a light heatmap in both light and dark themes, so their text must not follow the theme token. Only the structural border is themed. */
+/* Note: the chip background is painted inline by percentileColor (players.js) as a light "heat" tint and the text colors below stay fixed-dark on purpose - these cells read as a light heatmap in both light and dark themes, so their text must not follow the theme token. Only the structural border is themed. The drill-down's per-category boxes carry the same percentile tint the heatmap does, off the same --pct number and the same mix - see.dh-cell. An unranked category sets no --pct, and the fallback of 50 leaves the chip on the plain surface, which is what "no opinion" should look like. */
 .stat-chip {
     position: relative;
     display: flex;
@@ -3339,7 +3574,18 @@ button:hover {
     font-size: 12px;
     min-width: 66px;
     cursor: help;
+    color: var(--text-body);
+    background: color-mix(in srgb,
+        var(--success) calc(max(0%, (var(--pct, 50) - 50) * 0.76%)),
+        color-mix(in srgb,
+            var(--danger) calc(max(0%, (50 - var(--pct, 50)) * 0.76%)),
+            var(--surface)));
 }
+
+/* The three lines inside a chip took hardcoded greys and a near-black, pinned when the chip's background was a JS-computed pastel that was the same in both modes. Now that the tint is mixed from --surface they follow the ink like every other label in the app. */
+.stat-chip-label,
+.stat-chip-rank { color: var(--text-subtle); }
+.stat-chip-value { color: var(--text-body); }
 
 /* Same delayed hover-reveal as.rank-chip:hover.rank-chip-dropdown, just scoped to stat chips too so they can reuse the exact same dropdown box without inheriting.rank-chip's own background/border/cursor styling (which would conflict with the stat chip's own). */
 .stat-chip:hover .rank-chip-dropdown {
@@ -3350,7 +3596,6 @@ button:hover {
 
 .stat-chip-label {
     font-weight: 700;
-    color: #8a94a6;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     font-size: 10px;
@@ -3358,13 +3603,11 @@ button:hover {
 
 .stat-chip-value {
     font-weight: 700;
-    color: #111;
     font-size: 14px;
 }
 
 .stat-chip-rank {
     font-size: 10px;
-    color: #8a94a6;
 }
 
 .player-rank-chips {
@@ -3687,6 +3930,35 @@ button:hover {
     border-color: var(--warning-border);
     background: var(--warning-bg);
 }
+
+/* The Matchup Score explainer's bars: one row per category, label / the figure compared / the percentile as a bar / the percentile as words. The bar is the whole point - a column of percentages was the thing the owner could not read. */
+.ms-bars { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.ms-bar-row {
+    display: grid;
+    grid-template-columns: minmax(64px, auto) 56px 1fr 64px;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-body);
+}
+.ms-bar-label { font-weight: 600; white-space: nowrap; }
+.ms-bar-key { font-size: 10px; color: var(--text-subtle); margin: 4px 0 0; }
+.ms-bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.ms-bar-track {
+    display: block;
+    height: 10px;
+    border-radius: 5px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.ms-bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+.ms-bar-pct { font-variant-numeric: tabular-nums; color: var(--text-muted); white-space: nowrap; }
+.ms-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+.ms-total-sum { font-variant-numeric: tabular-nums; }
+.ms-total-eq { font-size: 16px; }
+.ms-total-figure { font-size: 26px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.ms-total-note { flex-basis: 100%; }
 /* --- Export / Recap (see export.js and recap.js) --- */
 
 /* Sits at the right end of the tab bar, after the timeframe pills (which already carry margin-left:auto) - visually separated from the pills by a hairline divider so "pick a timeframe" and "take data out" read as different kinds of controls. */
@@ -3711,7 +3983,7 @@ button:hover {
     border-color: var(--accent);
 }
 
-/* Stood down rather than removed - the Recap button is disabled for roto leagues, which have no matchup for a recap to be about (B31-FULL). Its title says so on hover. */
+/* Stood down rather than removed - the Recap button is disabled for roto leagues, which have no matchup for a recap to be about. Its title says so on hover. */
 .share-toolbar-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -3951,7 +4223,7 @@ button:hover {
     color: var(--text-body);
 }
 
-/* Mobile (Firefox for Android - docs/BACKLOG.md M1). Team Metrics only. The desktop no-page-scroll rule (see CLAUDE.md golden rule 2 / docs/ CONVENTIONS.md "Layout invariants") is explicitly DESKTOP-ONLY. Cramming five panels into one phone screen is worse than scrolling, and scrolling is the native, expected gesture there. #view-team becomes its own vertically-scrolling single column (one continuous touch-scroll region - indistinguishable from "the page scrolling" to the user, even though it's technically this element's own overflow, not html/body's) instead of every panel fighting for a fixed share of a height-capped viewport. Deliberately scoped to #view-team, not the shared ancestor chain (html/body/.container/#results/.tab-view) or #view-player - Player Metrics keeps today's behavior (its own internal-scroll leaderboard/ table, already verified to work at this width), unaffected by this block..layout/.col/.heatmap-band/.control-panel are used only inside #view-team's subtree, so restyling them here can't leak into the other tab. */
+/* Mobile (Firefox for Android - docs/BACKLOG.md M1). Team Metrics only. The desktop no-page-scroll rule (docs/CONVENTIONS.md "Layout invariants") is explicitly DESKTOP-ONLY. Cramming five panels into one phone screen is worse than scrolling, and scrolling is the native, expected gesture there. #view-team becomes its own vertically-scrolling single column (one continuous touch-scroll region - indistinguishable from "the page scrolling" to the user, even though it's technically this element's own overflow, not html/body's) instead of every panel fighting for a fixed share of a height-capped viewport. Deliberately scoped to #view-team, not the shared ancestor chain (html/body/.container/#results/.tab-view) or #view-player - Player Metrics keeps today's behavior (its own internal-scroll leaderboard/ table, already verified to work at this width), unaffected by this block..layout/.col/.heatmap-band/.control-panel are used only inside #view-team's subtree, so restyling them here can't leak into the other tab. */
 @media (max-width: 700px) {
     #view-team {
         overflow-y: auto;
@@ -4030,7 +4302,7 @@ button:hover {
     gap: 4px;
 }
 
-/* Exactly the other tabs' header metrics (.header-row h3 is 16px bold). This tab is a peer, not a variant, and a distinct identity for it is B83's job rather than a size difference here. */
+/* Exactly the other tabs' header metrics (.header-row h3 is 16px bold). This tab is a peer, not a variant, and a distinct identity for it is the job rather than a size difference here. */
 .mt-team-name {
     font-size: 16px;
     font-weight: bold;
@@ -4210,13 +4482,13 @@ button:hover {
 .mt-rankcell { width: 54px; }
 .mt-stat { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* A band label inside the table, so bench and IR read as sections without leaving the one grid that keeps every column aligned. */
+/* A band label inside the table, so bench and IR read as sections without leaving the one grid that keeps every column aligned. --surface-3, NOT --surface-sunken. That name was never a token: it was invented at first use here in, copied into League History by, and declared in no:root block in any commit the repo has. An undefined custom property makes the whole declaration invalid at computed-value time, so all four sites that reached for it were painting NOTHING - the band head, the avatar tile, the unscored heatmap cell and the head-to-head bar track were all transparent, which is why the h2h bar looked like floating segments with no bar behind them. Repointed rather than defined, because the step already exists and already means this. --surface-3 is what.bar-track paints itself with, and.bar-track is the same object one tab over; seven other recessed surfaces use it too. The Boxscore mapping goes further and says so outright - its --surface-3 is the track colour, "since the bar backing is what that token mostly paints". Adding a fifth surface name would have cost six new declarations across the Modern light, both Modern dark paths and the Boxscore block to reproduce a step all four sites already wanted. */
 .mt-band-head td {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-subtle);
-    background-color: var(--surface-sunken);
+    background-color: var(--surface-3);
     padding-top: 6px;
 }
 
@@ -4235,7 +4507,8 @@ button:hover {
     height: 22px;
     border-radius: 50%;
     overflow: hidden;
-    background-color: var(--surface-sunken);
+    /* The tile behind the initials - see the --surface-3 note on.mt-band-head. */
+    background-color: var(--surface-3);
     vertical-align: middle;
     margin-right: 6px;
     flex: 0 0 auto;
@@ -4309,7 +4582,7 @@ button:hover {
 
 .player-detail-title .avatar-initials { font-size: 12px; }
 
-/* Role groups ( part 2 item 1). Each is its own table with its own columns, so a pitcher's line never sits under batting headers. They share the roster band's height, each shrinking to its own content, and only the band scrolls if a very deep roster demands it. */
+/* Role groups. Each is its own table with its own columns, so a pitcher's line never sits under batting headers. They share the roster band's height, each shrinking to its own content, and only the band scrolls if a very deep roster demands it. */
 .mt-group {
     display: flex;
     flex-direction: column;
@@ -4421,7 +4694,7 @@ button:hover {
     flex-wrap: wrap;
     /* The container is a flex column, so without this the strip takes a share of the free space and becomes a 300px band of nothing. It is chrome, so it gets exactly the height it needs. */
     flex: 0 0 auto;
-    /* RIGHT-aligned, not centred ( V1). The centring was correct while Legend, Export and Recap sat to its right - auto margins on both sides split the leftover evenly so it was not shoved against either neighbour. Those three are in the utility rail now and there IS no right neighbour, so the same auto margins left it floating 22px short of the edge, which reads as a mistake rather than as centring. One auto margin on the left: the pills own the right side. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
+    /* RIGHT-aligned, not centred. The centring was correct while Legend, Export and Recap sat to its right - auto margins on both sides split the leftover evenly so it was not shoved against either neighbour. Those three are in the utility rail now and there IS no right neighbour, so the same auto margins left it floating 22px short of the edge, which reads as a mistake rather than as centring. One auto margin on the left: the pills own the right side. overflow stays visible - the old scroll is what hid the overflow instead of showing it, and the container wraps now, so a window too narrow gets a second line rather than a silent cut. */
     justify-content: flex-start;
     overflow: visible;
     margin: 0 0 0 auto;
@@ -4434,7 +4707,7 @@ button:hover {
     row-gap: 4px;
 }
 
-/* RE-DERIVED for the row the utilities left ( V1). It lands almost where it was, which is worth saying plainly rather than leaving as a coincidence: Legend, Export and Recap freed about 173px from this row, and the League History tab added about 183px to the tab run, so the two changes very nearly cancelled. Measured on the rendered boxes rather than estimated: tabs 533, row gap 15, timeframe 564.5, so 1112.4px of content, plus 120px the page's own chrome takes from the viewport - the single row fits at 1233 and no lower. The query is set one pixel under that, so every width below the real fit point gets the DELIBERATE drop (flex-basis:100%) rather than whatever ragged line natural wrapping would have produced in the two pixels between. */
+/* RE-DERIVED for the row the utilities left. It lands almost where it was, which is worth saying plainly rather than leaving as a coincidence: Legend, Export and Recap freed about 173px from this row, and the League History tab added about 183px to the tab run, so the two changes very nearly cancelled. Measured on the rendered boxes rather than estimated: tabs 533, row gap 15, timeframe 564.5, so 1112.4px of content, plus 120px the page's own chrome takes from the viewport - the single row fits at 1233 and no lower. The query is set one pixel under that, so every width below the real fit point gets the DELIBERATE drop (flex-basis:100%) rather than whatever ragged line natural wrapping would have produced in the two pixels between. */
 @media (max-width: 1232px) {
     .tabs-container > .timeframe-toggle {
         order: 3;
@@ -4456,7 +4729,7 @@ button:hover {
 
 .timeframe-seg:empty { display: none; }
 
-/* Hidden, not removed. visibility keeps the container's box and its flex share, so the tabs beside it cannot move when League History turns the pills off - display:none would return that space to the row and slide everything ( V1). */
+/* Hidden, not removed. visibility keeps the container's box and its flex share, so the tabs beside it cannot move when League History turns the pills off - display:none would return that space to the row and slide everything. */
 .timeframe-hidden { visibility: hidden; }
 
 /* The caption naming the unit, which is what keeps the word off all four pills beside it. Quiet enough to read as a heading rather than a fifth option. */
@@ -4465,7 +4738,7 @@ button:hover {
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-faint);
-    /* Symmetric, so the caption reads as sitting BETWEEN the two segments rather than pushed onto one of them. It was -4px, which made the two sides 9px and 5px - the sort of difference nobody names but everybody sees ( V1). */
+    /* Symmetric, so the caption reads as sitting BETWEEN the two segments rather than pushed onto one of them. It was -4px, which made the two sides 9px and 5px - the sort of difference nobody names but everybody sees. */
     margin-right: 0;
 }
 
@@ -4505,7 +4778,7 @@ button:hover {
     font-weight: bold;
 }
 
-/* Icon-only utilities, with the word revealed on hover and on keyboard focus. The label is taken OUT of flow to do it. Revealing it inline widened the toolbar, and the timeframe beside it is centred in the space the toolbar leaves, so hovering Export slid the whole timeframe sideways ( again, from the other direction). Out of flow, the button's box never changes and nothing next to it can move. */
+/* Icon-only utilities, with the word revealed on hover and on keyboard focus. The label is taken OUT of flow to do it. Revealing it inline widened the toolbar, and the timeframe beside it is centred in the space the toolbar leaves, so hovering Export slid the whole timeframe sideways. Out of flow, the button's box never changes and nothing next to it can move. */
 .share-toolbar-btn { position: relative; }
 
 /* In the rail the label goes LEFT, not below. The shared rule drops it under the button and hard against its right edge, which on a control fixed to the right edge of the viewport puts it off the screen entirely. Same tooltip language, opposite side. Scoped through.utility-rail because.share-toolbar-btn.btn-label ties on specificity and sits later in this sheet - unscoped, three of the four labels still opened the wrong way. */
@@ -4581,7 +4854,7 @@ button:hover {
     .timeframe-toggle { gap: 10px; }
 }
 
-/* ==== League History ( M2/M3) ==== A third tab rather than a band above the tabs: a persistent header would cost every other view vertical space under the no-scroll rule, and this one is read on its own. Same column shape as My Team, so the two tabs behave alike. The tab itself NEVER scrolls ( item 1). It used to, which put a scrollbar around the whole view and a second one inside half the blocks - the house rule every other tab converged on is that the container is a fixed box and each block that cannot fit shrinks or scrolls inside its own frame. */
+/* ==== League History ==== A third tab rather than a band above the tabs: a persistent header would cost every other view vertical space under the no-scroll rule, and this one is read on its own. Same column shape as My Team, so the two tabs behave alike. The tab itself NEVER scrolls. It used to, which put a scrollbar around the whole view and a second one inside half the blocks - the house rule every other tab converged on is that the container is a fixed box and each block that cannot fit shrinks or scrolls inside its own frame. */
 .history-container {
     display: flex;
     flex-direction: column;
@@ -4592,7 +4865,7 @@ button:hover {
     overflow: hidden;
 }
 
-/* THE THREE ZONES (, owner ruled L2). The band budget this replaces is deleted, not disabled: caps, floors, shrink weights, the exactly-one-band-grows rule and the open/closed class it hung on. Two rounds of tuning that arithmetic could not kill the grey space, because the sum being balanced had a variable number of terms - league size, franchise count and whatever the reader had collapsed. This layout has no closed state to leave slack. */
+/* THE THREE ZONES. The band budget this replaces is deleted, not disabled: caps, floors, shrink weights, the exactly-one-band-grows rule and the open/closed class it hung on. Two rounds of tuning that arithmetic could not kill the grey space, because the sum being balanced had a variable number of terms - league size, franchise count and whatever the reader had collapsed. This layout has no closed state to leave slack. */
 .lh-layout {
     display: grid;
     grid-template-columns: minmax(150px, 20%) minmax(0, 1fr);
@@ -4623,7 +4896,7 @@ button:hover {
 
 .lh-flag { text-align: center; }
 
-/* The shape, in clip-path, per the ruling: baseball hangs a felt pennant and hockey raises a rafter banner. Same construction, one polygon each, no images anywhere. REAL PROPORTIONS ( item 1). Both shapes were too short to read as the object they are. The pennant was 152x26, a 5.9:1 splinter where a felt pennant is nearer 2.5:1, and the banner was 70x30 - WIDER than tall, which is the one thing a rafter banner never is. The budget both had to fit is the rail's own: five titles plus the season in progress, scroll-free. Measured at 1280x800 that flag box is 536px, so six flags plus their five 6px gaps leaves 83px each, and a flag is its shape plus a 13px year and a 14px name. The pennant takes 46 of the 56 available and the banner 52, both inside it with room to spare. */
+/* The shape, in clip-path, per the ruling: baseball hangs a felt pennant and hockey raises a rafter banner. Same construction, one polygon each, no images anywhere. REAL PROPORTIONS. Both shapes were too short to read as the object they are. The pennant was 152x26, a 5.9:1 splinter where a felt pennant is nearer 2.5:1, and the banner was 70x30 - WIDER than tall, which is the one thing a rafter banner never is. The budget both had to fit is the rail's own: five titles plus the season in progress, scroll-free. Measured at 1280x800 that flag box is 536px, so six flags plus their five 6px gaps leaves 83px each, and a flag is its shape plus a 13px year and a 14px name. The pennant takes 46 of the 56 available and the banner 52, both inside it with room to spare. */
 .lh-flag-shape {
     height: 46px;
     margin: 0 auto;
@@ -4636,13 +4909,13 @@ button:hover {
 }
 
 .lh-rail[data-sport="fhl"] .lh-flag-shape {
-    /* Clearly taller than wide, at 36x52 or about 2:3, which is roughly how a rafter banner hangs. */
-    width: 36px;
-    height: 52px;
+    /* SIZED UP TO MATCH THE PENNANT'S PRESENCE, and the number that matters is CLOTH, not bounding box. The pennant is a clip-path triangle, so it covers half of its 129x46 box - 2967px of felt. The banner is a rectangle with a small notch bitten out of the bottom, so it covers about 91% of its box. At the old 36x52 that was 1704px, 57% of the pennant, which is why the wall read as one big object beside a small one. 48x54 is 2359px, 79% of the pennant, and it is the most the shape can take without breaking something the rail already ruled: - it stays PORTRAIT, which caps the width below the height and is the real ceiling here - true parity would need 58px of width at this height, and that is a banner lying on its side; - it stays inside the rail's per-flag budget of 83px. Hockey's stack is the shape plus a 13px plate plus a 14px name line, so 54 leaves 2px of slack; 56 would spend the budget exactly and leave the wall one rounding error from a scrollbar. Baseball's pennant is deliberately NOT trimmed to meet it halfway - the ruling says the banner sizes up, and shrinking the pennant would be a second change nobody asked for. */
+    width: 48px;
+    height: 54px;
     clip-path: polygon(0 0, 100% 0, 100% 82%, 50% 100%, 0 82%);
 }
 
-/* Neutral chrome until the Classic theme lands ( P2 brings the felt green and the brick). The structure is what this entry ships; the dressing arrives on top of it without moving anything. */
+/* Neutral chrome until the Boxscore theme lands. The structure is what this entry ships; the dressing arrives on top of it without moving anything. */
 .lh-flag-bracket .lh-flag-shape { background: var(--accent); }
 .lh-flag-roto .lh-flag-shape { background: var(--accent-strong); }
 .lh-flag-open .lh-flag-shape { background: var(--border); opacity: 0.55; }
@@ -4664,7 +4937,7 @@ button:hover {
     border: 1px solid var(--border-strong);
 }
 
-/* A BANNER'S CREST IS CENTERED ( item 2), in its upper field above the year, where a real one is stitched. The pennant keeps its badge at the hoist, which is where a pennant's is. Centering by left: 50% with a half-width translate rather than by margins, so the crest's centre and the banner's are the same number and cannot drift with the badge's size. */
+/* A BANNER'S CREST IS CENTERED, in its upper field above the year, where a real one is stitched. The pennant keeps its badge at the hoist, which is where a pennant's is. Centering by left: 50% with a half-width translate rather than by margins, so the crest's centre and the banner's are the same number and cannot drift with the badge's size. */
 .lh-rail[data-sport="fhl"] .lh-flag-badge {
     left: 50%;
     top: 7px;
@@ -4783,6 +5056,124 @@ button:hover {
     margin-bottom: 8px;
 }
 
+/* THE DAY LENS. The day strip that stood here is gone: the chart paints its own points with the verdicts (gold/green/red/grey, the medal and status tokens, so both styles already own them) and a clicked matchup point zooms the chart into that matchup's days. The only chrome it needs is the crumb back out, which sits in the heading and so has to be inline for the same reason.cmp-legend-remove is. */
+.trend-zoom-back {
+    display: inline;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--accent);
+    cursor: pointer;
+}
+
+.trend-zoom-back:hover { text-decoration: underline; }
+
+/* THE CAREERS PANE'S HEADER AND ITS SPINNER. The pane used to explain itself in prose: a coverage sentence that named the seasons and then said the totals keep moving, plus a loading counter and a second sentence about the transaction log. All of it is a mark's work, so all of it is now a mark. */
+.lh-careers { position: relative; }
+
+/* The lead-in and the chips sit on one line and wrap together on a narrow rail. The lead keeps.lh-note's type but loses its bottom margin - the row owns the spacing now. */
+.lh-careers-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+    /* Clear of the spinner, which is absolutely positioned in the same corner the row would otherwise run into on a narrow rail. */
+    padding-right: 22px;
+}
+
+.lh-careers-lead { margin-bottom: 0; }
+
+.lh-season-chips {
+    display: inline-flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+/* A year is a figure, so it gets tabular figures and the same quiet chrome the app's other small pills use. Deliberately not the timeframe pill's on-state: nothing here is selected, these are labels for what the totals cover. */
+.lh-season-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--text-body);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+/* The season still being played. The border carries the accent as well as the dot, so the chip still reads as the odd one out where a 5px dot alone would be easy to miss. */
+.lh-season-chip.is-live {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+/* A deferred season's log was never requested, and its chip is the request. Dashed where the others are solid - the season is present but its franchise attribution is an outline of the real thing - and a pointer because it is a button now. Base-sheet button lock does not reach here: the chip sets its own display and dimensions inline with the span chips above. */
+.lh-season-chip.is-deferred {
+    display: inline-flex;
+    width: auto;
+    height: auto;
+    border: 1px dashed var(--border-strong);
+    background: var(--surface-3);
+    color: var(--text-subtle);
+    cursor: pointer;
+}
+
+.lh-season-chip.is-deferred:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.lh-live-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: 0 0 auto;
+    animation: lh-live-pulse 1.8s ease-in-out infinite;
+}
+
+/* TOP RIGHT OF THE BOX, which is where the ruling puts it: inside.lh-block's own 10px/12px padding, so it lines up with the first row of content rather than floating over the border. */
+.lh-spinner {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    box-sizing: border-box;
+    animation: lh-spin 0.8s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes lh-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes lh-live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+/* Motion is the whole point of both marks - the ruling asks for something visibly alive - so reduced-motion gets a slower, gentler version rather than a frozen one. A spinner that has stopped reads as a hung request, which is worse than the movement it was avoiding. */
+@media (prefers-reduced-motion: reduce) {
+    .lh-spinner { animation-duration: 2.4s; }
+    .lh-live-dot { animation-duration: 3.6s; }
+}
+
 .lh-table {
     width: 100%;
     border-collapse: collapse;
@@ -4849,9 +5240,10 @@ button:hover {
 
 /* Marks, not words. The tick carries the positive colour the rest of the app uses for a confirmed thing; the cross is deliberately quiet, since a category a season did not score is a fact about the league rather than something wrong. */
 .lh-scored { color: var(--success); font-weight: bold; }
-.lh-blank { background: var(--surface-sunken); color: var(--text-faint); }
+/* A season that did not score this category. The recessed fill is what makes it read as a cell with nothing in it rather than a cell nobody filled in - see the --surface-3 note on.mt-band-head. */
+.lh-blank { background: var(--surface-3); color: var(--text-faint); }
 
-/* The franchise name gets its OWN centered line under the season selector, with the arrows tight against it ( items 1 and 2). Inline in the control row it was pushed around by whatever the pills and the heading left over, which is what "not positioned at all" meant - it had no position of its own, only a leftover. The trio centers as ONE unit: the name is flex: 0 1 auto rather than filling, so the group is as wide as its contents and the arrows stay a fixed gap from the text instead of drifting out to the edges of whatever room the row has. */
+/* The franchise name gets its OWN centered line under the season selector, with the arrows tight against it. Inline in the control row it was pushed around by whatever the pills and the heading left over, which is what "not positioned at all" meant - it had no position of its own, only a leftover. The trio centers as ONE unit: the name is flex: 0 1 auto rather than filling, so the group is as wide as its contents and the arrows stay a fixed gap from the text instead of drifting out to the edges of whatever room the row has. */
 .lh-h2h-pager {
     flex: 0 0 auto;
     display: flex;
@@ -4883,17 +5275,17 @@ button:hover {
     margin-bottom: 4px;
 }
 
-/* THE RIVALRY SPLIT ( item 4). Two columns: every opponent down the left, the selected one's rivalry on the right. Both take the pane's full height, so neither can leave slack - the ratio between them is the only thing that varies and it arrives as --lh-riv-list from rivalrySplit, which reads the opponent count. Nothing here measures anything. */
+/* THE RIVALRY SPLIT. Two columns: every opponent down the left, the selected one's rivalry on the right. Both take the pane's full height, so neither can leave slack - the ratio between them is the only thing that varies and it arrives as --lh-riv-list from rivalrySplit, which reads the opponent count. Nothing here measures anything. */
 .lh-rivalry {
     flex: 1 1 auto;
-    /* NO FLOOR any more ( item 4). put 250px here and paid for it out of the standings, which is the thing the zone contract forbids. The pane takes what the zone leaves and the list below handles the shortfall itself. */
+    /* NO FLOOR any more. put 250px here and paid for it out of the standings, which is the thing the zone contract forbids. The pane takes what the zone leaves and the list below handles the shortfall itself. */
     min-height: 0;
     display: grid;
     grid-template-columns: calc(var(--lh-riv-list, 0.5) * 100%) minmax(0, 1fr);
     gap: 12px;
 }
 
-/* The list fills its column EXACTLY: n tracks of 1fr in a box of the column's height, so the row pitch is the column height over the opponent count and no arithmetic is needed to say so. 1fr has no upward clamp, which is the ruled behaviour - 5 opponents get tall bars and 19 get slim ones. The minimum is 13px, the pitch measured as the floor a row stays readable at, and it is what replaces the height that used to come out of the standings ( item 4). Under the minimum the tracks stop dividing and the list scrolls in its own frame - the last resort golden rule 2 already names, and the one that keeps the zone above whole. Above it nothing changes: the rows still share the column exactly and leave no slack. */
+/* The list fills its column EXACTLY: n tracks of 1fr in a box of the column's height, so the row pitch is the column height over the opponent count and no arithmetic is needed to say so. 1fr has no upward clamp, which is the ruled behaviour - 5 opponents get tall bars and 19 get slim ones. The minimum is 13px, the pitch measured as the floor a row stays readable at, and it is what replaces the height that used to come out of the standings. Under the minimum the tracks stop dividing and the list scrolls in its own frame - the last resort golden rule 2 already names, and the one that keeps the zone above whole. Above it nothing changes: the rows still share the column exactly and leave no slack. */
 .lh-rivalry-list {
     display: grid;
     grid-template-rows: repeat(var(--lh-riv-rows, 1), minmax(13px, 1fr));
@@ -4937,7 +5329,7 @@ button:hover {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* Scrolls rather than clips ( item 4). With the standings no longer yielding, a deep league genuinely leaves this column short, and a card that hides its own facts is worse than one the reader can scroll. The depth arithmetic keeps this unreachable at every count that fits. */
+    /* Scrolls rather than clips. With the standings no longer yielding, a deep league genuinely leaves this column short, and a card that hides its own facts is worse than one the reader can scroll. The depth arithmetic keeps this unreachable at every count that fits. */
     overflow-y: auto;
     padding: 8px 10px;
     border: 1px solid var(--border);
@@ -5037,7 +5429,7 @@ button:hover {
     white-space: nowrap;
 }
 
-/* The bar itself. Segments carry no width of their own - flex-grow is set inline from the record, so the split IS the win share and nothing here has to compute a percentage. A SHARE OF THE ROW, not a fixed height ( item 4). The list rows scale with the opponent count, so a bar pinned at 8px would look lost in a 50px row and crowd a 13px one. A percentage tracks the row it sits in for free, and the two bounds keep it a bar at both extremes. */
+/* The bar itself. Segments carry no width of their own - flex-grow is set inline from the record, so the split IS the win share and nothing here has to compute a percentage. A SHARE OF THE ROW, not a fixed height. The list rows scale with the opponent count, so a bar pinned at 8px would look lost in a 50px row and crowd a 13px one. A percentage tracks the row it sits in for free, and the two bounds keep it a bar at both extremes. */
 .lh-h2h-track {
     display: flex;
     height: 34%;
@@ -5046,7 +5438,8 @@ button:hover {
     max-height: 20px;
     border-radius: 4px;
     overflow: hidden;
-    background: var(--surface-sunken);
+    /* The track the segments sit in, and the same token.bar-track uses for the same job one tab over - see the --surface-3 note on.mt-band-head. Until this was repointed the track painted nothing, so a record with no ties drew as two coloured segments floating in the row with no bar behind them, and the empty part of a lopsided record was not there. */
+    background: var(--surface-3);
 }
 
 .lh-h2h-win { background: var(--success); }
@@ -5113,7 +5506,7 @@ button:hover {
 .lh-format-roto { border-color: var(--accent-strong); color: var(--accent-strong); }
 .lh-format-cats { border-color: var(--accent); color: var(--accent); }
 
-/* Careers, one table per role group ( item 1), and since only ONE of them is drawn at a time - the pill above names it, so the group needs no heading of its own. */
+/* Careers, one table per role group, and since only ONE of them is drawn at a time - the pill above names it, so the group needs no heading of its own. */
 .lh-career-group {
     display: flex;
     flex-direction: column;
@@ -5157,4 +5550,732 @@ button:hover {
     .lh-rail { flex-direction: row; align-items: flex-start; gap: 10px; }
     .lh-rail-flags { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
     .lh-rail-vitals { flex-direction: row; border-top: none; border-left: 2px solid var(--border); padding: 0 0 0 8px; margin: 0; gap: 8px; }
+}
+
+
+/* Player comparison - the 1v1 view inside Player Metrics, and the picker that opens it. No new page structure: the view renders into the drill-down's own container, so the tab's height contract is the one that was already tuned. The table and the chart divide what the drill-down's chips and breakdown used to. */
+
+.cmp-crumbs {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+/* Both players across the top, the way a scoreboard puts them - and the "vs" between them is what makes the two columns one statement rather than two cards that happen to be adjacent. */
+.cmp-heads {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    margin-bottom: 10px;
+}
+
+.cmp-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+/* The second player mirrors, so each name sits on the side its own numbers are on. */
+.cmp-head-b {
+    flex-direction: row-reverse;
+    text-align: right;
+}
+
+.cmp-head-text { min-width: 0; }
+
+.cmp-head-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cmp-head-meta {
+    font-size: 11px;
+    color: var(--text-subtle);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cmp-head-chips {
+    display: flex;
+    gap: 4px;
+    margin-top: 3px;
+}
+
+.cmp-head-b .cmp-head-chips { justify-content: flex-end; }
+
+.cmp-chip {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface-accent);
+    color: var(--accent-strong);
+    white-space: nowrap;
+}
+
+.cmp-chip-quiet {
+    background: var(--surface-3);
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.cmp-heads-sep {
+    font-size: 12px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+/* The table scrolls INTERNALLY if a league scores more categories than fit. The tab does not grow and the page never scrolls (golden rule 2) - this is the last-resort internal scroll that rule allows for, and the header, the tally and the chart all stay on screen around it. */
+.cmp-table {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+    overflow-y: auto;
+    /* BOTH EDGES, so the centred ledger is actually centred. A one-sided stable gutter reserves ~15px on the right only, which pushes everything centred inside this box half that far left - measured at 7.5px, enough to sit the spine visibly off the VS above it while the strip, which is outside this box, lined up correctly. Reserving on both edges keeps the box symmetric whether or not a scrollbar is showing. */
+    scrollbar-gutter: stable both-edges;
+    flex-shrink: 1;
+}
+
+/* THE LEDGER. Category on the left, then the two values flanking the edge column. The value columns are equal fractions rather than content-sized so the spine lands on the same x down the whole table - the spine is what the eye tracks, and a spine that wandered per row would make the arrows read as noise. L-B, THE COMPACT CENTRE. One narrow glance: label, left value, edge chip, right value, with the dead space split evenly to both sides. The full-width dot-leader alternative was offered and not taken. FIVE TRACKS FOR FOUR CELLS, and the empty fifth is the whole trick. capped the row at 560px and centred it, which helped but could not put the SPINE on the centre line - with four tracks the chip is the third of four, so it always sits right of the block's middle, and the label still absorbed every spare pixel through its 1fr and shoved the numbers rightward. A trailing track the same width as the label balances it: the row's centre and the chip's centre become the same x, and that x is where the VS between the two heads already is. Grid auto-placement fills tracks 1-4 and leaves 5 empty, so this costs no markup. minmax(0, X) rather than flat widths so the whole thing shrinks rather than overflows on a narrow pane, and because tracks 1 and 5 are declared identically they shrink identically - the centring is symmetric by construction rather than by arithmetic that only holds at one width. --cmp-width is stated ONCE, on the element that is the parent of both the strip and the table, so the two literally cannot drift into different widths. 432 is what the tracks add up to (72+84+96+84+72 plus four 6px gaps), written as the number rather than derived so a track change is a visible two-line edit rather than a silent reflow. */
+#player-detail-container { --cmp-width: 432px; }
+
+.cmp-row {
+    display: grid;
+    grid-template-columns: minmax(0, 72px) minmax(0, 84px) 96px minmax(0, 84px) minmax(0, 72px);
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 2px 0;
+    /* No zebra striping, tried and dropped: --surface-2 resolves to the pane's own colour under Boxscore, so the stripe was invisible there and visible under Modern - a row treatment that exists in one theme only is worse than none. The spine is what separates the rows anyway. */
+    max-width: var(--cmp-width);
+    margin: 0 auto;
+    width: 100%;
+}
+
+.cmp-val {
+    color: var(--text-body);
+    white-space: nowrap;
+    font-family: var(--font-numeral);
+}
+
+/* Values face the spine: the left player's numbers end at it, the right player's start at it. */
+.cmp-val-a { text-align: right; }
+.cmp-val-b { text-align: left; }
+
+/* The winner of a category takes THAT PLAYER'S series colour, the one his line and his legend chip are drawn in, so the table and the chart under it are read with one key. Colouring both winners the same accent - which is what this did first - meant a category the right-hand player took was marked in the left-hand player's colour. Weight as well as colour, so the edge survives on a screen that renders the two hues closer than they look here. */
+.cmp-win { font-weight: 700; }
+.cmp-val-a.cmp-win { color: var(--compare-a); }
+.cmp-val-b.cmp-win { color: var(--compare-b); }
+
+/* Bright against dim is the whole ledger effect, and it needs the loser to actually recede. Not --text-faint, which is the "no value at all" colour below and would make a real number look like missing data. */
+.cmp-lose { color: var(--text-subtle); }
+
+.cmp-val-none { color: var(--text-faint); }
+
+.cmp-cat {
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cmp-inv {
+    color: var(--text-faint);
+    margin-left: 2px;
+}
+
+/* The edge chip on the spine. Tabular figures and a centred box so the arrows line up as a column even when the gaps either side of them are different widths. */
+.cmp-edge {
+    display: block;
+    text-align: center;
+    font-size: 11px;
+    font-family: var(--font-numeral);
+    font-weight: 600;
+    white-space: nowrap;
+    border-radius: 3px;
+    padding: 1px 0;
+    /* The chip background belongs to EVERY chip, not only the ones that were won. Put it on the won variants alone and the even row loses its box, which breaks the spine into a dotted line down the middle of the table - the one column the eye is supposed to be able to follow. */
+    background: var(--surface-3);
+}
+
+.cmp-edge-a { color: var(--compare-a); }
+.cmp-edge-b { color: var(--compare-b); }
+/* An even category and an uncomparable one are both "no edge", so they keep the box and lose the colour - the chip column carries a hue only where something was actually won. */
+.cmp-edge-tie { color: var(--text-muted); font-weight: 400; }
+.cmp-edge-none { color: var(--text-faint); font-weight: 400; }
+
+/* THE STRIP, under the heads: the tally as a shape, with each count at its own player's end. Segments take their width from flex-grow set inline off the counts. The strip centres to the LEDGER'S width, not to the pane's. It used to span the whole pane so each count sat under its own player's head; the ruling puts the two on one column instead, and a strip wider than the table under it read as a separate object rather than as its header. Same token, so they cannot drift. */
+.cmp-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px auto 6px auto;
+    max-width: var(--cmp-width);
+    width: 100%;
+    flex-shrink: 0;
+}
+
+.cmp-strip-count {
+    font-family: var(--font-numeral);
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 2ch;
+}
+
+/* THE STRIP TAKES THE PLAYERS' OWN COLOURS, not green-and-brick. The ruling named green/grey/brick and the mockup reads well in isolation, but in the built view it inverts: --compare-a is the coral the left player's line, legend chip and winning values are all drawn in, and --compare-b is green. A green left segment above a coral left column tells the reader the two are different things. One key across the strip, the ledger and the chart is worth more than the literal hues, so the strip keeps the SHAPE that was ruled and drops only the palette. Flagged for the owner. */
+.cmp-strip-count-a { text-align: right; color: var(--compare-a); }
+.cmp-strip-count-b { text-align: left; color: var(--compare-b); }
+
+.cmp-strip-track {
+    display: flex;
+    flex: 1;
+    /* Tall enough to read as a bar across the full width between the two heads - it spans them on purpose, so each count lands under its own player rather than in the middle of the row. */
+    height: 10px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--surface-3);
+    /* Segments meet edge to edge, so a hairline of the track between them is what keeps two adjacent colours from bleeding into one band. */
+    gap: 1px;
+}
+
+.cmp-seg { min-width: 0; }
+.cmp-seg-a { background: var(--compare-a); }
+.cmp-seg-b { background: var(--compare-b); }
+/* Even categories are neither player's, so they read as a gap in the middle rather than a share. */
+.cmp-seg-tie { background: var(--text-faint); }
+
+.cmp-tally {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 8px 0 4px 0;
+    flex-shrink: 0;
+}
+
+.cmp-chart-tools {
+    display: flex;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.cmp-chart-tools select {
+    width: auto;
+    margin: 0;
+}
+
+/* The legend in the chart header. Each chip is a line's name in that line's colour, and the second carries the exit - removing a player where you can see him. */
+.cmp-legend {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.cmp-legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-body);
+    white-space: nowrap;
+}
+
+.cmp-swatch {
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+.cmp-swatch-a { background: var(--compare-a); }
+.cmp-swatch-b { background: var(--compare-b); }
+
+/* Inline, like the crumbs, because the base sheet hard-locks every button to a 35px full-width block and one of those inside a 12px legend line reads as a control for the whole chart. */
+.cmp-legend-remove {
+    display: inline;
+    width: auto;
+    height: auto;
+    padding: 0 0 0 2px;
+    margin: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-subtle);
+    cursor: pointer;
+}
+
+.cmp-legend-remove:hover { color: var(--danger); }
+
+/* The picker, inside the rank explainer's modal chrome. Search takes the room, the position filter takes what it needs - the two are one control line, so they share a baseline and a bottom margin rather than each carrying their own. */
+.cmp-pick-filters {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 10px 0;
+}
+
+.cmp-pick-search {
+    width: 100%;
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.cmp-pick-position {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.cmp-pick-list {
+    max-height: 46vh;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* A row is a name, its context and its rank - the same three things the leaderboard shows, so the list reads as the leaderboard narrowed to this player's own group. */
+.cmp-pick-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    height: auto;
+    margin: 0;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-body);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.cmp-pick-row:hover { background: var(--surface-accent); }
+
+.cmp-pick-name {
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cmp-pick-meta {
+    font-size: 11px;
+    color: var(--text-subtle);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cmp-pick-rank {
+    text-align: right;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-numeral);
+}
+
+.cmp-pick-empty {
+    padding: 10px 8px;
+    font-size: 12px;
+    color: var(--text-subtle);
+}
+
+/* The one way into a comparison. It sits with the stat picker and the pager, so it reads as another thing you can do to this drill-down rather than a call to action. */
+.player-compare-btn {
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text-body);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.player-compare-btn:hover {
+    background: var(--surface-accent);
+    color: var(--accent-strong);
+}
+
+
+/* THE PENNANT WALL, dressed. built the structure and measured the shapes; this is only the cloth, and it moves nothing - every rule below paints, and the two that add a box (the hem and the plate) are drawn on pseudo-elements or on an element the neutral style already reserved space for. The layouts are the owner's reference photos. Baseball hangs the ballclub pennant: crest at the wide end, the name's first words small and italic above its last word in block letters, both filling the taper. Hockey raises the rafter banner: crest centred in the upper field with the year in serif under it. Stitched hems on both - a dashed gold rule inset from the edge, which is what a felt hem looks like from across a room. A brass plate under each shape carries the year and the format. RULED OUT, explicitly, so nobody adds them back as an improvement: the cord and the dowels. The owner looked at them and said they look bad. */
+
+/* The felts. Neutral chrome stays exactly as it is under Modern. TWO-TONE, THE CLASSIC PENNANT CONSTRUCTION. The champion's own colour takes the top half and the felt takes the bottom, split hard at the fold - a linear-gradient with both stops AT 50% is a hard edge rather than a blend, which is the whole point of the ruling and the reason this is not two stacked boxes. --flag-dye is set per flag by dyeChampionFlags once the logo has been sampled and darkened until the gold type clears 4.5:1 on it. Until then, and forever for a team whose logo cannot be sampled, it falls back to the felt itself and the shape is exactly what it was before this entry - which is also what a team with no logo has always looked like. Nothing else moves: the stitched gold hem, the brass plate, the gold slab type and the cream monogram all stay where P2 put them, so the wall still reads as one collection. */
+:root[data-style="boxscore"] .lh-flag-bracket .lh-flag-shape {
+    background: linear-gradient(to bottom,
+        var(--flag-dye, var(--felt-bracket)) 0 50%,
+        var(--felt-bracket) 50% 100%);
+}
+
+/* A champion with no colour anywhere in the ladder. Both halves take the charcoal, so the shape is flat rather than two-tone - it has nothing to be two-tone ABOUT - and the gold hem does the rest of the work of making it an object. */
+:root[data-style="boxscore"] .lh-flag.lh-flag-blank .lh-flag-shape {
+    background: var(--felt-blank);
+}
+
+:root[data-style="boxscore"] .lh-flag-roto .lh-flag-shape {
+    background: linear-gradient(to bottom,
+        var(--flag-dye, var(--felt-roto)) 0 50%,
+        var(--felt-roto) 50% 100%);
+}
+
+/* The season still being played. Opacity is what the neutral style used to grey it; here the felt itself is the drained one, so the shape keeps full contrast against the page and still reads as unclaimed. */
+:root[data-style="boxscore"] .lh-flag-open .lh-flag-shape {
+    background: var(--felt-open);
+    opacity: 1;
+}
+
+/* THE STITCHED HEM. A dashed gold rule inset from the edge, drawn on a pseudo-element that inherits the parent's clip-path - so the hem follows the pennant's point and the banner's notch without either shape being described twice. Inset by 3px, which is the hem's width; `inset` on an absolutely positioned box is the only way to say "this shape, smaller" without a second polygon. */
+:root[data-style="boxscore"] .lh-flag-shape::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border: 1px dashed var(--gold);
+    opacity: 0.55;
+    clip-path: inherit;
+    pointer-events: none;
+}
+
+/* The undecided pennant's hem is the same stitch in the same thread, quieter, because an unclaimed pennant is still a pennant. */
+:root[data-style="boxscore"] .lh-flag-open .lh-flag-shape::after { opacity: 0.3; }
+
+/* THE PENNANT'S LEGEND - baseball only, filling the taper beside the crest. Absolutely positioned rather than laid out in flow, because the shape is a clip-path triangle and flow layout inside it would centre the text on the BOX rather than on the readable part of the cloth. Left edge clears the 20px crest at its 5px hoist; the right stops well short of the point, where a triangle has no height for a line of type. */
+:root[data-style="boxscore"] .lh-rail:not([data-sport="fhl"]) .lh-flag-legend {
+    position: absolute;
+    left: 30px;
+    right: 34%;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.05;
+    text-align: left;
+    pointer-events: none;
+}
+
+:root[data-style="boxscore"] .lh-rail:not([data-sport="fhl"]) .lh-flag-loc {
+    font-family: var(--font-numeral);
+    font-style: italic;
+    font-size: 8px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--gold);
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:root[data-style="boxscore"] .lh-rail:not([data-sport="fhl"]) .lh-flag-nick {
+    font-family: var(--font-numeral);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gold);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* An empty top line reserves no height, so a one-word name sits centred rather than hanging low. */
+:root[data-style="boxscore"] .lh-flag-loc:empty { display: none; }
+
+/* The name under the pennant is what the pennant now says itself, so baseball drops it and closes the gap. Hockey keeps it: a 36px banner has no room for a name inside it (see the plate note). */
+:root[data-style="boxscore"] .lh-rail:not([data-sport="fhl"]) .lh-flag-name { display: none; }
+
+/* THE BANNER'S RAISED YEAR, under the centred crest, in gold serif - the reference banner's third line. The crest is already centred in the upper field by; this fills the lower one. The banner shows the YEAR rather than the champion's name, and the reason is width: the ruled shape is 36px across, which will not hold a fantasy team name at any size a person can read. The name stays on its line under the shape, where it has the rail's full width. The plate below then drops the year, because the cloth is already carrying it - see the plate rules. */
+:root[data-style="boxscore"] .lh-rail[data-sport="fhl"] .lh-flag-legend {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 9px;
+    text-align: center;
+    pointer-events: none;
+}
+
+:root[data-style="boxscore"] .lh-rail[data-sport="fhl"] .lh-flag-loc,
+:root[data-style="boxscore"] .lh-rail[data-sport="fhl"] .lh-flag-nick { display: none; }
+
+:root[data-style="boxscore"] .lh-rail[data-sport="fhl"] .lh-flag-raised {
+    display: block;
+    font-family: var(--font-numeral);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gold);
+}
+
+/* THE BRASS PLATE. The year line was already there and already reserved its own height, so the plate is that element wearing metal - no new box, no new space. Year in serif, the format beside it in small caps, the way a plate screwed under a hanging thing is engraved. */
+:root[data-style="boxscore"] .lh-flag-year {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 6px;
+    border-radius: 2px;
+    /* The plaque's own metal, fixed in both modes and measured at 4.85:1 - see the --plate note. */
+    background: var(--plate);
+    color: var(--plate-ink);
+    font-family: var(--font-numeral);
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid var(--plate-edge);
+}
+
+:root[data-style="boxscore"] .lh-flag-how {
+    font-size: 8px;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.85;
+}
+
+/* Modern never had a format word on the year line and does not get one - the element ships in both styles so the markup does not have to know which is on. */
+.lh-flag-how { display: none; }
+:root[data-style="boxscore"] .lh-flag-how { display: inline; }
+
+/* Modern's legend is likewise inert: it exists in the markup and paints nothing. The raised year is hockey's alone, so it stays off everywhere else including Boxscore baseball, whose pennant is already carrying two lines of name. */
+.lh-flag-legend { display: none; }
+.lh-flag-raised { display: none; }
+:root[data-style="boxscore"] .lh-flag-legend { display: block; }
+
+/* Hockey's plate carries the FORMAT only. The year is on the cloth above it, and a plate that repeats the thing it is screwed under is a plate nobody reads twice. */
+:root[data-style="boxscore"] .lh-rail[data-sport="fhl"] .lh-flag-plate-year { display: none; }
+
+/* The crest sits ON felt now, so its neutral tile would read as a hole punched in the cloth. Brass ring, felt-darkened backing - the same crest the monogram fallback already draws. */
+:root[data-style="boxscore"] .lh-flag-badge {
+    background: color-mix(in srgb, var(--k-ink) 25%, var(--gold));
+    border-color: var(--gold);
+}
+
+/* The monogram takes the champion's colour too, which is what ties the badge to the half it sits in - but its OWN darkening, not the cloth's. The letters sit on the brass badge rather than on the felt, and brass is a light metal: the dye that clears 4.5:1 against the gold type measured 2.05:1 against brass, which is not readable. An earlier version of this rule claimed one darkening covered both and was wrong. --flag-dye -ink is the same sampled colour taken down until it passes on brass, and it falls back to the theme ink when it cannot get there or when the team was never sampled. */
+:root[data-style="boxscore"] .lh-flag-monogram {
+    color: var(--flag-dye-ink, var(--k-ink));
+    font-family: var(--font-numeral);
+}
+
+/* The shelf line that closes the wall, in brass rather than in border grey. */
+:root[data-style="boxscore"] .lh-rail-vitals {
+    border-top-color: var(--brass);
+}
+
+:root[data-style="boxscore"] .lh-vital-n {
+    font-family: var(--font-numeral);
+}
+
+
+/* THE RAIL'S MARKS, THE DIVIDERS, AND THE SCOREBOARD FIGURES. All three are Boxscore-only; Modern keeps every glyph and every rule it has today. */
+
+/* THE RAIL ICONS. Under Boxscore the three action buttons trade their system glyphs for line-art marks in brass: a ticket stub for Export, a pennant for Recap, a rulebook for Legend. Drawn as MASKS for the reason the crown is - a glyph is whatever the machine has, and most machines answer a request for a ticket or a megaphone with a colour emoji, which is the one thing this palette cannot absorb. BRASS, NOT GOLD. Gold is a figure colour for the deep band and has no contrast to give on the rail's pale surface. Brass is gold pulled toward the ink, so it darkens on a light page and lightens on a dark one and stays legible in both without a second value. The glyph is still in the markup and is still what a screen reader and Modern both get; here it is collapsed to a zero-size line box under the mark. The button's own aria-label and title carry the name either way. */
+:root[data-style="boxscore"] #export-btn .btn-icon,
+:root[data-style="boxscore"] #recap-btn .btn-icon,
+:root[data-style="boxscore"] #legend-btn .btn-icon {
+    display: inline-block;
+    width: 17px;
+    height: 17px;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
+    background: var(--brass);
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+}
+
+:root[data-style="boxscore"] #export-btn .btn-icon {
+    -webkit-mask-image: var(--ticket-mask);
+    mask-image: var(--ticket-mask);
+}
+
+:root[data-style="boxscore"] #recap-btn .btn-icon {
+    -webkit-mask-image: var(--pennant-mask);
+    mask-image: var(--pennant-mask);
+}
+
+:root[data-style="boxscore"] #legend-btn .btn-icon {
+    -webkit-mask-image: var(--rulebook-mask);
+    mask-image: var(--rulebook-mask);
+}
+
+/* The gear is untouched on purpose - see the mask block's note. */
+
+/* SECTION DIVIDERS, and the one place the two sports deliberately differ. Baseball runs STITCHING along the rule: the brass line with short brick ticks laid across it at the angle a ball's seam takes. Hockey takes a LONE PUCK AT CENTRE - line, puck, line, nothing else. Ruled after three rounds of mocks, in which rink markings, tape, laces, skate cuts, a banner row and crossed sticks were all declined; the bar was "iconic to hockey, and simple", and the puck alone is both. The crossed-bats system alternative was offered for baseball and not taken, so the two patterns differing is the ruling rather than an oversight. Both ride.section-head, which made the ONE header treatment across the app, so a divider lands everywhere a section starts without a second class to remember. Painted on a pseudo-element over the existing 2px border, so nothing moves. */
+:root[data-style="boxscore"] .section-head {
+    position: relative;
+    border-bottom-color: var(--brass);
+}
+
+/* ONE DIVIDER PATTERN, TWO EMBLEMS. Both sports now draw line-emblem-line: the rule runs through, and a single mark sits on its centre. Baseball's repeating seam-stitch band retires with the flannel it belonged to - it was a texture where hockey had an object, so the two dividers were different KINDS of thing rather than two versions of one. THE BALL IS TWO LAYERS because it is two colours:::before is the cream disc,::after carries the seams in red over it..section-head had a free::before and this is what it is for. The seams are a mask, so the shape carries no colour of its own and both fills come from tokens. The disc is 13px against the puck's 15x7 - a circle needs more height than a squat rectangle to read as the same size of object, and 13 keeps it inside the 4px of header padding above the rule and the 6px of margin below, which is the same budget the puck fits in. */
+:root[data-style="boxscore"]:not([data-sport="fhl"]) .section-head::before,
+:root[data-style="boxscore"]:not([data-sport="fhl"]) .section-head::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -6px;
+    transform: translateX(-50%);
+    width: 13px;
+    height: 13px;
+    pointer-events: none;
+}
+
+:root[data-style="boxscore"]:not([data-sport="fhl"]) .section-head::before {
+    border-radius: 50%;
+    background: var(--ball-face);
+    border: 1px solid var(--ball-edge);
+    box-sizing: border-box;
+}
+
+:root[data-style="boxscore"]:not([data-sport="fhl"]) .section-head::after {
+    background: var(--ball-seam);
+    -webkit-mask: var(--ball-seam-mask) center / contain no-repeat;
+    mask: var(--ball-seam-mask) center / contain no-repeat;
+}
+
+:root[data-style="boxscore"][data-sport="fhl"] .section-head::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    transform: translateX(-50%);
+    /* A PUCK, not a pill. Squat rectangle, corners barely off square, near-black in any light, with a thin edge so it still reads against a dark page. The 50% radius and the ink-derived fill it replaces gave a grey lozenge in light and a white one in dark. */
+    width: 15px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--puck);
+    border: 1px solid var(--brass);
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+/* SCOREBOARD FIGURES. The live band's matchup score is the one number on the page a scoreboard would have owned, so it gets the panel: framed, deep, gold serif digits. The dash between the two figures stays quiet - it is punctuation, not a score. */
+:root[data-style="boxscore"] .h2h-head-score {
+    font-family: var(--font-numeral);
+    font-weight: 700;
+    color: var(--gold);
+    background: var(--deep);
+    border: 1px solid var(--brass);
+    border-radius: 3px;
+    padding: 0 5px;
+}
+
+:root[data-style="boxscore"] .h2h-head-dash {
+    color: var(--brass);
+    font-weight: 400;
+}
+
+
+/* THE COMPONENT PASS. The chrome in the Boxscore language: flat surfaces, thin borders, 6px radii, brass rules, and the deep colour wherever the app says "this one is on". Everything here is Boxscore-only. Modern keeps its shadowed card, its blue pills and its grey rules - it is the regression baseline for this whole theme, so a Modern pixel moving is a bug rather than a decision. */
+
+/* THE CARD. Modern floats the page's one card on a shadow; Boxscore sets it down flat on the felt and draws its edge instead. A printed thing has an edge, not a shadow. */
+:root[data-style="boxscore"] .container {
+    box-shadow: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+:root[data-style="boxscore"] .control-panel {
+    box-shadow: none;
+    border-color: var(--border-strong);
+}
+
+/* THE TAB BAR. The active tab's 3px accent underline is P1's and needs nothing here (it becomes the sport's brick or red). What P2 adds is the rule the tabs sit on: brass, so the row reads as the top edge of a printed card rather than as a grey UI seam. */
+:root[data-style="boxscore"] .tabs-container {
+    border-bottom-color: var(--brass);
+}
+
+/* THE PILLS. A timeframe chip is a scoreboard toggle, so the active one is the deep panel with a gold figure on it - the same statement the leader band and the score panel make, in the size a control gets. The resting chip keeps its shape and takes the palette's own border. */
+:root[data-style="boxscore"] .timeframe-chip.active {
+    background: var(--deep);
+    border-color: var(--brass);
+    color: var(--gold);
+    font-family: var(--font-numeral);
+}
+
+/* The other two "this one is on" controls in the tab strip and the rankings header, so the app has ONE on-state rather than three that happen to agree today. */
+:root[data-style="boxscore"] .group-toggle-btn.active,
+:root[data-style="boxscore"] .rank-chip-selected {
+    background: var(--deep);
+    border-color: var(--brass);
+    color: var(--gold);
+}
+
+/* The chip's INNER spans carry their own colour rules (accent-contrast, correct for Modern's blue fill), and those outrank the container line above - so the selected chip printed near-black ink on the near-black deep fill and the owner read it as "almost all black". The gold has to land on the spans themselves. --gold is the band-figure colour in both modes by construction, so no mode split is needed here. */
+:root[data-style="boxscore"] .rank-chip-selected .rank-chip-label,
+:root[data-style="boxscore"] .rank-chip-selected .rank-chip-total,
+:root[data-style="boxscore"] .rank-chip-selected .rank-chip-value {
+    color: var(--gold);
+}
+
+/* HEADERS. Sans under the rink set, which is what P2 shipped: the serif is for figures, and a serif heading over serif numbers turns a scoreboard into a menu. What it gains is the tracking a printed header has, and the ink to sit in. */
+:root[data-style="boxscore"] .section-head h4,
+:root[data-style="boxscore"] .header-row h3 {
+    color: var(--text);
+    letter-spacing: 0.03em;
+}
+
+/* THE MASTHEAD BLOCK. Section titles print as slab type on a solid block, the way a scorecard heads a column - cream on navy for the ballpark, yellow on black for the rink. Both come off --masthead and --masthead-ink, which each sport states in its own block, so this rule carries no sport test at all. It was baseball-only while the rink was navy and red, because a navy masthead on a navy-and-red page said nothing the page had not already said; a black one under gold type is the rink's whole identity. Two decisions inside it are load-bearing. IT DRESSES THE TITLE, NOT THE ROW..section-head is a flex row with the block's own controls in its trailing slot - header tabs, pagers, pickers - and a navy fill across the whole row would put every one of them on a colour none of them are styled for. The masthead is the h4, which is the only thing in the row that is actually a title. IT ADDS NO HEIGHT, and that is a hard constraint rather than a preference: the fitting code measures.section-head and subtracts it from the space a chart gets (see the header note in graphs.js), so a header that grew by 4px would silently take 4px off every graph on the tab. The padding is horizontal only and the block is exactly the line box tall, so the measured height is the one it has always been. (.header-row is a fixed 30px, so its own title has room either way, but it takes the same horizontal-only treatment rather than a second set of numbers to keep.).box-title EXISTS FOR THIS, and marking it up was the point. The panel headers are three different h3s: Season Trends is a span plus a hint, Category Heatmap was a bare text node, and the rankings box's h3 is not a title at all - it holds the two tab BUTTONS that switch Team and Category Rankings. Dressing the h3 itself would have wrapped that tab strip in a navy block and made two controls look like a heading. So the two real titles now say so in the markup and the tab strip is left alone, which is also why the class is on a span rather than on the h3. */
+:root[data-style="boxscore"] .section-head h4,
+:root[data-style="boxscore"] .header-row h3 > .box-title,
+:root[data-style="boxscore"] .lh-block-head {
+    background: var(--masthead);
+    color: var(--masthead-ink);
+    font-family: var(--font-headline);
+    padding: 0 7px;
+    border-radius: 2px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* League History's own block headings are DIVs, so they would take the masthead across the full width of the panel rather than hugging their words. A masthead is a set piece of type, not a banner, so this one line is what makes it the same object as the other two. */
+:root[data-style="boxscore"] .lh-block-head {
+    display: inline-block;
+}
+
+/* The rule under the masthead is the accent - gold now, for every sport - and the emblem that rides its centre stays where put it: the block gave the header a colour, not a reason to lose its divider. Brass was the P2 value and belonged to the green; the accent replaced it when the green went, and the accent has since become the gold. */
+:root[data-style="boxscore"] .section-head {
+    border-bottom-color: var(--accent);
+}
+
+/* LOADING AND EMPTY STATES. Both are the app talking rather than the app showing, so both take the serif in italic - the voice a programme note is set in. Quiet colour, because neither is news. */
+:root[data-style="boxscore"] .player-loading,
+:root[data-style="boxscore"] .empty-state {
+    font-family: var(--font-numeral);
+    font-style: italic;
+}
+
+/* The empty state's own box, lifted out of the inline style it used to carry (see buildEmptyStateHtml). These are exactly the values it had, so Modern is unchanged. */
+.empty-state {
+    color: var(--text-subtle);
+    text-align: center;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
 }

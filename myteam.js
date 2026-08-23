@@ -3,8 +3,8 @@
 import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS, LINEUP_SLOT_ORDER, SLOT_POSITION_MAPS, POSITION_MAPS } from './state.js';
 import { escapeHtml, getTimeframeBounds, axisUnit, attachDataTooltips, splitStatIdsByRole, injuryBadgeHtml, playerPoolErrorText, parseTimeframe, registerLeagueView } from './utils.js';
 import { buildPlayerAvatarHtml, wirePlayerAvatars } from './images.js';
-import { rosterRankLookup, openPlayerDetail, playerRoleGroups, effectivePlayerPool, loadPlayerTabIfNeeded, matchupPeriodMap, ensureWeeklyDataForTimeframe, weeklyDataPending } from './players.js';
-import { fetchRosterForPeriod, fetchProTeamSchedules, fetchScoreboardOdds } from './api.js';
+import { rosterRankLookup, openPlayerDetail, playerRoleGroups, effectivePlayerPool, loadPlayerTabIfNeeded, matchupPeriodMap, ensureWeeklyDataForTimeframe, weeklyDataPending, revalidateStalePoolIfDue } from './players.js';
+import { fetchRosterForPeriod, fetchProTeamSchedules, fetchScoreboardOdds, invalidateStoredProSchedule } from './api.js';
 import { buildGamePeriodIndex, buildProTeamAbbrevs, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor } from './probables.js';
 import {
     teamOffence, offenceStrength, offenceBreakdown, startDifficulty, difficultyLabel, daysBetween, isSidelined,
@@ -61,8 +61,8 @@ export function invalidateMyTeamLayout() {
     lastColumnFit = { key: null, player: 0, pos: 0, stat: 0 };
 }
 
-// Registered rather than called from the fetch path ( item 6). The scouted team belongs to the league that was on screen, so a new league starts on its own owner's team again.
-registerLeagueView('myteam', { reset: resetMyTeamView });
+// Registered rather than called from the fetch path. The scouted team belongs to the league that was on screen, so a new league starts on its own owner's team again.
+registerLeagueView('myteam', { reset: resetMyTeamView, revalidate: invalidateProSchedule });
 
 export function resetMyTeamView() {
     viewedTeamKey = null;
@@ -81,6 +81,12 @@ export function resetMyTeamView() {
     if (container) {
         ['--mt-player-w', '--mt-pos-w', '--mt-stat-w'].forEach(n => container.style.removeProperty(n));
     }
+}
+
+// The pro-team schedule is fetched once per sport+season and then held, which is why the Schedule tab never noticed a game finishing. Dropping the local key was NEVER enough on its own: ensureProSchedule refetches through fetchProTeamSchedules, which served its own AppState/storage.session copy - so the "refetch" was a cache read and the tab could run a whole browser session on one body. Both halves drop now, and the next render genuinely asks the network. The INDEX stays on screen until the new one lands, because ensureProSchedule replaces it wholesale rather than clearing it first.
+function invalidateProSchedule() {
+    proSchedule = { key: null, index: null, abbrevs: null, state: 'idle' };
+    invalidateStoredProSchedule();
 }
 
 // Fire-and-forget, guarded by league key and state so a tab switch or timeframe click never starts a second one. The index is built once here rather than per render, since it is 2456 games.
@@ -221,7 +227,7 @@ function teamById(id) {
 function teamStandingLine(team) {
     if (AppState.isRotoLeague) {
         const ranked = [...AppState.teamStats].sort((a, b) => b.rotoPoints - a.rotoPoints);
-        // Through the shared convention, so two teams on the same points read T-N rather than being handed a first and a second by sort order ( item 3).
+        // Through the shared convention, so two teams on the same points read T-N rather than being handed a first and a second by sort order.
         const ranks = competitionRanks(ranked.map(t => t.rotoPoints));
         const rank = ranks[ranked.findIndex(t => t.id === team.id)];
         return { value: `${team.rotoPoints} pts`, rank, ranks, of: ranked.length, label: 'Roto Points' };
@@ -281,6 +287,9 @@ export function renderMyTeamTab() {
         return;
     }
 
+    // This tab shows pool numbers (ranks, category lines), so rendering it consumes a deferred pool revalidate. The current pool draws below; the fresh one swaps in via the pool-ready event this tab already listens for.
+    revalidateStalePoolIfDue();
+
     const sport = AppState.loadedSport;
     const key = `${sport}:${AppState.apiData.id}:${AppState.apiData.seasonId}`;
     if (viewedTeamKey !== key) {
@@ -288,7 +297,7 @@ export function renderMyTeamTab() {
         viewedTeamId = findOwnedTeamId(AppState.apiData.teams, AppState.userSwid);
     }
     if (viewedTeamId == null || !teamById(viewedTeamId)) {
-        // Whoever is first, because there is no SWID to match yet or it matched nothing. Marked as a stand-in so a SWID arriving later can correct it - a user who logs in mid-session otherwise sits on a stranger's roster on the tab called My Team, and never learns it is not theirs ( follow-up).
+        // Whoever is first, because there is no SWID to match yet or it matched nothing. Marked as a stand-in so a SWID arriving later can correct it - a user who logs in mid-session otherwise sits on a stranger's roster on the tab called My Team, and never learns it is not theirs.
         viewedTeamId = AppState.teamStats.length ? AppState.teamStats[0].id : null;
         viewedTeamIsStandIn = true;
     }
@@ -374,12 +383,12 @@ export function renderMyTeamTab() {
         return counts.total ? counts : null;
     })();
 
-    // How hard each projected start looks. The opposing offence is measured over the WHOLE player pool rather than the league's rosters, because a pro team's lineup is mostly players nobody in a 10-team league has drafted, and grading an offence off the drafted half of it would say more about the league than about the opponent. Batting categories only, and the league's own. A difficulty read for a league that counts steals should move when the opponent steals bases, and one that does not should not. The categories the composite is built over, kept beside it so the lineup drill-in can rank the same ones in the same order rather than deriving its own list. A FIXED general-offence basket, not the league's own categories (, owner ruled). The difficulty score answers "how hard will this real game be for my pitcher", and what hurts a pitcher is run production - not skill at whatever a fantasy league happens to count. This league scores fielding assists, errors and caught stealing among its batting categories, and the composite was weighting each of them equally with runs: a lineup's assists say nothing about facing it, and the quirkier the league the further the score drifted from the question it claims to answer. A start's difficulty now means the same thing in every league. Runs and home runs are the production; OBP and SLG are how often they get on and how far they go, rebuilt from the components validated. All four confirmed present on 400 of 400 sampled batters in a real pool, so no new data and no new call. Hockey keeps the league's own skater categories, because no general basket has been validated for it - the basket lives where the evidence does, not everywhere by analogy.
+    // How hard each projected start looks. The opposing offence is measured over the WHOLE player pool rather than the league's rosters, because a pro team's lineup is mostly players nobody in a 10-team league has drafted, and grading an offence off the drafted half of it would say more about the league than about the opponent. Batting categories only, and the league's own. A difficulty read for a league that counts steals should move when the opponent steals bases, and one that does not should not. The categories the composite is built over, kept beside it so the lineup drill-in can rank the same ones in the same order rather than deriving its own list. A FIXED general-offence basket, not the league's own categories. The difficulty score answers "how hard will this real game be for my pitcher", and what hurts a pitcher is run production - not skill at whatever a fantasy league happens to count. This league scores fielding assists, errors and caught stealing among its batting categories, and the composite was weighting each of them equally with runs: a lineup's assists say nothing about facing it, and the quirkier the league the further the score drifted from the question it claims to answer. A start's difficulty now means the same thing in every league. Runs and home runs are the production; OBP and SLG are how often they get on and how far they go, rebuilt from the components validated. All four confirmed present on 400 of 400 sampled batters in a real pool, so no new data and no new call. Hockey keeps the league's own skater categories, because no general basket has been validated for it - the basket lives where the evidence does, not everywhere by analogy.
     const GENERAL_OFFENCE = { flb: ['20', '5', '17', '9'] };
     const battingIds = GENERAL_OFFENCE[sport] || splitStatIdsByRole(sport, scoredIds).primary || [];
     // The per-team totals BEFORE they collapse into a percentile. offenceStrength throws this away by design; the drill-in needs it to show what the percentile was computed against.
     let offenceRaw = null;
-    // The league's own lower-is-better ids, handed to the engine so a category it scores the other way is ranked the other way. One object, built once, shared by the composite and the drill-in so the two cannot be given different rules. rateSpecs/rateStatIds turn on B145's rule that a lineup rate is rebuilt from summed components. The tables are the league-agnostic ones the weekly pipeline already uses, so this adds no new knowledge - it stops the offence being the one place that ignored them. lineupSize/playingTimeOf are: a club contributes the bats that will be in the game, not every bat it has rights to. The sizes are rules of the sport rather than league settings - a baseball order is nine, a hockey club dresses eighteen skaters - so they live here beside the roles rather than being read from the payload, which does not carry them.
+    // The league's own lower-is-better ids, handed to the engine so a category it scores the other way is ranked the other way. One object, built once, shared by the composite and the drill-in so the two cannot be given different rules. rateSpecs/rateStatIds turn on the rule that a lineup rate is rebuilt from summed components. The tables are the league-agnostic ones the weekly pipeline already uses, so this adds no new knowledge - it stops the offence being the one place that ignored them. lineupSize/playingTimeOf are: a club contributes the bats that will be in the game, not every bat it has rights to. The sizes are rules of the sport rather than league settings - a baseball order is nine, a hockey club dresses eighteen skaters - so they live here beside the roles rather than being read from the payload, which does not carry them.
     const LINEUP_BATS = { flb: 9, fhl: 18 };
     const gpId = (GAMES_PLAYED_IDS[sport] || GAMES_PLAYED_IDS.flb).primary;
     const offenceCtx = {
@@ -389,7 +398,7 @@ export function renderMyTeamTab() {
         lineupSize: LINEUP_BATS[sport] || null,
         playingTimeOf: (h) => (h.totals && h.totals[gpId]) || 0
     };
-    // WHY A SCORE MOVES BETWEEN LOOKS, since the question comes up and the wrong answer is the obvious one (, verified ). This reads AppState.playerData, the UNWINDOWED pool, with full-season totals - so the timeframe pill is NOT involved and nothing here follows it. What does move it: ESPN refreshes season totals daily, which drifts a lineup a little, and an injury flip moves it a lot, because one bat entering or leaving the healthy set changes every category at once and offenceStrength's second pass stretches mid-scale differences by design. The drill-in's Not counted list is where a reader can see the large mover for themselves.
+    // WHY A SCORE MOVES BETWEEN LOOKS, since the question comes up and the wrong answer is the obvious one. This reads AppState.playerData, the UNWINDOWED pool, with full-season totals - so the timeframe pill is NOT involved and nothing here follows it. What does move it: ESPN refreshes season totals daily, which drifts a lineup a little, and an injury flip moves it a lot, because one bat entering or leaving the healthy set changes every category at once and offenceStrength's second pass stretches mid-scale differences by design. The drill-in's Not counted list is where a reader can see the large mover for themselves.
     const offence = (() => {
         if (!AppState.playerDataLoaded || !AppState.playerData) return null;
         if (!battingIds.length) return null;
@@ -717,7 +726,7 @@ export function renderMyTeamTab() {
         return `<div class="mt-diff-foot">${market}${parks}</div>`;
     };
 
-    // The one line under the verdict, naming the start rather than describing it. The VENUE replaces "at home" and "on the road", which says the same thing and one thing more. The trail IS the navigation (, owner ruled option A). Every earlier crumb is a click target, the tail is where you are and is the panel's title, and there is no button anywhere. It replaces the stacked back buttons for a reason those could not solve: "Schedule" returns from ANY depth. A one-step control could only ever undo the last click, so leaving a drill-in for the calendar took two, and nothing on screen said how far in you were. crumbs: [{ label, to }] - `to` absent marks the tail, which is not clickable
+    // The one line under the verdict, naming the start rather than describing it. The VENUE replaces "at home" and "on the road", which says the same thing and one thing more. The trail IS the navigation. Every earlier crumb is a click target, the tail is where you are and is the panel's title, and there is no button anywhere. It replaces the stacked back buttons for a reason those could not solve: "Schedule" returns from ANY depth. A one-step control could only ever undo the last click, so leaving a drill-in for the calendar took two, and nothing on screen said how far in you were. crumbs: [{ label, to }] - `to` absent marks the tail, which is not clickable
     const crumbsHtml = (crumbs) => `
         <div class="mt-diff-crumbs">${crumbs.map((c, i) => `
             ${i ? '<span class="mt-crumb-sep">&rsaquo;</span>' : ''}
@@ -796,7 +805,7 @@ export function renderMyTeamTab() {
             .filter(p => p && p.proTeamId === proTeamId && isSidelined(p.injuryStatus)
                 && playerRoleGroups(p, sport).primary)
             .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-        // The bats-of-rostered fact belongs HERE, beside the players it is about, rather than in the header sentence where it was a parenthetical nobody could act on ( item 4).
+        // The bats-of-rostered fact belongs HERE, beside the players it is about, rather than in the header sentence where it was a parenthetical nobody could act on.
         const counted = (detail && detail.rostered > detail.bats)
             ? `<span class="mt-diff-outn">${detail.bats} of ${detail.rostered} healthy bats counted</span>`
             : '';
@@ -812,7 +821,7 @@ export function renderMyTeamTab() {
         const detail = offenceRaw ? offenceBreakdown(offenceRaw, battingIds, s.game.opponentId, offenceCtx) : null;
         const teams = detail && detail.rows.length ? detail.rows[0].of : (offence ? offence.size : 0);
         const score = s.difficulty ? s.difficulty.base : null;
-        // "Percentile", the word the player drill-down's own rank table uses. "%ile" was ruled out there once already for being unreadable, so this reuses the ruling rather than inventing a third spelling of the same column. The composite lands in the TFOOT, exactly where the player drill-down puts its Rank Score and wearing the rule that already styles it ( item 3). It was an eq span on the title row before, and `margin-left: auto` threw it 1018px from its own label to the far right edge of the panel - rendered, and nowhere a reader looks. A total belongs under the table that justifies it.
+        // "Percentile", the word the player drill-down's own rank table uses. "%ile" was ruled out there once already for being unreadable, so this reuses the ruling rather than inventing a third spelling of the same column. The composite lands in the TFOOT, exactly where the player drill-down puts its Rank Score and wearing the rule that already styles it. It was an eq span on the title row before, and `margin-left: auto` threw it 1018px from its own label to the far right edge of the panel - rendered, and nowhere a reader looks. A total belongs under the table that justifies it.
         const body = (detail && detail.rows.length)
             ? `<table class="mt-diff-table">
                    <thead><tr><th>Category</th><th>Value</th><th>Rank</th><th>Percentile</th></tr></thead>
@@ -1137,7 +1146,7 @@ function sizeRosterColumns(container) {
     container.style.setProperty('--mt-stat-w', lastColumnFit.stat + 'px');
 }
 
-// The vertical layout, as arithmetic. No measurement of what rendered, no rAF, no caches, no memory of earlier layouts. Same league, same window, same roster gives the same answer on every path, because the answer is a function of numbers that are all known before a row exists. WHY THE MEASURED VERSION KEPT FAILING, after five rounds of fixing which measurement wins (,, and the follow-ups): every one of them was measure-and-remember. Density ladders, reserved shares, provisional fits, generation guards. Each round settled a different race and the layout still depended on WHAT WAS ON SCREEN WHEN A MEASUREMENT RAN, which is why the same roster at the same viewport rendered one size on load and another after cycling through teams. Deleting the machinery is the fix; there is no measurement left to race. The one thing read from the DOM is the band's own height, which is not a measurement of content but the room the viewport and the summary above it leave. It cannot depend on history. rowHeight = clamp((room - budgetedChrome) / rosterCapacity, ROW_MIN, ROW_MAX) THE DIVISOR IS THE LEAGUE'S ROSTER, NOT THIS TEAM'S. Dividing by the rows in front of it made the row height a property of the team on screen: occupancy varies even where the league's roster does not, since a team carrying two players on the IL draws two more rows than one carrying none, and a team with nobody benched draws one band fewer. Measured 14, 15 and 16px across four teams at one window, so switching teams resized every word on the page. Budgeting the fullest roster the league allows makes the answer the same for all of them, and a team under capacity spends the difference as space between the tables rather than as bigger type. It also retires the two-case Schedule solve that used to live here. That existed to re-divide the leftover among THIS team's batting rows, which is precisely the team-dependence being removed; with a budgeted divisor the leftover is slack, and slack has somewhere to go. Rows still shrink toward ROW_MIN before anything scrolls, and still stop at ROW_MAX so a shallow league on a tall window reads as a roster rather than a menu.
+// The vertical layout, as arithmetic. No measurement of what rendered, no rAF, no caches, no memory of earlier layouts. Same league, same window, same roster gives the same answer on every path, because the answer is a function of numbers that are all known before a row exists. WHY THE MEASURED VERSION KEPT FAILING, after five rounds of fixing which measurement wins: every one of them was measure-and-remember. Density ladders, reserved shares, provisional fits, generation guards. Each round settled a different race and the layout still depended on WHAT WAS ON SCREEN WHEN A MEASUREMENT RAN, which is why the same roster at the same viewport rendered one size on load and another after cycling through teams. Deleting the machinery is the fix; there is no measurement left to race. The one thing read from the DOM is the band's own height, which is not a measurement of content but the room the viewport and the summary above it leave. It cannot depend on history. rowHeight = clamp((room - budgetedChrome) / rosterCapacity, ROW_MIN, ROW_MAX) THE DIVISOR IS THE LEAGUE'S ROSTER, NOT THIS TEAM'S. Dividing by the rows in front of it made the row height a property of the team on screen: occupancy varies even where the league's roster does not, since a team carrying two players on the IL draws two more rows than one carrying none, and a team with nobody benched draws one band fewer. Measured 14, 15 and 16px across four teams at one window, so switching teams resized every word on the page. Budgeting the fullest roster the league allows makes the answer the same for all of them, and a team under capacity spends the difference as space between the tables rather than as bigger type. It also retires the two-case Schedule solve that used to live here. That existed to re-divide the leftover among THIS team's batting rows, which is precisely the team-dependence being removed; with a budgeted divisor the leftover is slack, and slack has somewhere to go. Rows still shrink toward ROW_MIN before anything scrolls, and still stop at ROW_MAX so a shallow league on a tall window reads as a roster rather than a menu.
 function layoutRosterBand(container, counts, budget, hasSchedule) {
     const band = container.querySelector('.mt-roster');
     if (!band) return;

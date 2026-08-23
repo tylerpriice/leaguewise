@@ -43,6 +43,49 @@ export function firstDefined(...values) {
     return values.find(v => v !== undefined);
 }
 
+// THE LIVE MATCHUP TALLY. `cumulativeScore` counts FINALIZED DAYS ONLY - it is correct every morning and frozen all day, which is what the owner watched: a 6-6-2 that never moved while ESPN's own page climbed. ESPN answers this with a second block, `cumulativeScoreLive`, carrying the same shape with today's in-progress values folded in, and it ships in the payload the app already asks for - no extra view, no extra parameter. VALIDATED ACROSS EVERY CAPTURE IN JSON_debug, not assumed (golden rule 4 applies to field meanings as much as to stat ids): - The live block exists on EXACTLY the current matchup and on no other, in all eleven captures that carry one. So "the live block is present" IS "this matchup is in progress" - there is no need to work out which matchup is live to decide which number to trust. - In four mid-day captures it genuinely differs from the rollup (6-5-3 against 6-6-2 in one), and its scoreByStat carries higher per-category scores (a 10 that reads 13 live). In the rest the two agree, which is what a capture taken between days should look like. - Roto leagues never carry one. They have no matchup to be live in. So the rule is: prefer the live block when it is there, fall back to the rollup when it is not, and a completed matchup is untouched because ESPN does not attach a live block to one. That is what keeps the authoritative number authoritative everywhere it is read.
+export function matchupTally(side) {
+    if (!side) return null;
+    const live = side.cumulativeScoreLive;
+    // A `wins` that is a real number is the test, not mere presence - an empty object would otherwise shadow a perfectly good rollup with nothing.
+    if (live && typeof live.wins === 'number') return live;
+    return side.cumulativeScore || null;
+}
+
+// The points-league twin, and the same preference. HONESTLY UNPROVEN: no capture in JSON_debug shows totalPoints and totalPointsLive disagreeing, so unlike the category tally there is no direct evidence that the plain field is finalized-only here. What there is: ESPN ships the two fields in exactly the parallel shape it ships the category pair, and it does not ship two names for one number without a reason. Preferring the live one is either identical (no harm on every capture measured) or more current (the fix), so it is the defensive read either way.
+export function matchupPoints(side) {
+    if (!side) return 0;
+    const live = side.totalPointsLive;
+    return (typeof live === 'number' ? live : side.totalPoints) || 0;
+}
+
+// WHICH MATCHUPS THE SCHEDULE READER TAKES. PURE. The last matchup with a score on the board, PLUS the one being played right now. That second half is the fix: the reader used to stop at maxCompletedWeek, and maxCompletedWeek deliberately does not advance until the rollup shows a result (see its own note in data.js, and the reason it must stay that way - a barely-started matchup is not a completed one). So on the first morning of a matchup the live game was skipped entirely, no weeklyCats row was written for it, and the Current timeframe aggregated nothing and rendered 0-0 while the header, reading the live block straight off the schedule, correctly showed 3-0-11. Two numbers rather than one, because they answer different questions and always did. "How far has the season got" still ends at the last finished matchup, which is what every span and lookback window is measured against. "What is there to read" now includes today. currentMatchup is 0 once the season is over (see AppState.currentMatchup), so the max collapses back to maxCompletedWeek on a finished season with no special case.
+export function readsAsPlayedMatchup(week, maxCompletedWeek, currentMatchup) {
+    return week <= Math.max(maxCompletedWeek || 0, currentMatchup || 0);
+}
+
+// One side's match RESULT, or null when there is not one yet. PURE. The 1/0.5/0 encoding has no way to say "not finished" - a zero means LOST - and the schedule loop admits the live matchup so Current can read it, whose winner is UNDECIDED. Writing its result booked a loss for both sides and every record on the page read one loss high, which is how the owner caught it. Null is the honest fourth value: no result exists until the winner does, and every record reader already skips a week with no entry.
+export function matchResultOf(game, side) {
+    if (!game || !game[side]) return null;
+    const winner = game.winner;
+    if (winner === 'TIE') return 0.5;
+    if (winner !== 'HOME' && winner !== 'AWAY') return null;
+    return winner === side.toUpperCase() ? 1 : 0;
+}
+
+// One side's per-category values for a matchup, off the SAME matchupTally the header reads. PURE. This is what makes "Current agrees with the header" true by construction rather than by two call sites happening to agree today. Both go through matchupTally, so both prefer cumulativeScoreLive when it is there and both fall back to the rollup when it is not - there is no arrangement of the payload in which they can disagree, which is the class of bug this kills rather than the instance. scoreByStat is keyed by stat id and each entry carries its own statId, so the key is used only when the entry does not name itself. statBySlot is the older shape and is read the same way.
+export function matchupCatsForSide(side) {
+    const tally = matchupTally(side);
+    const statsObj = (tally && (tally.scoreByStat || tally.statBySlot)) || {};
+    const out = {};
+    for (const key in statsObj) {
+        const statData = statsObj[key];
+        const sId = statData.statId !== undefined ? statData.statId.toString() : key;
+        out[sId] = numericStat(firstDefined(statData.score, statData.value)) || 0;
+    }
+    return out;
+}
+
 // Splits a list of stat ids into "scored" (this league's settings actually use them) and "advanced" (everything else ESPN happens to track), shared between the Team Metrics category filter and every Player Metrics view so the same league config drives what's visible everywhere. forceScored lets a caller pin specific ids (e.g. FPTS) into the visible set regardless of whether the league's own scoringItems formally lists them.
 export function splitScoredAdvanced(ids, forceScored = new Set()) {
     if (AppState.scoredStatIds.size === 0) return { scored: ids, advanced: [] };
@@ -165,19 +208,9 @@ export function shadeColor(hex, percent) {
     return `#${toHex(R)}${toHex(G)}${toHex(B)}`;
 }
 
-// Background tint for a stat percentile (0-100) - white at 50 (average), fading toward a pastel green above average and a pastel red below, capped short of full saturation so dark text stays legible at every point on the scale.
-export function percentileColor(pct) {
-    const clamp = Math.max(0, Math.min(100, pct));
-    const lerp = (a, b, t) => Math.round(a + (b - a) * t);
-    let r, g, b;
-    if (clamp >= 50) {
-        const t = (clamp - 50) / 50;
-        [r, g, b] = [lerp(255, 184, t), lerp(255, 230, t), lerp(255, 193, t)]; // white -> pastel green
-    } else {
-        const t = clamp / 50;
-        [r, g, b] = [lerp(244, 255, t), lerp(184, 255, t), lerp(189, 255, t)]; // pastel red -> white
-    }
-    return `rgb(${r}, ${g}, ${b})`;
+// A stat percentile (0-100), clamped and handed to CSS as a NUMBER rather than as a colour. The colour is mixed from --success / --danger / --surface in the sheet, which is the only way a tint can follow the theme - see.dh-cell in dashboard.css. This replaces percentileColor, which interpolated hardcoded rgb() in here: white at the 50th percentile, pastel green above, pastel red below. It had no dark half and could not have one, because a function in a JS module cannot see which mode is on. So the heatmap and the drill-down's stat chips were a light-mode island - white-to-pastel cells, with a near-black text colour pinned in CSS to survive them - and in dark mode they sat on the page as a bright slab with the page's own light-on-dark structure inverted inside it. Golden rule 3 says colours come from custom properties, and it never caught this because the rule reads as a CSS rule and these colours were in a JS file. Worth remembering: the rule is about where a colour is DECIDED, not about which file it is typed in.
+export function percentileVar(pct) {
+    return Math.max(0, Math.min(100, Number(pct) || 0));
 }
 
 // Every played week is tagged with a bracket tier when the schedule is processed (see data.js) - 'reg', 'playoff' (real championship bracket), or 'consolation'.
@@ -391,7 +424,7 @@ export function attachDataTooltips(container) {
     });
 }
 
-// The Diagnostic Data panel shows exactly ONE of three contexts at a time - team schema (Team Metrics tab), the player pool (Player Metrics leaderboard, not drilled into a player), or one player's own detail (an open drill-down) - matching whatever the user is actually looking at. Previously every fetch just overwrote a single shared slot last-write-wins, so a background prefetch (the player pool warms up as soon as league data loads - see prefetchPlayerData in players.js) could silently clobber the team schema before the user ever switched tabs, and a background weekly-stats refetch could clobber an open drill-down's own debug mid-view. Each kind's payload is tracked independently; setActiveDebugKind (called on every tab switch and drill-down open/close - see main.js and players.js) decides which one is currently shown. A fourth kind, player-weekly, exists because the leaderboard's bulk weekly fetch used to write its first chunk into the POOL slot. The panel then offered a 75-player weekly chunk under the label "Player Pool Schema", and a download taken to inspect the pool silently produced daily splits for whichever rows happened to be on screen. Two captures taken minutes apart came back byte-identical while claiming to be different things, which is how it was found. Each response now sits under its own name ( field work).
+// The Diagnostic Data panel shows exactly ONE of three contexts at a time - team schema (Team Metrics tab), the player pool (Player Metrics leaderboard, not drilled into a player), or one player's own detail (an open drill-down) - matching whatever the user is actually looking at. Previously every fetch just overwrote a single shared slot last-write-wins, so a background prefetch (the player pool warms up as soon as league data loads - see prefetchPlayerData in players.js) could silently clobber the team schema before the user ever switched tabs, and a background weekly-stats refetch could clobber an open drill-down's own debug mid-view. Each kind's payload is tracked independently; setActiveDebugKind (called on every tab switch and drill-down open/close - see main.js and players.js) decides which one is currently shown. A fourth kind, player-weekly, exists because the leaderboard's bulk weekly fetch used to write its first chunk into the POOL slot. The panel then offered a 75-player weekly chunk under the label "Player Pool Schema", and a download taken to inspect the pool silently produced daily splits for whichever rows happened to be on screen. Two captures taken minutes apart came back byte-identical while claiming to be different things, which is how it was found. Each response now sits under its own name.
 const DEBUG_LABELS = {
     team: 'Team Schema',
     'player-pool': 'Player Pool Schema',
@@ -483,11 +516,11 @@ function renderRequestTally() {
     const imgDetail = t.images.total ? `<div class="debug-tally-detail">${breakdown(t.images.byHost)}</div>` : '';
     host.innerHTML = `
         <div class="debug-tally-row"><b>API calls</b> ${t.api.total}${apiDetail}</div>
-        <div class="debug-tally-row"><b>Image loads</b> ${t.images.total}${imgDetail}</div>
-        <div class="debug-tally-note">Counted since this page opened at ${escapeHtml(since)}. Nothing is stored.</div>`;
+        <div class="debug-tally-row"><b>Images shown</b> ${t.images.total}${imgDetail}</div>
+        <div class="debug-tally-note">Counted since this page opened at ${escapeHtml(since)}. Images count what rendered, not network traffic. Nothing is stored.</div>`;
 }
 
-// OFF by default ( item 9). "Off" has to mean the panel is not on the page at all - not a collapsed bar sitting at the foot - because that bar still takes a row of the viewport, and on a tab that is already fighting for vertical room, giving it back is the point of the setting. Every path that would show the panel goes through renderActiveDebugContext, so one check there is the whole gate; nothing else needs to know the preference exists.
+// OFF by default. "Off" has to mean the panel is not on the page at all - not a collapsed bar sitting at the foot - because that bar still takes a row of the viewport, and on a tab that is already fighting for vertical room, giving it back is the point of the setting. Every path that would show the panel goes through renderActiveDebugContext, so one check there is the whole gate; nothing else needs to know the preference exists.
 let diagnosticPanelEnabled = false;
 
 export function setDiagnosticPanelEnabled(on) {
@@ -599,7 +632,7 @@ export function openingSortDir(key, inverseIds) {
     return (inverseIds && inverseIds.has(key)) ? 'asc' : 'desc';
 }
 
-// The league-switch registry ( item 6). Every tab registers how to CLEAR itself and how to SHOW itself, and both the tab buttons and the post-fetch path go through here. The bug it exists to end: a fetch that commits while a tab is on screen used to leave the PREVIOUS league sitting there. It was fixed for Team Metrics, then again for My Team, and then League History shipped with the same fault because the fix was a call added by hand each time and the third tab's call was never added. The owner named it a bug CLASS rather than a bug. With a registry the question moves from "did somebody remember this tab" to "did this tab register", which is answered in the tab's own file, next to the code that needs it. A view that throws is logged and the rest still run. One tab failing to clear must not leave the other three showing another league's numbers, which is the exact failure this is here to prevent.
+// The league-switch registry. Every tab registers how to CLEAR itself and how to SHOW itself, and both the tab buttons and the post-fetch path go through here. The bug it exists to end: a fetch that commits while a tab is on screen used to leave the PREVIOUS league sitting there. It was fixed for Team Metrics, then again for My Team, and then League History shipped with the same fault because the fix was a call added by hand each time and the third tab's call was never added. The owner named it a bug CLASS rather than a bug. With a registry the question moves from "did somebody remember this tab" to "did this tab register", which is answered in the tab's own file, next to the code that needs it. A view that throws is logged and the rest still run. One tab failing to clear must not leave the other three showing another league's numbers, which is the exact failure this is here to prevent.
 const leagueViews = new Map();
 let activeLeagueView = 'team';
 
@@ -629,7 +662,18 @@ export function resetLeagueViews() {
     });
 }
 
-// Called once a fetch has committed, so whichever tab is on screen redraws on the new league. The tabs that are NOT showing are already cleared by resetLeagueViews above and redraw on entry.
+// Called once a fetch has committed, so whichever tab is on screen redraws on the new league. The tabs that are NOT showing are already cleared by resetLeagueViews above and redraw on entry. The registry's third verb. CLEAR is for a new league, SHOW is for a tab coming into view, and REVALIDATE is for the same league re-read a few seconds later: drop whatever this tab caches for the SESSION so it fetches again, without clearing anything off the screen. It exists for the same reason the other two do. The pro-team schedule froze because My Team holds it for the life of the page, and the fix could have been an import from data.js into myteam.js - which would have closed a cycle through api.js, and would have been a call somebody has to remember to add for the next tab that caches something. Registered in the tab's own file instead, beside the cache it invalidates.
+export function revalidateLeagueViews() {
+    leagueViews.forEach((view, name) => {
+        if (!view || !view.revalidate) return;
+        try {
+            view.revalidate();
+        } catch (err) {
+            console.error(`League revalidate: ${name} failed`, err);
+        }
+    });
+}
+
 export function renderActiveLeagueView() {
     const view = leagueViews.get(activeLeagueView);
     if (!view || !view.show) return;
@@ -640,7 +684,7 @@ export function renderActiveLeagueView() {
     }
 }
 
-// Every season this league has, from whatever the app knows ( item 3). The History tab and the year dropdown both need this and had derived it separately, which is how they disagreed: the dropdown already unioned in the real-world year, and History did not. The bug that forced this: loading 2025 in a league that also has 2026 showed a history ending at 2025. The leagueHistory stub omits UNFINISHED seasons (docs/DATA-SOURCES.md section 9), so 2026 was absent from it, and the only other term was the LOADED season - which is 2025 when you are looking at 2025. The tab's history shrank to wherever the dashboard happened to be standing. The real-world year is the term that fixes it, and it is not a guess: a season ESPN does not have fails its own fetch and is absent, which every caller already handles one season at a time. Next year is deliberately NOT added - ESPN 404s on a season that does not exist yet, and the dropdown has carried that same note since it was written.
+// Every season this league has, from whatever the app knows. The History tab and the year dropdown both need this and had derived it separately, which is how they disagreed: the dropdown already unioned in the real-world year, and History did not. The bug that forced this: loading 2025 in a league that also has 2026 showed a history ending at 2025. The leagueHistory stub omits UNFINISHED seasons (docs/DATA-SOURCES.md section 9), so 2026 was absent from it, and the only other term was the LOADED season - which is 2025 when you are looking at 2025. The tab's history shrank to wherever the dashboard happened to be standing. The real-world year is the term that fixes it, and it is not a guess: a season ESPN does not have fails its own fetch and is absent, which every caller already handles one season at a time. Next year is deliberately NOT added - ESPN 404s on a season that does not exist yet, and the dropdown has carried that same note since it was written.
 export function leagueSeasonYears(historyYears, loadedSeasonId, realYear) {
     return [...new Set([...(historyYears || []), loadedSeasonId, realYear])]
         .map(Number)
@@ -648,7 +692,7 @@ export function leagueSeasonYears(historyYears, loadedSeasonId, realYear) {
         .sort((a, b) => a - b);
 }
 
-// The scroll-not-shrink ruling (owner, items 1 and 2). A transient panel opens DOWNWARD: the content around it keeps every pixel it had, the panel takes the space it needs, and the scrollbar that appears is the honest consequence. Closing puts it back exactly. This overrules B12/B108's premise. That pass read the page scrolling as the bug and made the container flex-shrink to absorb the console, which is why opening the diagnostic quietly resized every box on the tab behind it. The owner has now ruled the opposite: a panel that shrinks the thing you are reading to avoid a scrollbar has solved the wrong problem. Implementation note: the shrink comes from the flex parent, so the fix is to take the element OUT of the flex negotiation while the panel is open, at exactly the height it already had. Pinning a measured pixel height is what makes "nothing resizes" literally true rather than approximately.
+// The scroll-not-shrink ruling (owner, items 1 and 2). A transient panel opens DOWNWARD: the content around it keeps every pixel it had, the panel takes the space it needs, and the scrollbar that appears is the honest consequence. Closing puts it back exactly. This overrules /the premise. That pass read the page scrolling as the bug and made the container flex-shrink to absorb the console, which is why opening the diagnostic quietly resized every box on the tab behind it. The owner has now ruled the opposite: a panel that shrinks the thing you are reading to avoid a scrollbar has solved the wrong problem. Implementation note: the shrink comes from the flex parent, so the fix is to take the element OUT of the flex negotiation while the panel is open, at exactly the height it already had. Pinning a measured pixel height is what makes "nothing resizes" literally true rather than approximately.
 function pinHeight(element) {
     if (!element) return;
     const h = Math.round(element.getBoundingClientRect().height);
@@ -678,7 +722,7 @@ export function wirePushPanel(detailsEl, targetEl) {
     if (detailsEl.open) pinHeight(targetEl);
 }
 
-// THIS SESSION'S REQUESTS ( item 8). One tally, in memory, for as long as the page has been open - nothing is stored and nothing survives a reload, which is the whole scope of the question the panel answers: what has this page asked for since you opened it. Counting happens at the FETCH SITE, not in the panel, and that is deliberate: the panel is behind a Display checkbox now (item 9) and may be off for the whole session. The numbers are therefore true from page open regardless, so switching the panel on halfway through shows what really happened rather than what happened since you looked. Two groups, labelled apart because they are not the same act. An API call is this code deciding to ask ESPN for data. An image load is a browser fetching a src off an <img> the page rendered - no cookies of ours, no filter headers, and a different privacy story. Adding them into one number would flatter the first and hide the second.
+// THIS SESSION'S REQUESTS. One tally, in memory, for as long as the page has been open - nothing is stored and nothing survives a reload, which is the whole scope of the question the panel answers: what has this page asked for since you opened it. Counting happens at the FETCH SITE, not in the panel, and that is deliberate: the panel is behind a Display checkbox now (item 9) and may be off for the whole session. The numbers are therefore true from page open regardless, so switching the panel on halfway through shows what really happened rather than what happened since you looked. Two groups, labelled apart because they are not the same act. An API call is this code deciding to ask ESPN for data. An image load is a browser fetching a src off an <img> the page rendered - no cookies of ours, no filter headers, and a different privacy story. Adding them into one number would flatter the first and hide the second.
 const requestTally = {
     startedAt: Date.now(),
     api: { total: 0, byHost: {}, byKind: {} },
@@ -703,7 +747,7 @@ export function countApiRequest(url, kind) {
     scheduleTallyRender();
 }
 
-// Called from the img wiring when an image reports back, once each. A logo refused by B167's host allowlist never becomes an <img> at all, so it cannot reach this and is correctly counted nowhere.
+// Called from the img wiring when an image reports back, once each. A logo refused by the host allowlist never becomes an <img> at all, so it cannot reach this and is correctly counted nowhere.
 export function countImageRequest(url) {
     requestTally.images.total += 1;
     const host = hostOf(url);

@@ -9,7 +9,7 @@
     const noLeague = params.get('noleague') === '1';
     const poolStatus = parseInt(params.get('poolstatus'), 10) || 0;
     window.__stubLoggedOut = params.get('nocookies') === '1';
-    // Flips the fake session to logged in and pokes the same watcher a real login would (B91's focus layer), so the recovery runs through the real path rather than a hand-fired event. Clears ?poolstatus too, since a login that leaves the pool still refused is not a login.
+    // Flips the fake session to logged in and pokes the same watcher a real login would, so the recovery runs through the real path rather than a hand-fired event. Clears ?poolstatus too, since a login that leaves the pool still refused is not a login.
     window.__stubLogIn = () => {
         window.__stubLoggedOut = false;
         window.__stubPoolStatusCleared = true;
@@ -81,7 +81,7 @@
 
     const proteamName = params.get('proteam');
     const proteamFile = proteamName && (proteamName.includes('/') ? proteamName : `JSON_debug/${proteamName}`);
-    // &proteamDelay=<ms> holds the schedule back the way the real fetch does. Served instantly, the Schedule face exists before the tab is ever entered and the re-fit that arriving starts triggers can never land while that face is on screen - which is the one moment the fit is decided against a layout the other face has to live with too ( follow-up).
+    // &proteamDelay=<ms> holds the schedule back the way the real fetch does. Served instantly, the Schedule face exists before the tab is ever entered and the re-fit that arriving starts triggers can never land while that face is on screen - which is the one moment the fit is decided against a layout the other face has to live with too.
     const proteamDelayMs = delayMs('proteamDelay');
 
     // ?weekly=<file>&weeklyDelay=<ms> - the weekly-loading harness. Without it, weekly requests answer with an empty pool (see the note below), which is enough for "does the page survive offline" but can't exercise anything about HOW the weekly data arrives. With it, the stub indexes a real captured bulk weekly payload by player id and answers each chunk request with exactly the ids that request asked for, after an artificial per-chunk delay - so chunk ORDER, progressive pop-in, scroll/sort reprioritization, and a drill-down jumping the queue are all observable and deterministic offline. Every served chunk is appended to window.__stubWeeklyChunks ({at, count, ids}) as the record to assert ordering against.
@@ -163,9 +163,35 @@
         return new Response(JSON.stringify({ teams }), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    // ?fresh=<file>&freshDelay=<ms> - the REVALIDATE harness. dev-preview always takes the restore path (the fake session storage always answers with the payload), so the background revalidate always fires here; without this it fails against the real host and the cached view stays put, which is itself the "failed revalidate" case worth testing. Given a file, the league request is answered with it instead, after freshDelay - so the cached paint and the fresh one are separated by a visible gap and can be told apart by a changed figure. Counted, so a test can assert the request happened exactly once.
+    const freshName = params.get('fresh');
+    const freshFile = freshName && (freshName.includes('/') ? freshName : `JSON_debug/${freshName}`);
+    const freshPromise = freshFile ? fetchJson(freshFile).then(d => (d && anonymize) ? anonymizePayload(d) : d) : null;
+    window.__stubLeagueRequests = 0;
+    // Every URL the app asked for, in order, with the cache mode it asked with. The cache-busting acceptance is a statement about URLS - that two live reads of the same endpoint never carry the same query, and that a historical read is byte-identical every time - so the harness has to remember the strings rather than just the count.
+    window.__stubSeenUrls = [];
+
     const realFetch = window.fetch.bind(window);
     window.fetch = (url, options) => {
         const u = typeof url === 'string' ? url : '';
+        if (u.includes('espn.com')) {
+            // The CALLER, not just the url. The tally in utils.js can say what kind a request was and which host it went to; it cannot say what made it happen, and "what triggered this" is the whole question an efficiency review has to answer. The stack is trimmed to the app's own frames so a bucket reads as a call path rather than as noise.
+            let via = '';
+            try {
+                via = (new Error().stack || '').split(String.fromCharCode(10))
+                    .map(l => (l.match(/at ([A-Za-z0-9_$.<>]+)\s/) || [])[1] || '')
+                    .filter(f => f && !/^(fetch|Object|Promise|window)/.test(f))
+                    .slice(1, 5).join(' < ');
+            } catch (e) { /* stacks are best effort */ }
+            window.__stubSeenUrls.push({ url: u, cache: options && options.cache, via });
+        }
+        if (u.includes('/segments/0/leagues/') && !u.includes('/leagueHistory/') && u.includes('view=mTeam')) {
+            window.__stubLeagueRequests += 1;
+            if (freshPromise) {
+                return held(delayMs('freshDelay'), () => freshPromise)
+                    .then(d => new Response(JSON.stringify(d), { headers: { 'Content-Type': 'application/json' } }));
+            }
+        }
         if (draftPromise && u.includes('view=mDraftDetail')) {
             window.__stubDraftRequests = (window.__stubDraftRequests || 0) + 1;
             return draftPromise
@@ -265,7 +291,7 @@
                 set: async () => {}
             }
         },
-        // RECORDED, not swallowed. main.js redirects a popup to a full tab through this call, and whether it fires is the single fact that separates a working popup from B142's sliver - so the harness needs to see it happen. Still a no-op otherwise, because the harness is a tab.
+        // RECORDED, not swallowed. main.js redirects a popup to a full tab through this call, and whether it fires is the single fact that separates a working popup from the sliver - so the harness needs to see it happen. Still a no-op otherwise, because the harness is a tab.
         tabs: { create: async (arg) => { (window.__stubTabsCreated = window.__stubTabsCreated || []).push(arg); } },
         // Always granted, so the dev flow never sees the Firefox opt-in prompt checkAuth renders for a store install (see hasEspnHostAccess in api.js). request() is here for shape only: nothing in dev-preview can reach it while contains() answers true.
         permissions: {

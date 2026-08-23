@@ -6,5 +6,3 @@ JSON_debug/
 *.xpi
 *.zip
 
-# Local dev server config, not part of the published extension
-.claude/

@@ -1,8 +1,9 @@
 import { buildPlayerAvatarHtml, wirePlayerAvatars } from './images.js';
 import { AppState, ESPN_STAT_MAPS, POSITION_MAPS, SLOT_POSITION_MAPS, PITCHER_POSITIONS, PITCHING_IDS, GOALIE_IDS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS } from './state.js';
-import { escapeHtml, getNiceMax, setDebugContext, setActiveDebugKind, hasDebugContext, setDebugLoading, getTimeframeBounds, splitScoredAdvanced, percentileColor, attachDataTooltips, statValue, unwrapStats, axisUnit, buildMatchupPeriodMap, matchupOfPeriod, parseTimeframe, injuryBadgeHtml, injuryLabel, playerPoolErrorText, openingSortDir, wirePushPanel } from './utils.js';
-import { fetchPlayerData, fetchPlayerWeeklyStats, fetchPlayersWeeklyChunk, WEEKLY_CHUNK_SIZE, WEEKLY_MAX_CONCURRENT_CHUNKS, fetchDraftDetail, harvestTransactions, harvestRosters } from './api.js';
+import { escapeHtml, getNiceMax, setDebugContext, setActiveDebugKind, hasDebugContext, setDebugLoading, getTimeframeBounds, splitScoredAdvanced, percentileVar, attachDataTooltips, statValue, unwrapStats, axisUnit, buildMatchupPeriodMap, matchupOfPeriod, parseTimeframe, injuryBadgeHtml, injuryLabel, playerPoolErrorText, openingSortDir, wirePushPanel } from './utils.js';
+import { fetchPlayerData, fetchPlayerWeeklyStats, fetchPlayersWeeklyChunk, WEEKLY_CHUNK_SIZE, WEEKLY_MAX_CONCURRENT_CHUNKS, fetchDraftDetail, harvestTransactions, harvestRosters, fetchProTeamSchedules } from './api.js';
 import { buildRosterTimeline, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from './roster-timeline.js';
+import { datesByScoringPeriod } from './probables.js';
 // All ranking/percentile MATH lives in the pure, unit-tested rank engine (see its purity contract; tests in tests/rank-engine.test.html). This file owns the impure half. Choosing pools, reading AppState/DOM, and building the ctx objects the engine functions take.
 import {
     IP_STAT_ID, GAMES_PLAYED_IDS, MIN_PLAYING_TIME_FRACTION,
@@ -11,7 +12,8 @@ import {
     computePointsRanks as engineComputePointsRanks,
     computeCategoryBreakdown as engineComputeCategoryBreakdown,
     computeStatRankInPool, buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis,
-    scoreRotoWeek, rotoPointsForCategory
+    scoreRotoWeek, rotoPointsForCategory, comparePlayerCategories, scoreWeekByCategory,
+    perDayAverages, scoreDayAgainstSelf, dayVerdict, typicalDayScore, presentDayScore
 } from './rank-engine.js';
 
 const RANK_COLORS = { 1: '#b8860b', 2: '#767676', 3: '#a4581e' }; // gold, silver, bronze
@@ -42,7 +44,7 @@ const GROUP_LABELS = {
     fhl: { primary: 'Skaters', secondary: 'Goalies' }
 };
 
-// Group tab membership (Batters vs Pitchers) has to be ELIGIBILITY-based, not based on a player's single PRIMARY role (ESPN's defaultPositionId, still used for the strict RP pool filter - see matchesPositionFilter) - a genuine two-way player (e.g. Shohei Ohtani) has one primary position but real, meaningful stats and eligibility in BOTH roles, and needs to show up - with his own real numbers - in both tabs. The two checks aren't mutually exclusive. A two-way player satisfies both wantPitchers=true and wantPitchers=false, while an ordinary single-role player only satisfies whichever one matches their real role (confirmed against real data. Ohtani was missing from the Pitchers tab entirely, since his primary position - a batting slot - excluded him regardless of his real, substantial pitching stats). Which role group a player belongs to, for surfaces outside the leaderboard that group by role (B90's roster band). Eligibility-based like the group tabs, so a two-way player lands in both and the caller decides which section to draw him in.
+// Group tab membership (Batters vs Pitchers) has to be ELIGIBILITY-based, not based on a player's single PRIMARY role (ESPN's defaultPositionId, still used for the strict RP pool filter - see matchesPositionFilter) - a genuine two-way player (e.g. Shohei Ohtani) has one primary position but real, meaningful stats and eligibility in BOTH roles, and needs to show up - with his own real numbers - in both tabs. The two checks aren't mutually exclusive. A two-way player satisfies both wantPitchers=true and wantPitchers=false, while an ordinary single-role player only satisfies whichever one matches their real role (confirmed against real data. Ohtani was missing from the Pitchers tab entirely, since his primary position - a batting slot - excluded him regardless of his real, substantial pitching stats). Which role group a player belongs to, for surfaces outside the leaderboard that group by role. Eligibility-based like the group tabs, so a two-way player lands in both and the caller decides which section to draw him in.
 export function playerRoleGroups(player, sport) {
     return {
         primary: matchesPlayerGroup(player, sport, false),
@@ -319,6 +321,26 @@ function deriveRateOverrides(sums, sport) {
     return overrides;
 }
 
+// THE CATEGORY RACE'S CUMULATIVE LINE, for ONE team and ONE category. PURE and exported so the suite can hand-compute it. A counting category accumulates: the line at week 3 is weeks 1+2+3. A RATE CATEGORY CANNOT, and that is the bug this replaces - the race summed whatever sat under the category id, so a team's AVG line climbed.245,.491,.736 and the owner read 4.9 off the end of a season. This is the lesson arriving in a new chart: a rate is a ratio, and the only correct cumulative form is to sum its COMPONENTS across the weeks and divide once, at each point. The components are there to sum. A matchup's scoreByStat carries the whole line, not just the scored categories - AB(0) and H(1) sit beside AVG(2), OUTS(34) and ER(45) beside ERA(47) - and data.js keeps every id it finds, so `running` below accumulates the raw material and deriveRateOverrides recomputes the rate from it with the same validated table the drill-down, the windowed standings and the roto race all use. One definition of AVG in the app, not two. A rate with no component rule (nothing in flb today; the fallback exists for whatever is added next) degrades to the MEAN of the weeks that actually carried a value, which is the same approximation AVERAGE_STATS means everywhere else - weaker than components, but never a sum. Weeks with no value at all are skipped rather than counted as zero, so a bye does not drag a rate toward nothing. Inverse categories need no branch here. ERA is a smaller-is-better number and this returns the real ERA; which end of the scale wins is the renderer's and the ranker's question, not the series'.
+export function teamCategorySeries(weeklyCatsByWeek, weeks, catId, sport) {
+    const id = String(catId);
+    const isRate = (AVERAGE_STATS[sport] || new Set()).has(id);
+    const running = {};
+    let sum = 0;
+    let valued = 0;
+    return weeks.map(w => {
+        const wk = (weeklyCatsByWeek || {})[w];
+        if (wk) {
+            Object.keys(wk).forEach(k => { running[k] = (running[k] || 0) + (Number(wk[k]) || 0); });
+            if (wk[id] !== undefined && wk[id] !== null) { sum += Number(wk[id]) || 0; valued += 1; }
+        }
+        if (!isRate) return sum;
+        const derived = deriveRateOverrides(running, sport)[id];
+        if (derived !== undefined) return derived;
+        return valued ? sum / valued : 0;
+    });
+}
+
 // Sums raw per-week components (weeklySums, as built by processPlayerWeeklyHistory/ processBulkPlayerWeeklyHistory - matchup# -> { sums: {statId: sum}, games }) across an arbitrary [startWeek, endWeek] range and runs the combined totals through the same sumStatsByGroup/deriveRateOverrides derivation a single week does - a single week is just a range of one, so this is the ONLY place rate-stat math happens, shared by the single-player chart (processPlayerWeeklyHistory's own `weekly`, below) and the bulk leaderboard timeframe aggregation (getEffectivePlayerPool). Summing the RAW per-week components first (rather than averaging each week's already-derived rate) is what avoids the "1-AB week weighted the same as a 5-AB week" skew described on deriveRateOverrides.
 export function aggregateStatsForWeekRange(weeklySums, startWeek, endWeek, sport) {
     const avgStatsForSport = AVERAGE_STATS[sport] || new Set();
@@ -403,7 +425,7 @@ export function processPlayerWeeklyHistory(rawData, sport) {
     // A player can show up as more than one entry in rawData.players if they changed teams (trade/waiver claim) mid-season - each entry only carries the stat lines for its own roster stint. Flatten across every entry instead of assuming index 0 has everything, or a mid-season transaction silently truncates part of the season.
     const statLines = (rawData.players || []).flatMap(e => (e.player && e.player.stats) || []);
     const year = parseInt(document.getElementById('year').value, 10);
-    // Daily sums ALWAYS on this path, because this path is one player. The drill-down's Day axis at Current needs them, and the cost is one player's days rather than the pool's. The bulk path stays selective on purpose ( trap: never flip dailyByPeriod on pool-wide).
+    // Daily sums ALWAYS on this path, because this path is one player. The drill-down's Day axis at Current needs them, and the cost is one player's days rather than the pool's. The bulk path stays selective on purpose.
     const { weeklySums, dailyByPeriod } = buildWeeklySums(statLines, year, true);
 
     const weekly = {};
@@ -467,7 +489,7 @@ function playerTimeframeBounds(sport) {
     return getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 }
 
-// The pool as the CURRENT timeframe sees it, for surfaces outside the leaderboard that must window with it (B90's roster band). Same function the leaderboard and the rank lookup read, so a roster row, its rank and the leaderboard row can never disagree about which weeks count.
+// The pool as the CURRENT timeframe sees it, for surfaces outside the leaderboard that must window with it. Same function the leaderboard and the rank lookup read, so a roster row, its rank and the leaderboard row can never disagree about which weeks count.
 export function effectivePlayerPool(sport) {
     return getEffectivePlayerPool(sport);
 }
@@ -492,14 +514,10 @@ function getEffectivePlayerPool(sport) {
     return result;
 }
 
-function buildPositionFilterOptions(sport) {
-    const select = document.getElementById('player-position-filter');
-    if (!select) return;
-    const currentVal = select.value;
-    const wantPitchers = AppState.playerGroup === 'secondary';
-    const groupPlayers = AppState.playerData.filter(p => matchesPlayerGroup(p, sport, wantPitchers));
+// The position list a role group offers, shared by the leaderboard's dropdown and the comparison picker's so the two can never offer different positions for the same group - the picker's whole promise is that it offers the anchor's own universe, and a second copy of this ordering would be one edit away from disagreeing about it.
+function positionOptionsFor(players, sport, wantPitchers) {
     const pitcherPositions = PITCHER_POSITIONS[sport] || new Set();
-    let positions = Array.from(new Set(groupPlayers.flatMap(p => p.eligiblePositions)));
+    let positions = Array.from(new Set(players.flatMap(p => p.eligiblePositions)));
 
     // A two-way player's off-role eligibility (batting positions while viewing Pitchers, or SP/RP while viewing Batters) has no meaning as a position filter here - matchesPlayerGroup already lets them into this list via their real SAME-role eligibility, so just drop the other role's entries from the dropdown itself.
     positions = positions.filter(pos => pitcherPositions.has(pos) === wantPitchers);
@@ -515,6 +533,16 @@ function buildPositionFilterOptions(sport) {
     } else {
         positions.sort();
     }
+    return positions;
+}
+
+function buildPositionFilterOptions(sport) {
+    const select = document.getElementById('player-position-filter');
+    if (!select) return;
+    const currentVal = select.value;
+    const wantPitchers = AppState.playerGroup === 'secondary';
+    const groupPlayers = AppState.playerData.filter(p => matchesPlayerGroup(p, sport, wantPitchers));
+    const positions = positionOptionsFor(groupPlayers, sport, wantPitchers);
 
     select.innerHTML = '<option value="ALL">All Positions</option>' +
         positions.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
@@ -777,7 +805,7 @@ function ensurePlayerDataLoaded(sport) {
             AppState.playerDataLoaded = true;
             AppState.playerDataError = null;
             buildPositionFilterOptions(sport);
-            // My Team draws names, ranks and stats out of this pool, and after a league switch it renders BEFORE the pool lands, so every row read "Player 3942335" with dashes until something forced a re-render (, owner: switching tabs and back fixed it). Announce the arrival instead. An event rather than a direct call because myteam.js already imports this module, and importing it back would close a cycle for one line.
+            // My Team draws names, ranks and stats out of this pool, and after a league switch it renders BEFORE the pool lands, so every row read "Player 3942335" with dashes until something forced a re-render. Announce the arrival instead. An event rather than a direct call because myteam.js already imports this module, and importing it back would close a cycle for one line.
             document.dispatchEvent(new CustomEvent('leaguewise:player-pool-ready'));
         })();
         // A failed fetch must not poison every later attempt with the same rejected promise - clear the slot so the next call starts a fresh request.
@@ -791,6 +819,35 @@ function ensurePlayerDataLoaded(sport) {
         playerPoolFetch = { apiDataRef, promise };
     }
     return playerPoolFetch.promise;
+}
+
+// THE POOL, REFETCHED IN PLACE. The season stat lines - GS among them - are fetched once per dashboard open and then held for the life of the page, so a pitcher who finished a start an hour ago still reads the same GS. Busting the HTTP cache fixed what a fresh open serves; this is the other half, for a dashboard somebody leaves open. STALE-WHILE-REVALIDATE, the same shape the league payload uses: the pool on screen stays on screen, the new one replaces it only once it has arrived, and a failure changes nothing. That is why it does not go through ensurePlayerDataLoaded - that path is for having NO pool, and it signals the absence by clearing playerDataLoaded, which would blank the leaderboard, My Team and an open drill-down for as long as the refetch took.
+export async function revalidatePlayerPool(sport) {
+    // Nothing loaded yet means the ordinary path is already on its way to fetching it.
+    if (!AppState.playerDataLoaded || !AppState.apiData) return;
+    const apiDataRef = AppState.apiData;
+    try {
+        const raw = await fetchPlayerData();
+        // Superseded by a real league switch while this was in flight.
+        if (AppState.apiData !== apiDataRef) return;
+        setDebugContext('player-pool', raw);
+        AppState.playerData = processPlayerData(raw, sport);
+        buildPositionFilterOptions(sport);
+        // The same announcement the first load makes, so My Team redraws off the new lines exactly as it does off the first ones.
+        document.dispatchEvent(new CustomEvent('leaguewise:player-pool-ready'));
+        // And the Player tab itself. The leaderboard is hidden while a drill-down is open, so rendering it then would be work thrown away - refresh whichever is actually showing.
+        if (AppState.selectedPlayerId !== null) refreshOpenPlayerDetail();
+        else renderPlayerLeaderboard();
+    } catch {
+        // Keep what is on screen. Nobody asked for this refresh, so nobody can act on its failure.
+    }
+}
+
+// THE STALE FLAG'S CONSUMER. processCoreData({revalidate}) no longer refetches the pool unconditionally - the ~5s heavyweight was a fixed cost of every dashboard open, paid whether or not anyone looked at a pool number, and a glance at H2H Team Metrics never does. The revalidate sets AppState.playerPoolStale instead; the first pool-showing surface to render consumes it here and refetches stale-while-revalidate. Pool data is therefore at most ONE RENDER behind the moment somebody actually looks, which is the contract applied at the surface instead of at the open - and data.js consumes immediately when a pool surface is already on screen, so nothing visible ever waits for a click.
+export function revalidateStalePoolIfDue() {
+    if (!AppState.playerPoolStale) return;
+    AppState.playerPoolStale = false;
+    revalidatePlayerPool(AppState.loadedSport);
 }
 
 // The pool retry after a login lands mid-session. The user does not have to be on the Player tab for this to matter: My Team needs the same pool for its names, ranks and lines, and it redraws off the pool-ready event once this succeeds. Which path it takes depends on what is on screen, because loadPlayerTabIfNeeded owns the leaderboard's own loading UI and error text. Rendering that into a hidden view would throw the work away, so a background login just warms the pool quietly and lets the tab render on entry exactly as it always has.
@@ -808,14 +865,9 @@ export async function retryPlayerPoolAfterLogin() {
 // Fire-and-forget warm-up, called as soon as league data lands (see processCoreData in data.js) - by the time the Player Metrics tab is first clicked, the ~5s pool fetch is usually already finished (or well underway), so the tab opens near-instantly instead of paying the whole ESPN round-trip on click. Errors are swallowed on purpose here. The tab's own open path below retries and owns the error UI.
 export function prefetchPlayerData() {
     if (!AppState.apiData || AppState.playerDataLoaded) return;
-    // This warms the pool for the league already in AppState, so it asks that league's sport for its player universe. Reading the form here would fetch one sport's pool for another's league the moment the user browsed the dropdown.
+    // This warms the pool for the league already in AppState, so it asks that league's sport for its player universe. Reading the form here would fetch one sport's pool for another's league the moment the user browsed the dropdown. The weekly harvest is deliberately NOT chained behind it any more. That chain made every dashboard open cost the full pool's chunks - 18 on the measured fixture - whether or not the user ever looked at a surface that reads weekly data, and every weekly-consuming surface already has its own demand trigger: the leaderboard's arrow fill, the windowed timeframes, My Team's window, the roto race and the basis-coverage kick. The arrows now pop in a few seconds after the tab opens instead of being warm before it - which is the trade the measured 180-requests-a-day-for-nothing was buying, and the wrong way around.
     const sport = AppState.loadedSport;
-    ensurePlayerDataLoaded(sport)
-        .then(() => {
-            // Chain the bulk weekly-stats fetch right behind the pool fetch - the Rank column's trend arrows need it, and starting it only on the leaderboard's own first render meant the arrows popped in a few seconds AFTER the tab opened.
-            if (AppState.playerDataLoaded) ensureLeaderboardWeeklyDataLoaded(sport);
-        })
-        .catch(() => {});
+    ensurePlayerDataLoaded(sport).catch(() => {});
 }
 
 export async function loadPlayerTabIfNeeded() {
@@ -826,6 +878,9 @@ export async function loadPlayerTabIfNeeded() {
         container.innerHTML = '<div class="player-loading">Fetch your league data on the Team Metrics tab first.</div>';
         return;
     }
+
+    // Entering the tab is looking at pool numbers, which is what consumes a deferred pool revalidate. Fire-and-forget: the current pool renders below, the fresh one swaps in.
+    revalidateStalePoolIfDue();
 
     if (AppState.playerDataLoaded) {
         renderPlayerLeaderboard();
@@ -914,7 +969,10 @@ function prioritizeWeeklyIds(ids, sport) {
     const ordered = [];
     const take = (id) => { if (remaining.delete(id)) ordered.push(id); };
     visibleLeaderboardPlayerIds().forEach(take);
+    const visibleCount = ordered.length;
     weeklyBasisPoolIds(sport).forEach(take);
+    // The tier sizes, published for the harness: the tier-3 cut was gated on measuring how much of the pool tier 3 actually is, and this is where the tiers exist.
+    window.__weeklyTierSizes = { visible: visibleCount, basis: ordered.length - visibleCount, rest: remaining.size };
     remaining.forEach(id => ordered.push(id));
     return ordered;
 }
@@ -975,11 +1033,16 @@ export function weeklyDataPending() {
     return bulkWeeklyFetchInFlight;
 }
 
-async function ensureLeaderboardWeeklyDataLoaded(sport) {
+// SCOPE: 'all' fetches every missing player with season totals - the windowed timeframes, My Team's window and the roto race genuinely read the whole pool, so they keep it. 'basis' stops at tiers 1 and 2 - the visible rows and the qualified basis pool - which is everything the trend-arrow math is load-bearing on. Measured on the fixture before the cut: tier 3 was 855 of 1,306 players (65%), 12 of the 18 chunks, all speculative. Completion stays PER-ID cache misses, never a flag: a basis-scope run finishing must not read as "everything fetched", and it cannot, because an 'all' caller recomputes its own missing set from the cache.
+async function ensureLeaderboardWeeklyDataLoaded(sport, scope = 'all') {
     if (bulkWeeklyFetchInFlight) return;
-    const missingIds = AppState.playerData
+    let missingIds = AppState.playerData
         .filter(p => Object.keys(p.seasonTotals || {}).length > 0 && !AppState.playerWeeklyCache[p.id])
         .map(p => p.id);
+    if (scope === 'basis') {
+        const wanted = new Set([...visibleLeaderboardPlayerIds(), ...weeklyBasisPoolIds(sport)]);
+        missingIds = missingIds.filter(id => wanted.has(id));
+    }
     if (missingIds.length === 0) return;
 
     // Same discard rule ensurePlayerDataLoaded documents. A league/year fetch mid-flight reassigns AppState.apiData and resets playerData/playerWeeklyCache (processCoreData), which makes these responses the WRONG league's. Their rows would be written into the new league's freshly cleared cache, aggregated with the `sport` captured back when this call started (so an NHL response could even be parsed with the MLB stat maps). This fetch takes tens of seconds for a full pool, so the window for that is wide, not theoretical. Checked per chunk now rather than once at the end, so a superseded run stops early instead of finishing.
@@ -1070,7 +1133,7 @@ export async function ensureRosterTransactionData(sport) {
     }
 }
 
-// Harvest the daily roster SNAPSHOTS ONCE per league+season, for the lineup-aware Roto Race. Same shape and guarantees as ensureRosterTransactionData: fire-and-forget, key-guarded, staleness- guarded (a league switch mid-harvest discards the result), and it fires the weekly-progress hook on completion so the race re-renders and upgrades from the rostered/current fallback to STARTED- accurate. A failure leaves rosterSnapshotData null and the race steps down the fallback ladder (golden rule 8). This is the ~196-request-per-season cost of started-accurate crediting - the same per-period pattern and concurrency cap as the transaction harvest, run alongside it (the transaction timeline still backs the rostered fallback tier and B66/).
+// Harvest the daily roster SNAPSHOTS ONCE per league+season, for the lineup-aware Roto Race. Same shape and guarantees as ensureRosterTransactionData: fire-and-forget, key-guarded, staleness- guarded (a league switch mid-harvest discards the result), and it fires the weekly-progress hook on completion so the race re-renders and upgrades from the rostered/current fallback to STARTED- accurate. A failure leaves rosterSnapshotData null and the race steps down the fallback ladder (golden rule 8). This is the ~196-request-per-season cost of started-accurate crediting - the same per-period pattern and concurrency cap as the transaction harvest, run alongside it (the transaction timeline still backs the rostered fallback tier and ).
 export async function ensureRosterSnapshotData(sport) {
     const key = currentLeagueKey();
     if (!key) return;
@@ -1140,7 +1203,7 @@ function startingSlotsForLeague(sport) {
     return starting;
 }
 
-// The started-tier accumulation, factored out of buildRotoRaceSeries so the Roto Race and the windowed roto standings/heatmap share ONE source of truth, per team a { week -> { sums, games } } map of the started-day component sums. Both then aggregate + score off this same map, so the identity holds by construction - the "Full Season" window (weeks[0]..last) is literally the race's final cumulative point, which reproduced ESPN's official finals exactly on FGB 2025 (61.0/56.5/55.0/40.5/27.0). If windowing and the race could ever disagree, they'd have to read different sums, and they can't, because there is only this function. Returns null unless the STARTED tier is actually available - the snapshot harvest landed for THIS league AND the weekly component cache is complete. Windows are only honest on started-day data (B71's ladder is for failure, not latency). The rostered/current fallbacks count benched days ESPN never did, so a "last 4 weeks" off them would be a plausible-looking wrong number. Memoized by league key + weekly-cache size (the cache only grows as chunks land, so its size is a sufficient staleness key), so the per-cell heatmap lookups below don't re-accumulate.
+// The started-tier accumulation, factored out of buildRotoRaceSeries so the Roto Race and the windowed roto standings/heatmap share ONE source of truth, per team a { week -> { sums, games } } map of the started-day component sums. Both then aggregate + score off this same map, so the identity holds by construction - the "Full Season" window (weeks[0]..last) is literally the race's final cumulative point, which reproduced ESPN's official finals exactly on FGB 2025 (61.0/56.5/55.0/40.5/27.0). If windowing and the race could ever disagree, they'd have to read different sums, and they can't, because there is only this function. Returns null unless the STARTED tier is actually available - the snapshot harvest landed for THIS league AND the weekly component cache is complete. Windows are only honest on started-day data. The rostered/current fallbacks count benched days ESPN never did, so a "last 4 weeks" off them would be a plausible-looking wrong number. Memoized by league key + weekly-cache size (the cache only grows as chunks land, so its size is a sufficient staleness key), so the per-cell heatmap lookups below don't re-accumulate.
 let rotoStartedSumsCache = null;
 function rotoStartedSums(sport) {
     if (!AppState.isRotoLeague) return null;
@@ -1303,7 +1366,28 @@ export function computeRotoWindow(sport, startWeek, endWeek) {
     return result;
 }
 
-// Builds the Roto Race. It credits each player's stats to a team over time, aggregate each team's cumulative category values, score them roto-style across teams (the pure scoreRotoWeek), and record each team's running total. This is the one place roto points are computed rather than read from ESPN (season-end standings stay verbatim - see rotoPoints in data.js). THREE crediting modes, a fallback ladder (golden rule 8) - the race always renders, only its fidelity and subtitle change as more data lands: 'started': AppState.rosterSnapshotData holds every day's full lineup. Credit each single day to whoever had the player in a STARTING slot that day (startedTeamForPlayerAtPeriod). This is exactly what ESPN's roto standings count, so it reproduces each team's valuesByStat and lands on the official finals - VALIDATED on FGB 2025: per-category deltas are zero across all 5 teams, finals 61.0/56.5/55.0/40.5/27.0 exactly. 'rostered': no snapshots, but AppState.rosterTransactionData holds the draft + transaction log. Credit each week to whoever ROSTERED the player mid-week. Faithful to trades and drops but counts benched days ESPN doesn't, so it lands near - not on - the finals. 'current': neither harvested yet. Every week credits the player's CURRENT team - a trade rewrites the whole past. Roughest; the original subtitle names it. Returns `mode` so the caller picks the matching subtitle. The started tier resolves the started-vs-rostered residual the note described; the only thing left between it and ESPN is a mid-DAY lineup edit (a snapshot is one slot per day), which the FGB validation showed nets to zero here. Rate categories reproduce from summed COMPONENTS, not averaged daily rates (deriveRateOverrides) - the same path baseball uses, so this is sport-general. Progressive by construction. It reads whatever the caches hold right now, so a half-loaded pool renders a shorter/rougher race that fills in as weekly chunks and the two harvests land, each re-rendering the box via setWeeklyProgressHook.
+// Builds the Roto Race. It credits each player's stats to a team over time, aggregate each team's cumulative category values, score them roto-style across teams (the pure scoreRotoWeek), and record each team's running total. This is the one place roto points are computed rather than read from ESPN (season-end standings stay verbatim - see rotoPoints in data.js). THREE crediting modes, a fallback ladder (golden rule 8) - the race always renders, only its fidelity and subtitle change as more data lands: 'started': AppState.rosterSnapshotData holds every day's full lineup. Credit each single day to whoever had the player in a STARTING slot that day (startedTeamForPlayerAtPeriod). This is exactly what ESPN's roto standings count, so it reproduces each team's valuesByStat and lands on the official finals - VALIDATED on FGB 2025: per-category deltas are zero across all 5 teams, finals 61.0/56.5/55.0/40.5/27.0 exactly. 'rostered': no snapshots, but AppState.rosterTransactionData holds the draft + transaction log. Credit each week to whoever ROSTERED the player mid-week. Faithful to trades and drops but counts benched days ESPN doesn't, so it lands near - not on - the finals. 'current': neither harvested yet. Every week credits the player's CURRENT team - a trade rewrites the whole past. Roughest; the original subtitle names it. Returns `mode` so the caller picks the matching subtitle. The started tier resolves the started-vs-rostered residual the note described; the only thing left between it and ESPN is a mid-DAY lineup edit (a snapshot is one slot per day), which the FGB validation showed nets to zero here. Rate categories reproduce from summed COMPONENTS, not averaged daily rates (deriveRateOverrides) - the same path baseball uses, so this is sport-general. Progressive by construction. It reads whatever the caches hold right now, so a half-loaded pool renders a shorter/rougher race that fills in as weekly chunks and the two harvests land, each re-rendering the box via setWeeklyProgressHook. The day-by-day roto standing across the current week, or null when there is nothing honest to draw. Returns the same shape the weekly race does, one bucket smaller, so the renderer needs to know nothing except how to LABEL an axis of days.
+function buildRotoDailyRace(sport, categories) {
+    if (!categories.length) return null;
+    // Already cumulative WITHIN the week and already rate-corrected - aggregateDailyCumulative derives a rate from summed components at each day rather than averaging daily rates, which is the whole reason the category race reuses it too.
+    const daily = rotoCategoryDailySeries(sport);
+    if (!daily) return null;
+
+    const seriesByTeam = new Map(AppState.teamStats.map(t => [t.id, []]));
+    daily.periods.forEach((period, i) => {
+        // Every team is scored against every other team ON THAT DAY, which is what makes this a standing rather than a set of running totals - a team can gain roto points on a day it played nothing, because the teams below it did worse.
+        const scoreInput = AppState.teamStats.map(t => ({
+            id: t.id,
+            values: (daily.byTeam.get(t.id) || [])[i] || {}
+        }));
+        const totals = scoreRotoWeek(scoreInput, categories);
+        AppState.teamStats.forEach(t => seriesByTeam.get(t.id).push(totals.get(t.id) || 0));
+    });
+
+    // `weeks` rather than `periods`, because that is the name the renderer's axis reads and the two series are otherwise identical. dayAxis is what tells it to label them Day 1..n.
+    return { weeks: daily.periods, seriesByTeam, dayAxis: true };
+}
+
 export function buildRotoRaceSeries(sport) {
     const inverseSet = INVERSE_STATS[sport] || new Set();
     const categories = Array.from(AppState.scoredStatIds).map(id => ({ id, inverse: inverseSet.has(id) }));
@@ -1320,6 +1404,19 @@ export function buildRotoRaceSeries(sport) {
     const useSnapshots = !!(snapData && snapData.key === leagueKey);
     const useTimeline = !useSnapshots && !!(txData && txData.key === leagueKey);
     const mode = useSnapshots ? 'started' : (useTimeline ? 'rostered' : 'current');
+
+    // AT CURRENT, THE RACE RUNS ACROSS DAYS. Roto's Current pill is a one-week window, so the weekly race below filters allWeeks down to exactly one week and draws every team as a single dot on the left edge - the degenerate chart the entry set out to remove. Days are the honest bucket at that width, and roto is the one format that can already afford them: the started tier has the daily snapshots and per-day player lines harvested for the race itself, so this costs no extra request. Same day buckets the CATEGORY race at Current already uses (rotoCategoryDailySeries), scored through the same scoreRotoWeek the weekly race scores with - so the daily race and the weekly one cannot drift apart in how a roto point is earned, and the last day of the daily race is the same standing the one-week race was drawing as its single dot. Falls through to the weekly path when the daily series is not available: the fallback tiers have no started-day crediting, and a week whose first day is the only one played has nothing to race across. A single dot on the first morning of a matchup is honest rather than degenerate.
+    if (parseTimeframe(AppState.timeframe).window === 1) {
+        const daily = buildRotoDailyRace(sport, categories);
+        if (daily) {
+            return {
+                ...daily,
+                categoryCount: categories.length,
+                teams: AppState.teamStats.map(t => ({ id: t.id, name: t.name })),
+                mode
+            };
+        }
+    }
 
     // Accumulate into a shared week -> { sums, games } structure per team, so the cumulative scoring below is identical for all three modes - they differ only in which team a slice of stats credits.
     const teamWeeklySums = new Map(AppState.teamStats.map(t => [t.id, {}]));
@@ -1527,7 +1624,7 @@ export function buildLeaderboardExportModel(includeAdvanced = AppState.showAdvan
     return { headers, rows };
 }
 
-// The leaderboard's own ranking, offered to surfaces that show a rank outside the table (B90's roster band). Both role pools are ranked exactly as the table ranks them, with no position filter, so a roster row and the leaderboard row for the same player always agree. Returns a Map of playerId to { rank, total, poolLabel }. A player the engine will not rank now gets an entry too, with a null rank and the REASON - the dash the caller draws is right, but a dash alone made two different states look identical, and the one the owner hit (no games in the selected window) is the one worth naming. A player missing from the map entirely still means something else, that they are not in the pool at all.
+// The leaderboard's own ranking, offered to surfaces that show a rank outside the table. Both role pools are ranked exactly as the table ranks them, with no position filter, so a roster row and the leaderboard row for the same player always agree. Returns a Map of playerId to { rank, total, poolLabel }. A player the engine will not rank now gets an entry too, with a null rank and the REASON - the dash the caller draws is right, but a dash alone made two different states look identical, and the one the owner hit (no games in the selected window) is the one worth naming. A player missing from the map entirely still means something else, that they are not in the pool at all.
 export function rosterRankLookup(sport) {
     const out = new Map();
     if (!AppState.playerDataLoaded) return out;
@@ -1689,7 +1786,7 @@ export function renderPlayerLeaderboard() {
                 AppState.playerSortDir = AppState.playerSortDir === 'asc' ? 'desc' : 'asc';
             } else {
                 AppState.playerSortStat = key;
-                // The first click shows the best, so a lower-is-better column opens ascending ( item 0). Sorting by ERA used to lead with the worst pitcher in the league.
+                // The first click shows the best, so a lower-is-better column opens ascending. Sorting by ERA used to lead with the worst pitcher in the league.
                 AppState.playerSortDir = openingSortDir(key, INVERSE_STATS[sport] || new Set());
             }
             renderPlayerLeaderboard();
@@ -1708,16 +1805,16 @@ export function renderPlayerLeaderboard() {
         });
     }
 
-    // The Rank column's weekly-form arrows need per-week data for the whole pool - when it isn't cached yet (a full-season timeframe never needed it for the table itself), fetch it quietly in the background; each chunk's completion re-render pops more arrows in. Windowed timeframes still force this same fetch up front (with the progress UI above), since their table can't render at all without it.
+    // The Rank column's weekly-form arrows fetch quietly in the background; each chunk's completion re-render pops more arrows in. BASIS scope: the arrow math is load-bearing on the visible rows and the qualified basis pool, and those two tiers are 35% of the fixture's pool - the rest arrives if a windowed timeframe or the race ever asks for everyone. A row scrolled into view without weekly data shows no arrow rather than a wrong one, and the next render of the tab re-runs this with the new visible set.
     if (!AppState.isPointsLeague && !leaderboardWeeklyDataReady() && !bulkWeeklyFetchFailed) {
-        ensureLeaderboardWeeklyDataLoaded(sport);
+        ensureLeaderboardWeeklyDataLoaded(sport, 'basis');
     }
 
     // Rows just changed (a re-sort, a filter, a search, or a progressive chunk repaint), so what's on screen changed too - re-tier the rest of the queue behind it. A no-op when no fetch is running.
     reprioritizeWeeklyQueue();
 }
 
-// The category pitch, under the rule My Team's roster follows: clamp(available / N, FLOOR, CAP), with the constants read from:root so the two tables cannot answer the same question differently. Before this the stat columns split whatever the fixed text columns left, with nothing to stop them - nine categories on a wide table came out at 130px a column for figures needing a third of that, and at a narrow window the same generous gaps survived while the table scrolled sideways instead. NOTHING HERE MAY DEPEND ON THE POOL, which is B59's rule and the reason the floor is built from the HEADINGS plus a constant allowance rather than from the values on screen. Measuring the widest value would put the Minimum Games toggle, the search box and every filter back in charge of the column geometry, which is exactly the sliding removed. Headings change with the league, not with what is being shown of it. Deterministic, so it is recomputed on every render rather than cached. A cache here would buy nothing and could go stale across a league switch, which is the trap B152's follow-up spent its time getting out of.
+// The category pitch, under the rule My Team's roster follows: clamp(available / N, FLOOR, CAP), with the constants read from:root so the two tables cannot answer the same question differently. Before this the stat columns split whatever the fixed text columns left, with nothing to stop them - nine categories on a wide table came out at 130px a column for figures needing a third of that, and at a narrow window the same generous gaps survived while the table scrolled sideways instead. NOTHING HERE MAY DEPEND ON THE POOL, which is the rule and the reason the floor is built from the HEADINGS plus a constant allowance rather than from the values on screen. Measuring the widest value would put the Minimum Games toggle, the search box and every filter back in charge of the column geometry, which is exactly the sliding removed. Headings change with the league, not with what is being shown of it. Deterministic, so it is recomputed on every render rather than cached. A cache here would buy nothing and could go stale across a league switch, which is the trap the follow-up spent its time getting out of.
 function sizeLeaderboardColumns(container) {
     const table = container.querySelector('.player-table');
     if (!table || !container.clientWidth) return;
@@ -1854,6 +1951,8 @@ export async function openPlayerDetail(playerId, preserveView = false) {
         AppState.playerDetailRankBreakdownOpen = false;
     }
     AppState.selectedPlayerId = playerId;
+    // Opening a player is a statement about ONE player, including when the pager walks to the next one with preserveView on - a comparison carried along by the pager would silently re-pair the second player against someone the user never chose.
+    AppState.comparePlayerId = null;
 
     document.getElementById('player-toolbar').style.display = 'none';
     document.getElementById('player-leaderboard-container').style.display = 'none';
@@ -1864,7 +1963,7 @@ export async function openPlayerDetail(playerId, preserveView = false) {
     setDebugContext('player-detail', playerDetailDiagnostics[playerId] || null);
     setActiveDebugKind('player-detail');
 
-    // A bulk-cached entry carries no dailyByPeriod unless the pool path decided this player needed one, so the Day axis has to ask for it. Fetching one player's own history is what this branch already does when nothing is cached; this widens the condition rather than adding a path ( trap: the days come on demand, one player at a time, never pool-wide).
+    // A bulk-cached entry carries no dailyByPeriod unless the pool path decided this player needed one, so the Day axis has to ask for it. Fetching one player's own history is what this branch already does when nothing is cached; this widens the condition rather than adding a path.
     const cached = AppState.playerWeeklyCache[playerId];
     if (!cached || !cached.dailyByPeriod) {
         try {
@@ -1884,7 +1983,7 @@ export async function openPlayerDetail(playerId, preserveView = false) {
     // Looked up AFTER the weekly-cache fetch above (rather than at the top of this function) so that if the shared timeframe is a windowed one, getEffectivePlayerPool can already find this player's just-cached weekly data instead of excluding them for not having it yet.
     const player = getEffectivePlayerPool(sport).find(p => p.id === playerId);
     if (!player) {
-        // The season pool has this player (guarded at the top), but the EFFECTIVE pool for the current windowed timeframe does not (no weekly data in range even after the fetch above). Don't leave the half-open "Loading player history" container stranded on screen - fall back to the leaderboard so the tab never sits on a blank drill-down ( audit: no caller, including the post-fetch reopen, can strand a stale detail view through this exit).
+        // The season pool has this player (guarded at the top), but the EFFECTIVE pool for the current windowed timeframe does not (no weekly data in range even after the fetch above). Don't leave the half-open "Loading player history" container stranded on screen - fall back to the leaderboard so the tab never sits on a blank drill-down.
         closePlayerDetail();
         return;
     }
@@ -1896,6 +1995,7 @@ export async function openPlayerDetail(playerId, preserveView = false) {
 
 export function closePlayerDetail() {
     AppState.selectedPlayerId = null;
+    AppState.comparePlayerId = null;
     document.getElementById('player-detail-container').style.display = 'none';
     document.getElementById('player-leaderboard-container').style.display = 'flex';
     document.getElementById('player-toolbar').style.display = 'flex';
@@ -2060,16 +2160,217 @@ function buildRankBreakdownHtml(player, sport) {
     `;
 }
 
-// Re-renders the currently-open player detail view (chart, rank chips/breakdown) in place - a no-op if no player is open. Called when the shared AppState.timeframe changes (see handleTimeframeChange in controls.js), since the detail view no longer has its own separate timeframe control to trigger this itself.
+// Re-renders the currently-open player detail view (chart, rank chips/breakdown) in place - a no-op if no player is open. Called when the shared AppState.timeframe changes (see handleTimeframeChange in controls.js), since the detail view no longer has its own separate timeframe control to trigger this itself. One player as the CURRENT timeframe sees them, or null when they are not in this league at all. The windowed pool only admits players with cached weekly data, because a window has nothing to aggregate for anyone else (see getEffectivePlayerPool). That is the right pool to RANK against, but it is the wrong answer to "who is the view showing" - and the two were the same lookup, which is the whole of item 1. A player outside the windowed pool made the lookup return undefined, the caller below silently did nothing, and the drill-down or comparison stayed on screen still showing the PREVIOUS timeframe's numbers. Nothing said so; it just looked like the pills had stopped working, which is exactly what the owner reported. The fallback is a windowed clone with no totals rather than the season entry, because handing back season numbers under a windowed heading is the misleading answer this pool exists to avoid. Empty totals flow through the surfaces that already handle absence: the ledger prints a dash on that side and the strip says there is nothing to compare, which is true and re-scopes honestly.
+function effectivePlayerById(sport, id) {
+    const pooled = getEffectivePlayerPool(sport).find(p => p.id === id);
+    if (pooled) return pooled;
+    const base = AppState.playerData.find(p => p.id === id);
+    if (!base) return null;
+    return isFullSeasonTimeframe() ? base : { ...base, seasonTotals: {} };
+}
+
 export function refreshOpenPlayerDetail() {
     if (!AppState.selectedPlayerId) return;
-    const sport = AppState.loadedSport;
-    // openPlayerDetail always caches weekly data for whoever it opens (regardless of which timeframe was active then), so a currently-open player is guaranteed to be found here.
-    const player = getEffectivePlayerPool(sport).find(p => p.id === AppState.selectedPlayerId);
+    const player = effectivePlayerById(AppState.loadedSport, AppState.selectedPlayerId);
     if (player) renderPlayerDetail(player);
 }
 
+// What the trend picker offers, and in what order. Lifted out of renderPlayerDetail so the comparison view builds the same list from the same rules instead of keeping a second copy that could drift - both views chart the same stats off the same picker. The first entry is what a freshly opened view shows, which is why the order is a decision rather than a listing.
+function buildTrendStatOptions(player, sport, weekly) {
+    const statMap = ESPN_STAT_MAPS[sport] || {};
+    const { scored, advanced } = statIdsForPlayer(player, sport, weekly);
+    const visibleIds = AppState.showAdvancedStats ? [...scored, ...advanced] : scored;
+    const statOptions = visibleIds.map(id => ({ id, name: statMap[id] }));
+    // Category leagues get our own computed Weekly Score as a selectable trend, in place of ESPN's removed FPTS - points leagues already have a real per-week points total via appliedTotal, so there's nothing to replace there. Named for the league's own timeline unit. This is our synthetic per-period score, and in roto each period is a real week, so "Matchup Score" put a matchup token on a screen whose axis and tooltips both read WK/Week.
+    if (!AppState.isPointsLeague) statOptions.unshift({ id: WEEKLY_RANK_STAT_ID, name: `${axisUnit().long} Score` });
+    // A points league's headline number IS its points, so that trend leads the picker and, being first, is what a freshly opened drill-down shows. The individual categories behind it stay selectable underneath.
+    if (AppState.isPointsLeague) statOptions.unshift({ id: WEEKLY_POINTS_STAT_ID, name: `${axisUnit().long} Points` });
+
+    // At Current the synthetic score leads with the one thing the Day axis cannot draw. Matchup Score and Points are scored per PERIOD against the pool, so a single day has no meaning for them and they keep the matchup axis, which at Current is one point. Leading with one there lands every drill-down on exactly the flat line this work exists to remove, so a real category leads instead. The score stays in the picker, one selection away. The DEFAULT moves, the list does not - reordering the picker under a timeframe change would move an option out from under the cursor for a reason nobody could see.
+    const dayLens = parseTimeframe(AppState.timeframe).window === 1;
+    const synthetic = new Set([WEEKLY_RANK_STAT_ID, WEEKLY_POINTS_STAT_ID]);
+    const preferred = dayLens ? (statOptions.find(s => !synthetic.has(s.id)) || statOptions[0]) : statOptions[0];
+    return { options: statOptions, preferred };
+}
+
+// ==== THE DAY STRIP. One chip per day under the stat cards, following the timeframe. ====
+
+// THE PRO SCHEDULE, ASKED FOR ONCE AND ONLY WHEN A STRIP WANTS IT. It is the only source that dates a scoring period, it is session-cached and conditional after, and it is already fetched by My Team - so on most sessions this costs nothing at all and at worst one request. The strip draws with Day N labels until it lands and re-renders itself when it does, which is the same shape every other late-arriving thing in this file uses.
+let proScheduleDates = null;
+let proScheduleAsked = false;
+
+function ensureScheduleDates() {
+    if (proScheduleDates || proScheduleAsked) return;
+    proScheduleAsked = true;
+    fetchProTeamSchedules()
+        .then(data => {
+            const dates = datesByScoringPeriod(data);
+            if (!dates.size) return;
+            proScheduleDates = dates;
+            // Only redraw if a drill-down is still open on the same player - the answer is useless to a leaderboard and re-rendering one would be work thrown away.
+            if (AppState.selectedPlayerId !== null) refreshOpenPlayerDetail();
+        })
+        .catch(() => { /* No dates. The chips keep saying Day N, which is never wrong. */ });
+}
+
+// A period's label: the real date when the schedule can supply one, the day's place in its matchup when it cannot. NEVER a computed guess - the finding stands, and no date beats a wrong one. MM-DD as the owner wrote it ("08-21"), zero-padded, hyphen-separated, in LOCAL time - a fantasy day is the day the games were played where the reader is, and toLocaleDateString would introduce a locale the rest of the app does not have. DECISIONS-NEEDED if a non-US reader wants DD-MM: it is one line here and nothing else in the app formats a date.
+function dayChipLabel(period, dayNumber) {
+    const at = proScheduleDates && proScheduleDates.get(period);
+    if (at) {
+        const d = new Date(at);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${mm}-${dd}`;
+    }
+    return dayNumber ? `Day ${dayNumber}` : `P${period}`;
+}
+
+// SPORT KNOWLEDGE LIVES HERE, not in rank-engine, which holds none by contract. A signature day is a statement the sport makes rather than a ratio: a quality start is a quality start in a season where the pitcher is otherwise brilliant, and a two-homer game does not stop being one because the batter hits forty. Baseball: 34 is OUTS so six innings is 18, 45 is ER, 5 is HR. Hockey: 28 is HAT and 13 is G (a hat trick either way ESPN files it), 7 is SO.
+const DAY_SIGNATURE_RULES = {
+    flb: (s, secondary) => secondary
+        ? ((s[34] || 0) >= 18 && (s[45] || 0) <= 3)
+        : (s[5] || 0) >= 2,
+    fhl: (s, secondary) => secondary
+        ? (s[7] || 0) >= 1
+        : ((s[28] || 0) >= 1 || (s[13] || 0) >= 3)
+};
+
+// Innings from outs, in baseball's own notation: 19 outs is 6.1, not 6.33.
+function inningsLabel(outs) {
+    const o = Math.max(0, Math.round(Number(outs) || 0));
+    return `${Math.floor(o / 3)}.${o % 3}`;
+}
+
+
+// The day's notable counting stats, at most three, in the order a box score would read them. Only non-zero entries, so an ordinary day says less and a big one says more without a rule. THE HEADLINE'S OWN STATS COUNT TOWARD THE VERDICT, even when the league does not score them. Found on the first real strip: a 3-for-4 day wore a RED border. The league scores AVG, HR, OPS, R, RBI, SB, CS, AST and E - hits are not among them - so three hits with no runs contributed nothing the standings measure and the day scored zero. Defensible arithmetic, indefensible chip: it shows "3-4" in the headline and then calls it a bad day, and a reader compares those two things because they are two lines of the same object. So the verdict scores the league's counting categories PLUS whatever the headline is made of. ONLY THE GOOD HALF of the headline: earned runs and goals against are in the figure because a pitching line is unreadable without them, but adding them here would reward a pitcher for being hit. Outs are in - they are innings, and innings are the thing a start is measured by.
+const DAY_VERDICT_EXTRA = {
+    flb: { primary: ['1'], secondary: ['34', '48'] },
+    fhl: { primary: ['13', '14'], secondary: ['6'] }
+};
+
+const DAY_NOTABLE = {
+    flb: { primary: [[5, 'HR'], [21, 'RBI'], [20, 'R'], [23, 'SB']], secondary: [[53, 'W'], [57, 'SV'], [48, 'K'], [63, 'QS']] },
+    fhl: { primary: [[13, 'G'], [14, 'A'], [29, 'SOG'], [31, 'HIT']], secondary: [[1, 'W'], [7, 'SO'], [6, 'SV']] }
+};
+
+// A PLAYED DAY ALWAYS SAYS SOMETHING. The ruling's own examples include a bad day - "0-for-4 - 3 K" - so a day with no notable counting stat is not a blank line, it is a quiet one. A pitcher always leads with his innings, because a pitching line without them is unreadable; a batter with nothing to report falls back to his at-bats, which is the 0-for-4 of the example. MIDDOT is a character code rather than an escape sequence, and that is deliberate: the separator shipped in as a \u00b7 inside a template literal, survived one edit script as a doubled backslash, and would then have rendered as the literal text rather than a dot.
+function dayNotable(sums, sport, secondary) {
+    const spec = (DAY_NOTABLE[sport] || DAY_NOTABLE.flb)[secondary ? 'secondary' : 'primary'] || [];
+    const parts = spec
+        .filter(([id]) => (Number(sums[id]) || 0) > 0)
+        .slice(0, 3)
+        .map(([id, label]) => `${Number(sums[id])} ${label}`);
+    if (sport === 'flb' && secondary) {
+        const outs = Number(sums[34]) || 0;
+        if (outs > 0) parts.unshift(`${inningsLabel(outs)} IP`);
+    } else if (sport === 'flb' && !parts.length) {
+        const ab = Number(sums[0]) || 0;
+        if (ab > 0) parts.push(`${Number(sums[1]) || 0}-for-${ab}`);
+    }
+    return parts.slice(0, 3).join(` ${MIDDOT} `);
+}
+
+// The em dash a hover shows where it has no figure, and the middot that joins a stat line - named so they survive an edit rather than living as escape sequences inside a template literal.
+const DASH = String.fromCharCode(8212);
+const MIDDOT = String.fromCharCode(183);
+const MIDDOT_SEP = ` ${MIDDOT} `;
+
+// THE DAY LENS. The day strip is gone as a surface - the owner called the stacked band busy - and its replacement lives in the chart itself: day points wear the verdicts, and every matchup point is a door into its own days. This is the strip model's surviving core: per-day verdicts and self-scores for a given set of periods, computed once per draw and read by the point painter and the hover text alike. The typical day is taken over EVERY day the player has, not just the days on screen - a window is too small to be its own yardstick, and the same day would change colour as the timeframe moved if it were (the calibration lesson, kept).
+function dayInfoFor(player, sport, periods) {
+    const daily = AppState.playerWeeklyCache[player.id]?.dailyByPeriod;
+    if (!daily) return null;
+    const secondary = AppState.playerGroup === 'secondary';
+    const { scored } = statIdsForPlayer(player, sport, (AppState.playerWeeklyCache[player.id] || {}).weekly || {});
+    // Counting categories only - see the note on scoreDayAgainstSelf for why a rate cannot judge a single day. AVERAGE_STATS is the league-independent list of which ids are rates.
+    const rateSet = AVERAGE_STATS[sport] || new Set();
+    const scoredCounting = scored.filter(id => !rateSet.has(String(id))).map(String);
+    const extra = (DAY_VERDICT_EXTRA[sport] || DAY_VERDICT_EXTRA.flb)[secondary ? 'secondary' : 'primary'] || [];
+    const countingIds = Array.from(new Set([...scoredCounting, ...extra]));
+    const averages = perDayAverages(daily, countingIds);
+    const signature = DAY_SIGNATURE_RULES[sport] || DAY_SIGNATURE_RULES.flb;
+    const allScores = Object.keys(daily)
+        .filter(k => daily[k] && daily[k].games)
+        .map(k => scoreDayAgainstSelf(daily[k].sums, averages, countingIds));
+    const typical = typicalDayScore(allScores);
+    const statMap = ESPN_STAT_MAPS[sport] || {};
+    const byPeriod = new Map();
+    periods.forEach(period => {
+        const day = daily[period];
+        const sums = (day && day.sums) || {};
+        const played = !!(day && day.games);
+        const score = played ? scoreDayAgainstSelf(sums, averages, countingIds) : null;
+        const isSig = played && signature(sums, secondary);
+        const line = countingIds
+            .filter(id => (Number(sums[id]) || 0) !== 0)
+            .map(id => `${statMap[id] || id} ${Number(sums[id])}`);
+        byPeriod.set(period, {
+            played,
+            line: line.length ? line.join(MIDDOT_SEP) : '',
+            verdict: played ? dayVerdict(score, isSig, typical) : 'off',
+            // item 1: the presentable day score, 50 = the player's own typical day, 100 the cap - the register Matchup Score already taught, where 50 is mid-pack.
+            score: presentDayScore(score),
+            notable: played ? dayNotable(sums, sport, secondary) : ''
+        });
+    });
+    return { byPeriod };
+}
+
+// One matchup's days as a chart series - the zoom. Two shapes by picker: - a real stat runs cumulative through the matchup, exactly as Current's day axis always has (aggregateDailyCumulative, the same call, so the zoomed line is the same arithmetic); - the per-pool pair (Matchup Score, Points) has no per-day chart value - the finding - so the zoomed line plots the day SELF-scores on the 0-100 scale instead, which is also the number the hover names. An off day is a gap in the line, not a zero. Every entry carries its PERIOD beside the 0-based index the axis draws from, because the verdicts and the date labels are keyed by period and the x positions are not.
+function buildZoomDaySeries(player, stat, matchup, isWeeklyRank, isWeeklyPoints, sport) {
+    const daily = AppState.playerWeeklyCache[player.id]?.dailyByPeriod;
+    if (!daily) return null;
+    const periods = periodsOfMatchup(matchupPeriodMap(), matchup);
+    if (periods.length < 2) return null;
+    const today = Number(AppState.apiData?.scoringPeriodId) || 0;
+    const upTo = today ? periods.filter(p => p <= today) : periods;
+    const shown = upTo.length >= 2 ? upTo : periods;
+    if (isWeeklyRank || isWeeklyPoints) {
+        const info = dayInfoFor(player, sport, shown);
+        if (!info) return null;
+        const days = shown.map((p, i) => ({ index: i, period: p, played: !!info.byPeriod.get(p)?.played }));
+        const values = shown.map(p => {
+            const d = info.byPeriod.get(p);
+            return d && d.played && d.score !== null ? d.score : null;
+        });
+        if (!values.some(v => v !== null)) return null;
+        return { days, values, matchup };
+    }
+    const series = aggregateDailyCumulative(daily, shown, sport);
+    if (!series.some(d => d.played)) return null;
+    return { days: series, values: series.map(d => { const v = d.totals[stat.id]; return v === undefined ? 0 : Number(v); }), matchup };
+}
+
+// The matchup-axis verdicts: the same grammar as the days, one level up. Every value is the number the chart plots for that week (the rank series, the points bucket, or the stat), the baseline is the MEDIAN of every week the player has - stable across timeframes for the same reason the day median is - and the best week of the SEASON wears gold, so it is gold wherever the timeframe happens to show it and never "best of what is on screen". Inverse stats read the other way: the best ERA is the lowest.
+function matchupVerdictInfo(player, sport, weekly, stat, isWeeklyRank, isWeeklyPoints) {
+    const allWeeks = Object.keys(weekly).map(Number).filter(w => weekly[w]).sort((a, b) => a - b);
+    if (!allWeeks.length) return null;
+    const rankScores = isWeeklyRank ? computeWeeklyRankSeries(player, sport, weekly, allWeeks) : null;
+    const valueOf = (w) => {
+        if (isWeeklyRank) return rankScores[w] ?? 0;
+        if (isWeeklyPoints) return pointsForStatBucket(weekly[w]);
+        return weekly[w][stat.id] || 0;
+    };
+    const values = allWeeks.map(valueOf);
+    const median = typicalDayScore(values);
+    const inverse = !isWeeklyRank && !isWeeklyPoints && (INVERSE_STATS[sport] || new Set()).has(stat.id);
+    const best = inverse ? Math.min(...values) : Math.max(...values);
+    const verdictOf = (v) => {
+        if (v === best) return 'best';
+        if (median === null || v === median) return 'even';
+        return (inverse ? v < median : v > median) ? 'above' : 'below';
+    };
+    return { verdictOf };
+}
+
+
 function renderPlayerDetail(player) {
+    // The comparison is a VIEW STATE of the drill-down rather than a separate screen, so the fork lives at the single entry every re-render already passes through - a timeframe change, an advanced-stats toggle and a stat switch all keep the pair up instead of dropping one of them without being asked to.
+    if (AppState.comparePlayerId != null) {
+        // THE PAIR SURVIVES THE FLIP, including into a window the opponent has no data in. This used to drop the second player rather than "draw a comparison against an absence" - but the promise is that a timeframe change re-scopes the pair, and silently becoming a one-player view is a stranger answer than a column of dashes that says the window holds nothing for him. effectivePlayerById gives the same honest empty totals the anchor gets, so both sides are read off one basis whatever the window contains.
+        const other = effectivePlayerById(AppState.loadedSport, AppState.comparePlayerId);
+        if (other) return renderPlayerComparison(player, other);
+        AppState.comparePlayerId = null;
+    }
     const container = document.getElementById('player-detail-container');
     const sport = AppState.loadedSport;
     const statMap = ESPN_STAT_MAPS[sport] || {};
@@ -2080,16 +2381,7 @@ function renderPlayerDetail(player) {
 
     const { scored, advanced } = statIdsForPlayer(player, sport, weekly);
     const visibleIds = AppState.showAdvancedStats ? [...scored, ...advanced] : scored;
-    const statOptions = visibleIds.map(id => ({ id, name: statMap[id] }));
-    // Category leagues get our own computed Weekly Score as a selectable trend, in place of ESPN's removed FPTS - points leagues already have a real per-week points total via appliedTotal, so there's nothing to replace there. Named for the league's own timeline unit. This is our synthetic per-period score, and in roto each period is a real week, so "Matchup Score" put a matchup token on a screen whose axis and tooltips both read WK/Week.
-    if (!AppState.isPointsLeague) statOptions.unshift({ id: WEEKLY_RANK_STAT_ID, name: `${axisUnit().long} Score` });
-    // A points league's headline number IS its points, so that trend leads the picker and, being first, is what a freshly opened drill-down shows. The individual categories behind it stay selectable underneath.
-    if (AppState.isPointsLeague) statOptions.unshift({ id: WEEKLY_POINTS_STAT_ID, name: `${axisUnit().long} Points` });
-
-    // At Current the synthetic score leads with the one thing the Day axis cannot draw. Matchup Score and Points are scored per PERIOD against the pool, so a single day has no meaning for them and they keep the matchup axis, which at Current is one point. Leading with one there lands every drill-down on exactly the flat line this work exists to remove, so a real category leads instead. The score stays in the picker, one selection away.
-    const dayLens = parseTimeframe(AppState.timeframe).window === 1;
-    const synthetic = new Set([WEEKLY_RANK_STAT_ID, WEEKLY_POINTS_STAT_ID]);
-    const preferred = dayLens ? (statOptions.find(s => !synthetic.has(s.id)) || statOptions[0]) : statOptions[0];
+    const { options: statOptions, preferred } = buildTrendStatOptions(player, sport, weekly);
     const currentStat = statOptions.find(s => s.id === AppState.playerDetailStat) || preferred;
     if (currentStat) AppState.playerDetailStat = currentStat.id;
 
@@ -2136,7 +2428,8 @@ function renderPlayerDetail(player) {
 
     const seasonStatsHtml = visibleIds.map(id => {
         const rankInfo = computeStatRank(player, sport, id);
-        const bgColor = rankInfo ? percentileColor(rankInfo.percentile) : '#f8f9fa';
+        // No percentile means the player is unranked in this category, and the chip stays on the plain surface rather than claiming an average one - --pct is not set.
+        const pctStyle = rankInfo ? ` style="--pct:${percentileVar(rankInfo.percentile)};"` : '';
         const rankColor = rankInfo && RANK_COLORS[rankInfo.rank];
         // Same "a few players above/below" hover dropdown as the rank chips, just scoped to this one category's own ordering instead of the averaged Rank score - passing the tie-aware ranks so a tied neighbor shows the same shared rank the chip itself does.
         const neighborsHtml = rankInfo ? getRankNeighbors(rankInfo.sorted, player.id, rankInfo.ranks).map(({ player: np, rank: nr }) => `
@@ -2147,7 +2440,7 @@ function renderPlayerDetail(player) {
             </tr>
         `).join('') : '';
         return `
-            <div class="stat-chip" style="background:${bgColor};">
+            <div class="stat-chip"${pctStyle}>
                 <span class="stat-chip-label">${escapeHtml(statMap[id])}</span>
                 <span class="stat-chip-value"${rankColor ? ` style="color:${rankColor};"` : ''}>${formatStatValue(player.seasonTotals[id])}</span>
                 ${rankInfo ? `<span class="stat-chip-rank">#${rankInfo.rank} of ${rankInfo.total}</span>` : ''}
@@ -2168,6 +2461,7 @@ function renderPlayerDetail(player) {
             </div>
             <div class="player-detail-tools">
                 ${statOptions.length ? `<select id="player-stat-picker">${statOptions.map(s => `<option value="${s.id}"${currentStat && s.id === currentStat.id ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select>` : ''}
+                <button type="button" id="player-compare-btn" class="player-compare-btn">+ Compare</button>
                 ${pagerHtml}
             </div>
         </div>
@@ -2178,9 +2472,13 @@ function renderPlayerDetail(player) {
         <div id="player-trend-chart" class="graph-viewport" style="flex:1; min-height:300px; margin-top:8px;"></div>
     `;
 
-    // The headshot uses the same plumbing the roster band does, so a missing or failed image leaves the initials tile rather than a broken glyph ( rollout continues here).
+    // The headshot uses the same plumbing the roster band does, so a missing or failed image leaves the initials tile rather than a broken glyph.
     wirePlayerAvatars(container);
+    // The day strip answers a hover through the app's ONE tooltip, not a title attribute - same machinery the charts and the heatmap use, so the strip cannot drift into a second hover language.
+    attachDataTooltips(container);
     document.getElementById('player-back-btn').addEventListener('click', closePlayerDetail);
+    // The one way into a comparison. A leaderboard-row affordance may follow, which is why openPlayerComparison takes an id and asks nothing about where the click came from.
+    document.getElementById('player-compare-btn').addEventListener('click', () => openComparePicker(player));
 
     // preserveView keeps the selected rank pool/stat/breakdown state while walking a ranking, so paging through an SS pool stays an SS-pool walk.
     const prevBtn = document.getElementById('player-prev-btn');
@@ -2203,7 +2501,7 @@ function renderPlayerDetail(player) {
         rankBreakdownEl.addEventListener('toggle', () => {
             AppState.playerDetailRankBreakdownOpen = rankBreakdownEl.open;
         });
-        // Same ruling as the diagnostic console ( item 2). The chart below kept being squeezed smaller to make room for the explanation of the number above it, which is the wrong trade: the explanation pushes the chart down and the view scrolls while it is open.
+        // Same ruling as the diagnostic console. The chart below kept being squeezed smaller to make room for the explanation of the number above it, which is the wrong trade: the explanation pushes the chart down and the view scrolls while it is open.
         wirePushPanel(rankBreakdownEl, document.getElementById('player-trend-chart'));
     }
 
@@ -2278,7 +2576,7 @@ function buildWeeklyRateBasis(sport) {
     }
 
     // Coverage too thin (or the real-value basis came back empty) to trust yet. Kick off the leaderboard's existing bulk weekly-stats fetch if one isn't already running or permanently failed this session - reuses ensureLeaderboardWeeklyDataLoaded/renderPlayerLeaderboard's own lazy trigger and loading state rather than standing up a second fetch path here. This is fire-and-forget: its own completion re-renders the LEADERBOARD (not an open drill-down), so a chart opened while coverage is still thin keeps showing the fallback basis below until the user reopens it - acceptable degradation for what should be a rare, early-session window.
-    if (!bulkWeeklyFetchInFlight && !bulkWeeklyFetchFailed) ensureLeaderboardWeeklyDataLoaded(sport);
+    if (!bulkWeeklyFetchInFlight && !bulkWeeklyFetchFailed) ensureLeaderboardWeeklyDataLoaded(sport, 'basis');
 
     const categoryRates = buildCategoryRateBasis(samePool, {
         relevantStatIds, inverseStatIds, avgStatIds,
@@ -2391,30 +2689,329 @@ function buildDayAxisSeries(player, stat, tfStart, tfEnd, isWeeklyRank, isWeekly
     return { days: series, values, matchup };
 }
 
-function drawPlayerTrendChart(player, stat, weekly, maxWk) {
+
+// ==== Player comparison, the free half of: one anchor, one opponent, one view. ====
+
+// Weekly history for a player who is NOT the drill-down's subject. Same request the drill-down makes (fetchPlayerWeeklyStats, one player at a time) and the same cache it fills, so adding a comparison never introduces a request shape the pool path does not already make. What it deliberately does NOT do is touch the Diagnostic Data panel. That panel names the player whose payload it is showing, and the comparison's subject is still the anchor - repointing it at the second player would put one player's raw data under another player's name, which is the exact mismatch the panel's three-context split exists to prevent.
+async function ensureComparisonWeekly(playerId, sport) {
+    // The SAME condition openPlayerDetail uses, not merely "is anything cached". Two entries can exist without being enough: the bulk pool path caches a weekly-only entry with no dailyByPeriod, and the offline harness caches an empty one - either would have left the opponent unable to draw a Day-axis line while the anchor drew one, which is the axis mismatch guarded against in drawPlayerTrendChart.
+    const cached = AppState.playerWeeklyCache[playerId];
+    if (cached && cached.dailyByPeriod) return true;
+    try {
+        const raw = await fetchPlayerWeeklyStats(playerId);
+        AppState.playerWeeklyCache[playerId] = processPlayerWeeklyHistory(raw, sport);
+        return true;
+    } catch {
+        // Whatever was already cached stays - a matchup-axis line off the bulk data beats no line. A comparison that cannot draw the second line is still worth showing - the season table reads off the pool, which is already loaded. The chart says so itself rather than the whole view failing.
+        return false;
+    }
+}
+
+function ensureComparePickerModal() {
+    let overlay = document.getElementById('compare-modal-overlay');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'compare-modal-overlay';
+    // The rank explainer's chrome, reused rather than reproduced - same overlay, same panel, same close affordance, so the two modals in this tab cannot drift into two different dialogs.
+    overlay.className = 'rank-modal-overlay';
+    overlay.innerHTML = `
+        <div class="rank-modal-content">
+            <button type="button" class="rank-modal-close" id="compare-modal-close-btn">&times;</button>
+            <h3>Compare with</h3>
+            <div class="cmp-pick-filters">
+                <input type="text" id="compare-modal-search" class="cmp-pick-search" placeholder="Search by name">
+                <select id="compare-modal-position" class="cmp-pick-position"></select>
+            </div>
+            <div class="cmp-pick-list" id="compare-modal-list"></div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
+    overlay.querySelector('#compare-modal-close-btn').addEventListener('click', () => overlay.classList.remove('open'));
+    return overlay;
+}
+
+// The picker is scoped to the ANCHOR'S ROLE GROUP, which is what makes every pair same-basis: two batters are ranked against the same batters, two pitchers against the same pitchers. A two-way player pairs inside whichever group his drill-down was opened from, the same rule statIdsForPlayer already follows for which categories he is shown in. Ordered by the league ranking rather than alphabetically, so the top of the list is the comparison most people are reaching for; the search box is there for the one they are not. No cap on the list - it scrolls, and a silently truncated pool would make a missing player look unrostered.
+function openComparePicker(anchor) {
+    const sport = AppState.loadedSport;
+    const wantPitchers = AppState.playerGroup === 'secondary';
+    // Ranked against the WHOLE group and filtered afterwards. Ranking the anchor out of the pool first renumbers everyone below him, so the league's number two would have been offered as "#1" - a rank that is true of no list the user has ever seen. The position filter below is the same story one level down: it hides rows, it never renumbers them, so a shortstop's #14 is his rank among BATTERS rather than among shortstops - the number the rest of the tab already shows him.
+    const group = getEffectivePlayerPool(sport).filter(p => matchesPlayerGroup(p, sport, wantPitchers));
+    const ranks = computeLeagueRanks(group, sport).ranks;
+    const ordered = group.filter(p => p.id !== anchor.id)
+        .sort((a, b) => (ranks.get(a.id) || Infinity) - (ranks.get(b.id) || Infinity) || a.name.localeCompare(b.name));
+
+    const overlay = ensureComparePickerModal();
+
+    // The scoping used to be narrated here ("Batters only, so both players are measured against the same pool"). It is deleted rather than reworded: the picker only ever offers the anchor's own group, so the sentence described the list the reader was already looking at.
+    const posSel = overlay.querySelector('#compare-modal-position');
+    const positions = positionOptionsFor(ordered, sport, wantPitchers);
+    posSel.innerHTML = '<option value="ALL">All Positions</option>' +
+        positions.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+    // One position IS the whole group (hockey Goalies today), so the filter would be a control with nothing to do - the same call buildPositionFilterOptions makes on the leaderboard.
+    posSel.style.display = positions.length <= 1 ? 'none' : '';
+    posSel.value = 'ALL';
+
+    const listEl = overlay.querySelector('#compare-modal-list');
+    const rowHtml = (p) => {
+        const rank = ranks.get(p.id);
+        return `<button type="button" class="cmp-pick-row" data-player-id="${p.id}">
+            <span class="cmp-pick-name">${escapeHtml(p.name)}</span>
+            <span class="cmp-pick-meta">${escapeHtml(p.positionDisplay)} &middot; ${escapeHtml(p.teamName)}</span>
+            <span class="cmp-pick-rank">${rank ? `#${rank}` : ''}</span>
+        </button>`;
+    };
+    const draw = () => {
+        const q = search.value.trim().toLowerCase();
+        const pos = posSel.value;
+        const shown = ordered.filter(p =>
+            (!q || p.name.toLowerCase().includes(q)) &&
+            (pos === 'ALL' || p.eligiblePositions.includes(pos)));
+        listEl.innerHTML = shown.length
+            ? shown.map(rowHtml).join('')
+            : '<div class="cmp-pick-empty">No one in this group matches that.</div>';
+        listEl.querySelectorAll('.cmp-pick-row').forEach(row => {
+            row.addEventListener('click', () => {
+                overlay.classList.remove('open');
+                openPlayerComparison(Number(row.dataset.playerId));
+            });
+        });
+    };
+
+    const search = overlay.querySelector('#compare-modal-search');
+    search.value = '';
+    // Assigned rather than added, on both controls, so re-opening the picker replaces the handler instead of stacking another copy of it on the same long-lived modal element.
+    search.oninput = draw;
+    posSel.onchange = draw;
+    draw();
+    overlay.classList.add('open');
+    search.focus();
+}
+
+// Enter the comparison. The anchor is whoever the drill-down was already showing, so this only has to fetch the opponent's history and flip the view-state flag - renderPlayerDetail forks on it, so every existing re-render path (timeframe change, stat switch, the advanced-stats toggle) keeps the comparison up rather than dropping back to one player.
+export async function openPlayerComparison(otherId) {
+    const sport = AppState.loadedSport;
+    const anchor = getEffectivePlayerPool(sport).find(p => p.id === AppState.selectedPlayerId);
+    if (!anchor || otherId === anchor.id) return;
+
+    const container = document.getElementById('player-detail-container');
+    container.innerHTML = '<div class="player-loading">Loading the comparison...</div>';
+    await ensureComparisonWeekly(otherId, sport);
+
+    // Looked up after the fetch for the same reason openPlayerDetail does it: at a windowed timeframe the effective pool only admits a player once their weekly data is cached.
+    const other = getEffectivePlayerPool(sport).find(p => p.id === otherId);
+    if (!other) {
+        // Nothing to compare against in this window. Back to the anchor's own page rather than a half-built comparison, and the drill-down is where the user was one click ago anyway.
+        AppState.comparePlayerId = null;
+        renderPlayerDetail(anchor);
+        return;
+    }
+    AppState.comparePlayerId = otherId;
+    renderPlayerDetail(anchor);
+}
+
+// Leave the comparison, keep the anchor. This is what the crumb and the removable legend chip both do, and it is the reason the second player is state rather than a separate screen.
+function closePlayerComparison() {
+    const sport = AppState.loadedSport;
+    const anchor = getEffectivePlayerPool(sport).find(p => p.id === AppState.selectedPlayerId);
+    AppState.comparePlayerId = null;
+    if (anchor) renderPlayerDetail(anchor);
+    else closePlayerDetail();
+}
+
+// The 1v1. Season table on top, shared-basis trend chart underneath, and the trail across the top that says where you are - the same breadcrumb pattern My Team's drill-ins use: every earlier crumb is a destination, the tail is the title, and there is no back button.
+function renderPlayerComparison(anchor, other) {
+    const container = document.getElementById('player-detail-container');
+    const sport = AppState.loadedSport;
+    const statMap = ESPN_STAT_MAPS[sport] || {};
+    const weeklyA = (AppState.playerWeeklyCache[anchor.id] || {}).weekly || {};
+    const weeklyB = (AppState.playerWeeklyCache[other.id] || {}).weekly || {};
+    // Both players' own histories can run past the league's last defined matchup, so the effective max is the larger of all three - same reasoning as the single-player view, one more series.
+    const effectiveMaxWeek = Math.max(
+        AppState.maxCompletedWeek, 0,
+        ...Object.keys(weeklyA).map(Number), ...Object.keys(weeklyB).map(Number)
+    );
+
+    // The anchor decides which categories the table shows, because the anchor decided which group tab this pair came from. Same call the drill-down makes, so the two views never disagree about what a batter's or a pitcher's categories are.
+    const { scored, advanced } = statIdsForPlayer(anchor, sport, weeklyA);
+    const visibleIds = AppState.showAdvancedStats ? [...scored, ...advanced] : scored;
+
+    const wantPitchers = AppState.playerGroup === 'secondary';
+    const pool = getEffectivePlayerPool(sport).filter(p => matchesPlayerGroup(p, sport, wantPitchers));
+    const { rows, tally } = comparePlayerCategories(pool, anchor.id, other.id, {
+        statIds: visibleIds,
+        inverseStatIds: INVERSE_STATS[sport] || new Set(),
+        statMap
+    });
+
+    const leagueRanks = computeLeagueRanks(pool, sport);
+    const headHtml = (p, side) => {
+        const rank = leagueRanks.ranks.get(p.id);
+        const games = gamesPlayedOf(p, sport);
+        return `
+            <div class="cmp-head cmp-head-${side}">
+                ${buildPlayerAvatarHtml(sport, p.id, p.name)}
+                <div class="cmp-head-text">
+                    <div class="cmp-head-name">${escapeHtml(p.name)}${injuryBadgeHtml(p.injuryStatus)}</div>
+                    <div class="cmp-head-meta">${escapeHtml(p.teamName)} &middot; ${escapeHtml(p.positionDisplay)}</div>
+                    <div class="cmp-head-chips">
+                        ${rank ? `<span class="cmp-chip">#${rank} of ${leagueRanks.total}</span>` : '<span class="cmp-chip cmp-chip-quiet">Unranked</span>'}
+                        <span class="cmp-chip cmp-chip-quiet">${games} GP</span>
+                    </div>
+                </div>
+            </div>`;
+    };
+
+    // THE LEDGER. The mirrored percentile bars are gone. They answered a question nobody was asking - where each player sits in the pool, which the rank chip in his head already says - while burying the one being asked, which is who won this category and by how much. So the row now reads as a ledger line: the two values side by side against a centre spine, and on the spine the EDGE, arrow pointing at the winner.
+    const valHtml = (side, row, which) => {
+        if (!side) return `<span class="cmp-val cmp-val-${which} cmp-val-none" title="No value in this category for the selected timeframe">-</span>`;
+        // The loser is dimmed rather than the winner merely coloured, so the eye lands on the winning column down the whole table without every row shouting.
+        const cls = row.edge === which ? ' cmp-win' : (row.edge === 'none' ? '' : ' cmp-lose');
+        const tip = `#${side.rank} of ${side.total} - beats ${Math.round(side.percentile)}% of the pool`;
+        return `<span class="cmp-val cmp-val-${which}${cls}" title="${escapeHtml(tip)}">${formatStatValue(side.value)}</span>`;
+    };
+
+    // The signed gap, in the category's own units, formatted by the SAME formatStatValue the value columns either side of it use. It was written +.050 first, dropping the leading zero the way a batting average is written in the sport. That is correct baseball and it read wrong here anyway, because the chip sits BETWEEN two numbers that keep theirs - "0.299 +.050 0.249" puts three figures on one line in two notations, which reads as a formatting slip rather than as a convention. Two ways to make the row agree, and this is the cheaper one. The other is to drop the leading zero in the ledger's own value columns, which fixes the row but makes the ledger disagree with the leaderboard one click away - a new inconsistency in exchange for the old one. Dropping it EVERYWHERE for sub-1 rates is the coherent version and is a decision about every table in the tab, so it is filed rather than taken here.
+    const gapHtml = (row) => {
+        if (row.edge === 'none') return '<span class="cmp-edge cmp-edge-none">&mdash;</span>';
+        if (row.edge === 'tie') return '<span class="cmp-edge cmp-edge-tie">even</span>';
+        const shown = `+${formatStatValue(Math.abs(row.a.value - row.b.value))}`;
+        // The arrow points AT the winner, which means it points left when the left player won. The chip's own colour is his too, so the direction and the hue say the same thing twice - the arrow alone is four pixels of meaning at this size.
+        return row.edge === 'a'
+            ? `<span class="cmp-edge cmp-edge-a">&larr;&thinsp;${escapeHtml(shown)}</span>`
+            : `<span class="cmp-edge cmp-edge-b">${escapeHtml(shown)}&thinsp;&rarr;</span>`;
+    };
+
+    const rowsHtml = rows.map(row => `
+        <div class="cmp-row">
+            <span class="cmp-cat">${escapeHtml(row.name)}${row.inverse ? '<span class="cmp-inv" title="Lower is better">&darr;</span>' : ''}</span>
+            ${valHtml(row.a, row, 'a')}
+            ${gapHtml(row)}
+            ${valHtml(row.b, row, 'b')}
+        </div>`).join('');
+
+    // THE STRIP. The tally sentence is gone - "Freddie Freeman leads 4 categories, Pete Alonso 4, and 1 is even" spelled out a shape, and a shape is what a strip is for. Counts sit at the ends beside their own player's head, so neither number has to be labelled. Segments carry no width of their own: flex-grow is set from the counts, the same trick League History's head-to-head bar uses, so the split IS the tally and nothing computes a percentage. A zero count grows to nothing and does not appear. The empty case keeps a sentence, and deliberately: it is not a tally with nothing in it, it is the absence of one, and a strip with no segments would read as a rendering failure. It happens for real - a narrow window one of them did not play in leaves every row one-sided.
+    const compared = tally.a + tally.b + tally.tie;
+    const stripTip = `${tally.a} to ${tally.b}${tally.tie ? `, ${tally.tie} even` : ''}`;
+    const tallyHtml = compared === 0
+        ? `<div class="cmp-tally">No category has a value for both players in this timeframe, so there is nothing to compare yet. A wider timeframe usually fixes it.</div>`
+        : `<div class="cmp-strip" title="${escapeHtml(stripTip)}">
+            <span class="cmp-strip-count cmp-strip-count-a">${tally.a}</span>
+            <span class="cmp-strip-track">
+                <span class="cmp-seg cmp-seg-a" style="flex-grow:${tally.a};"></span>
+                <span class="cmp-seg cmp-seg-tie" style="flex-grow:${tally.tie};"></span>
+                <span class="cmp-seg cmp-seg-b" style="flex-grow:${tally.b};"></span>
+            </span>
+            <span class="cmp-strip-count cmp-strip-count-b">${tally.b}</span>
+        </div>`;
+
+    // Same stat picker the drill-down carries, and it drives the same chart - the comparison is the drill-down with a second line, not a second charting surface.
+    const { options: statOptions, preferred } = buildTrendStatOptions(anchor, sport, weeklyA);
+    const currentStat = statOptions.find(s => s.id === AppState.playerDetailStat) || preferred;
+    if (currentStat) AppState.playerDetailStat = currentStat.id;
+
+    container.innerHTML = `
+        <div class="cmp-crumbs">
+            <button type="button" class="mt-crumb" id="cmp-crumb-board">Leaderboard</button>
+            <span class="mt-crumb-sep">&rsaquo;</span>
+            <button type="button" class="mt-crumb" id="cmp-crumb-anchor">${escapeHtml(anchor.name)}</button>
+            <span class="mt-crumb-sep">&rsaquo;</span>
+            <span class="mt-crumb-here">vs ${escapeHtml(other.name)}</span>
+        </div>
+        <div class="cmp-heads">
+            ${headHtml(anchor, 'a')}
+            <div class="cmp-heads-sep">vs</div>
+            ${headHtml(other, 'b')}
+        </div>
+        ${tallyHtml}
+        <div class="cmp-table">${rowsHtml || '<div class="cmp-pick-empty">No scored categories to compare in this timeframe.</div>'}</div>
+        <div class="cmp-chart-tools">
+            ${statOptions.length ? `<select id="player-stat-picker">${statOptions.map(s => `<option value="${s.id}"${currentStat && s.id === currentStat.id ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select>` : ''}
+        </div>
+        <div id="player-trend-chart" class="graph-viewport" style="flex:1; min-height:220px;"></div>
+    `;
+
+    wirePlayerAvatars(container);
+    document.getElementById('cmp-crumb-board').addEventListener('click', closePlayerDetail);
+    document.getElementById('cmp-crumb-anchor').addEventListener('click', closePlayerComparison);
+
+    const picker = document.getElementById('player-stat-picker');
+    if (picker) picker.addEventListener('change', (e) => {
+        AppState.playerDetailStat = e.target.value;
+        renderPlayerComparison(anchor, other);
+    });
+
+    if (currentStat) {
+        drawPlayerTrendChart(anchor, currentStat, weeklyA, effectiveMaxWeek, { player: other, weekly: weeklyB });
+        // The legend chip is drawn by the chart (it belongs beside the lines it names), and removing it is the same exit the anchor crumb is.
+        const removeBtn = document.getElementById('cmp-legend-remove');
+        if (removeBtn) removeBtn.addEventListener('click', closePlayerComparison);
+    } else {
+        document.getElementById('player-trend-chart').innerHTML = '<div class="player-loading">No stat history available to chart.</div>';
+    }
+}
+
+// THE ZOOM. A matchup point is a door: clicking it redraws the chart over that matchup's own days, and the crumb in the header comes back out. The state is one record, keyed to the player, the stat and the timeframe it was opened under, so a different drill-down, a picker change or a timeframe move all silently close it - a zoom into matchup 9 has no meaning once the picker shows a different stat, and carrying it over would be a surprise, not a convenience. lastTrendArgs is how a click redraws: the same call renderPlayerDetail made, repeated.
+let chartZoom = null;
+let lastTrendArgs = null;
+
+function drawPlayerTrendChart(player, stat, weekly, maxWk, other = null) {
     const container = document.getElementById('player-trend-chart');
     const sport = AppState.loadedSport;
+    lastTrendArgs = { player, stat, weekly, maxWk, other };
+    if (chartZoom && (other || chartZoom.playerId !== player.id || chartZoom.statId !== stat.id || chartZoom.timeframe !== AppState.timeframe)) chartZoom = null;
 
     // weekly is already keyed by fantasy week (matchupPeriodId) and summed/averaged per stat - the day-to-week rollup happened once in processPlayerWeeklyHistory, using the league's own schedule mapping. maxWk is the EFFECTIVE max week (see renderPlayerDetail), not AppState.maxCompletedWeek directly - a league whose own matchup schedule ends well before the real season does would otherwise cut "Regular Season + Playoffs" off early and hide real weeks of this player's own data.
     const { start: tfStart, end: tfEnd } = getTimeframeBounds(AppState.timeframe, maxWk, AppState.regSeasonWeeks, AppState.currentMatchup);
     const isWeeklyRank = stat.id === WEEKLY_RANK_STAT_ID;
     const isWeeklyPoints = stat.id === WEEKLY_POINTS_STAT_ID;
 
-    // At Current, and only at Current, the axis becomes DAYS of the matchup being played. One matchup on a matchup axis is a single point, which is the "mostly straight lines" the owner reported; the same window across its own scoring periods is a real progression.
-    const dayAxis = buildDayAxisSeries(player, stat, tfStart, tfEnd, isWeeklyRank, isWeeklyPoints);
+    // At Current, and only at Current, the axis becomes DAYS of the matchup being played. One matchup on a matchup axis is a single point, which is the "mostly straight lines" the owner reported; the same window across its own scoring periods is a real progression. BOTH OR NEITHER. buildDayAxisSeries answers per player, not just per timeframe - it returns null for anyone with no day-level history cached, and for anyone who played none of the matchup's days. One player on days (x = 0, 1, 2...) beside one on matchups (x = 24) is not a shared axis at all, it is two rulers in one frame, so a comparison that cannot put both on days puts both on matchups instead. Alone, this is exactly the old behaviour. The zoom is the other way onto a day axis: any matchup, on any timeframe, once clicked. It is never offered in a comparison - two players zoomed into one matchup is a view nobody asked for, and the shared-axis rule below already has enough to reconcile.
+    const zoomDays = chartZoom ? buildZoomDaySeries(player, stat, chartZoom.matchup, isWeeklyRank, isWeeklyPoints, sport) : null;
+    if (chartZoom && !zoomDays) chartZoom = null;
+    const anchorDays = zoomDays || buildDayAxisSeries(player, stat, tfStart, tfEnd, isWeeklyRank, isWeeklyPoints);
+    const otherDays = other ? buildDayAxisSeries(other.player, stat, tfStart, tfEnd, isWeeklyRank, isWeeklyPoints) : null;
+    const useDays = other ? !!(anchorDays && otherDays) : !!anchorDays;
+    const dayAxis = useDays ? anchorDays : null;
+    const otherDayAxis = useDays ? otherDays : null;
+    const zoomed = !!(chartZoom && dayAxis);
+    // A zoomed per-pool picker plots the day SELF-scores, which are a 0-100 figure of their own and not a cumulative run of the stat - the header arithmetic below has to know.
+    const zoomSelfScore = zoomed && (isWeeklyRank || isWeeklyPoints);
 
-    const weeks = dayAxis
-        ? dayAxis.days.map(d => d.index)
-        : Object.keys(weekly).map(Number).filter(w => w >= tfStart && w <= tfEnd).sort((a, b) => a - b);
-    const weeklyRankScores = (!dayAxis && isWeeklyRank) ? computeWeeklyRankSeries(player, sport, weekly, weeks) : null;
-    const actualValues = dayAxis ? dayAxis.values : weeks.map(w => {
-        if (isWeeklyRank) return weeklyRankScores[w] ?? 0;
-        // The weekly cache keys raw stat sums by matchup, so this is the same weighted sum the rank uses, evaluated one matchup at a time.
-        if (isWeeklyPoints) return pointsForStatBucket(weekly[w]);
-        return (weekly[w] && weekly[w][stat.id]) || 0;
-    });
-    // Day N, the vocabulary the race cards already use. axisUnit stays untouched. It names matchup and week axes, and this is neither.
-    const labelFor = dayAxis ? (i) => `Day ${i + 1}` : formatMatchupLabel;
+    // Which x positions exist. Alone that is just the weeks this player has data for, exactly as before. In a comparison it is the UNION, so a matchup one of them missed still holds its place on the axis instead of the two lines being drawn on two different rulers.
+    const weeksOf = (p, weeklyP, axis) => axis
+        ? axis.days.map(d => d.index)
+        : Object.keys(weeklyP).map(Number).filter(w => w >= tfStart && w <= tfEnd).sort((a, b) => a - b);
+    const ownWeeks = weeksOf(player, weekly, dayAxis);
+    const weeks = other
+        ? [...new Set([...ownWeeks, ...weeksOf(other.player, other.weekly, otherDayAxis)])].sort((a, b) => a - b)
+        : ownWeeks;
+
+    // One player's values ON the shared axis. A position that player has no data for is null rather than 0 - a missed matchup is an absence, and drawing it as a zero would invent a bad week. A week they DID play but posted nothing in is still a real 0, which is why the check is on the week's presence in the cache rather than on the value.
+    const valuesOn = (p, weeklyP, axis, list) => {
+        if (axis) {
+            const byIndex = new Map(axis.days.map((d, i) => [d.index, axis.values[i]]));
+            return list.map(w => (byIndex.has(w) ? byIndex.get(w) : null));
+        }
+        const rankScores = isWeeklyRank ? computeWeeklyRankSeries(p, sport, weeklyP, list.filter(w => weeklyP[w])) : null;
+        return list.map(w => {
+            if (!weeklyP[w]) return null;
+            if (isWeeklyRank) return rankScores[w] ?? 0;
+            // The weekly cache keys raw stat sums by matchup, so this is the same weighted sum the rank uses, evaluated one matchup at a time.
+            if (isWeeklyPoints) return pointsForStatBucket(weeklyP[w]);
+            return weeklyP[w][stat.id] || 0;
+        });
+    };
+    const actualValues = valuesOn(player, weekly, dayAxis, weeks);
+    const otherValues = other ? valuesOn(other.player, other.weekly, otherDayAxis, weeks) : null;
+    // Every figure below - the totals, the average line, the integrity check - describes the ANCHOR, so they read the anchor's real points and ignore the holes the union may have opened. Alone there are none, which is why the numbers are unchanged for a single player.
+    const plotted = actualValues.filter(v => v !== null);
+    // Day N, the vocabulary the race cards already use. axisUnit stays untouched. It names matchup and week axes, and this is neither. On a day axis the tick is the real date when the pro schedule can supply one (MM-DD, the owner's format - item 2) and Day N until it lands; ensureScheduleDates redraws this chart itself when the answer arrives. The period behind each index is what the verdicts are keyed by.
+    const periodOfIndex = dayAxis ? new Map(dayAxis.days.map(d => [d.index, d.period])) : null;
+    if (dayAxis) ensureScheduleDates();
+    const labelFor = dayAxis ? (i) => dayChipLabel(periodOfIndex.get(i), i + 1) : formatMatchupLabel;
 
     const isRateStat = (AVERAGE_STATS[sport] || new Set()).has(stat.id);
     // At any non-full-season timeframe the drilled player comes from getEffectivePlayerPool, whose seasonTotals are the WINDOWED aggregate - so a header reading "Season Total" over them is a number wearing the wrong label. On the matchup axis the lie was self-consistent, since the matchups shown summed to exactly that windowed figure and nothing ever contradicted it; the Day axis broke the coincidence and made it visible.
@@ -2423,7 +3020,7 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
     // Per-week gap notes (missing weeks at the edges or in the middle of the range) were removed - they were mostly noise once the day-to-week mapping bug was fixed (a real bye/IL week with zero games played would still trigger one, which isn't actually a data problem). The season-total mismatch check below is kept as a real safety net. It only fires when the weeks actually shown don't add up to ESPN's own verified season total, which is a genuine sign something's missing rather than just "this player didn't play that week." The note has no meaning on the Day axis and printed three wrong numbers there. It SUMMED a cumulative series, so an HR hit once and carried forward across four days "added up to" 4, and it compared that against a windowed total labelled Season. The valid integrity check for a day series is that its last value equals the windowed aggregate - both come off the same weeklySums - but that is a different assertion needing different wording, not this.
     const gapNotes = [];
     if (!dayAxis && !isWeeklyRank && !isWeeklyPoints && !isRateStat) {
-        const plottedSum = actualValues.reduce((a, b) => a + b, 0);
+        const plottedSum = plotted.reduce((a, b) => a + b, 0);
         const seasonValue = player.seasonTotals[stat.id] || 0;
         if (Math.round(plottedSum) !== Math.round(seasonValue)) {
             gapNotes.push(`Season Total is ${formatStatValue(seasonValue)}, but the weeks shown only add up to ${formatStatValue(plottedSum)}. Some of this season's real production is missing from the weekly data above, not just from the average.`);
@@ -2436,19 +3033,19 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
     let avgVal, actualTotal, avgLabel, totalLabel;
     if (isWeeklyRank) {
         // Reference line is the mean of the exact weekly scores being plotted - NOT the season Rank score shown on the leaderboard, which is computed by a completely different formula (full-season totals with shrinkage applied) and has no consistent mathematical relationship to a single week's value. Using it here made the reference line look arbitrary and, for some players, sit above literally every plotted week with no explanation. Averaging the same numbers actually on the chart is self-consistent and matches how every other stat's reference line already works in this function.
-        avgVal = actualValues.length ? actualValues.reduce((a, b) => a + b, 0) / actualValues.length : 0;
+        avgVal = plotted.length ? plotted.reduce((a, b) => a + b, 0) / plotted.length : 0;
         actualTotal = avgVal;
         avgLabel = `Avg ${axisUnit().long} Score`;
         totalLabel = `Avg ${axisUnit().long} Score`;
     } else {
         // Rate stats (AVG, ERA, etc.) use ESPN's own verified season rate directly for the reference line - no risk of an "average of rates" computation error creeping back in. Counting stats (HR, RBI, etc.) used to divide ESPN's real season TOTAL by weeks.length (the number of weeks with cached data) - but weeks.length can undercount real weeks played when ESPN's own weekly history has a data gap (see the gap-note logic above), while the season total is still the TRUE full-season count. That mismatch inflated the average line well above the actual plotted points for any player with a gap (confirmed: HR/R/RBI reference lines sitting above literally every week's bar). Averaging the exact values being plotted instead guarantees the line can never be inconsistent with the chart it's drawn on, at the cost of not reflecting weeks missing from the cache. Points have no seasonTotals entry to read. The total is what the plotted matchups add up to, which is also the honest figure for a windowed timeframe, where a season number would contradict the chart under it. A cumulative series' LAST point is the window's total already - for a derived rate exactly as much as for a count, since aggregateDailyCumulative rebuilds each day's rate from the components accumulated through it. It equals the windowed seasonTotals by construction; reading the endpoint rather than that field keeps the figure and the line it labels provably the same number.
         let seasonValue;
-        if (isWeeklyPoints) seasonValue = +actualValues.reduce((a, b) => a + b, 0).toFixed(1);
-        else if (dayAxis) seasonValue = actualValues.length ? actualValues[actualValues.length - 1] : 0;
+        if (isWeeklyPoints) seasonValue = +plotted.reduce((a, b) => a + b, 0).toFixed(1);
+        else if (dayAxis) seasonValue = plotted.length ? plotted[plotted.length - 1] : 0;
         else seasonValue = player.seasonTotals[stat.id] || 0;
 
         actualTotal = seasonValue;
-        avgVal = (isRateStat && !isWeeklyPoints) ? seasonValue : (actualValues.length ? actualValues.reduce((a, b) => a + b, 0) / actualValues.length : 0);
+        avgVal = (isRateStat && !isWeeklyPoints) ? seasonValue : (plotted.length ? plotted.reduce((a, b) => a + b, 0) / plotted.length : 0);
         avgLabel = (isRateStat && !isWeeklyPoints)
             ? (windowed ? `Avg, ${axisUnit().plural.toLowerCase()} shown` : 'Season Avg')
             : 'Avg/Matchup';
@@ -2457,27 +3054,43 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
         else if (windowed) totalLabel = `Total, ${axisUnit().plural.toLowerCase()} shown`;
         else totalLabel = 'Season Total';
     }
-    // A horizontal mean of a monotone cumulative series is noise, and "Avg/Matchup" names an axis this chart no longer has. The Matchup Total alone is the honest header for a day series, so the reference line goes away with its figure rather than being restated as a per-day pace - which would be a fourth number to reconcile against three that are already on screen.
-    const showAvgLine = !dayAxis;
+    // A horizontal mean of a monotone cumulative series is noise, and "Avg/Matchup" names an axis this chart no longer has. The Matchup Total alone is the honest header for a day series, so the reference line goes away with its figure rather than being restated as a per-day pace - which would be a fourth number to reconcile against three that are already on screen. The self-score zoom has no total to speak of - a mean of day scores is the one figure that reads, and 50 is the player's own typical day by construction (presentDayScore).
+    if (zoomSelfScore) {
+        actualTotal = plotted.length ? plotted.reduce((a, b) => a + b, 0) / plotted.length : 0;
+        totalLabel = 'Avg Day Score';
+    }
+    const showAvgLine = !dayAxis && !other;
     if (!showAvgLine) avgVal = 0;
     const avgDisplay = (isWeeklyRank || isWeeklyPoints) ? avgVal.toFixed(1) : formatStatValue(avgVal);
     // Matchup Score's "total" and "average" are the same single number (the mean of the matchup scores) - showing both labels back to back just duplicated the same value, so only the one reference-line stat is shown for it, matching the single dashed line actually drawn.
-    const totalStatHtml = isWeeklyRank ? '' : `<div>${totalLabel}: <strong>${isWeeklyPoints ? Number(actualTotal).toFixed(1) : formatStatValue(actualTotal)}</strong></div>`;
-    // Matchup Score is our own computed stat (not an ESPN number), so it's the one chart that needs to explain itself - every other selectable stat is a familiar box-score category.
-    const matchupScoreInfo = isWeeklyRank
-        ? `<span class="hint" style="margin-left:4px;" tabindex="0" role="button" aria-label="About Matchup Score" data-hint="${escapeHtml(`Scores each ${axisUnit().long.toLowerCase()} from 0 to 100. The player's numbers in every scored category are compared against the other ranked players, and those percentiles are averaged. 50 is mid-pack.`)}">ⓘ</span>`
+    const totalStatHtml = (isWeeklyRank && !zoomSelfScore) ? '' : `<div>${totalLabel}: <strong>${zoomSelfScore ? Math.round(actualTotal) : (isWeeklyPoints ? Number(actualTotal).toFixed(1) : formatStatValue(actualTotal))}</strong></div>`;
+    // Matchup Score is our own computed stat (not an ESPN number), so it's the one chart that needs to explain itself - every other selectable stat is a familiar box-score category. A click, not a hover sentence (owner,: "I honestly still do not get it"). The explainer is a worked example off this player's own latest plotted week, so the reader sees the number being made rather than reads a description of it.
+    const matchupScoreInfo = (isWeeklyRank && !other)
+        ? `<button type="button" id="matchup-score-explainer" class="rank-explainer-trigger" aria-label="How Matchup Score is calculated">ⓘ</button>`
         : '';
     // The heading names the axis under it, so it follows the same swap the tick labels do.
     const trendLabel = dayAxis ? 'Day' : axisUnit().long;
+    // Zoomed, the heading names the matchup it is inside and the crumb is the way out. The crumb is a button because it does something; it reads as a crumb because that is what it is.
+    const zoomCrumbHtml = zoomed
+        ? `<button type="button" id="trend-zoom-back" class="trend-zoom-back">&lsaquo; All ${escapeHtml(axisUnit().plural.toLowerCase())}</button>`
+        : '';
+    const headingText = zoomed
+        ? `${escapeHtml(stat.name)} - ${escapeHtml(axisUnit().long)} ${chartZoom.matchup}, Day By Day`
+        : `${escapeHtml(stat.name)} - ${trendLabel} Trend`;
     const avgStatHtml = showAvgLine
         ? `<div style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:12px; height:2px; background:var(--chart-avg); border-top:2px dashed var(--chart-avg);"></span> ${avgLabel}: <strong>${avgDisplay}</strong></div>`
         : '';
+    // In a comparison the two names ARE the reading key, so they replace the anchor's own totals in the header row: a Season Total with no name on it beside two lines would belong to whichever player the reader assumed. The second chip carries the exit, because the place you remove a player from is the place you can see him.
+    const legendHtml = other ? `
+        <div class="cmp-legend">
+            <span class="cmp-legend-chip"><span class="cmp-swatch cmp-swatch-a"></span>${escapeHtml(player.name)}</span>
+            <span class="cmp-legend-chip"><span class="cmp-swatch cmp-swatch-b"></span>${escapeHtml(other.player.name)}<button type="button" id="cmp-legend-remove" class="cmp-legend-remove" title="Remove ${escapeHtml(other.player.name)} from the comparison">&times;</button></span>
+        </div>` : '';
     const summary = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-shrink:0;">
-            <h4 style="margin:0; font-size:14px; color:var(--text-body); display:flex; align-items:center;">${escapeHtml(stat.name)} - ${trendLabel} Trend${matchupScoreInfo}</h4>
+            <h4 style="margin:0; font-size:14px; color:var(--text-body); display:flex; align-items:center; gap:8px;">${zoomCrumbHtml}<span>${headingText}</span>${matchupScoreInfo}</h4>
             <div style="font-size:12px; color:var(--text-muted); display:flex; gap:15px; align-items:center;">
-                ${totalStatHtml}
-                ${avgStatHtml}
+                ${other ? legendHtml : `${totalStatHtml}${avgStatHtml}`}
             </div>
         </div>
         ${gapNoteHtml}
@@ -2496,7 +3109,7 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
     const svgHeight = Math.max(180, svgWrap.clientHeight || 300);
     const padding = 45;
     // Include avgVal so the reference line is always guaranteed to land inside the plotted range, never above the top gridline (possible if the weekly-fetched data is missing some games ESPN's season-total endpoint does have - see the day-level history caveats elsewhere in this file).
-    const maxVal = getNiceMax(Math.max(...actualValues, avgVal, 0));
+    const maxVal = getNiceMax(Math.max(...plotted, ...(otherValues || []).filter(v => v !== null), avgVal, 0));
     const numWeeks = weeks.length - 1;
 
     let svgStr = `<svg width="100%" height="100%" viewBox="0 0 ${svgWidth} ${svgHeight}" style="display:block;">`;
@@ -2536,11 +3149,14 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
     labelIndices.add(numWeeks);
 
     const actualPts = [];
+    const otherPts = [];
     weeks.forEach((w, i) => {
         const x = padding + (numWeeks === 0 ? 0 : (i / numWeeks) * (svgWidth - padding * 2));
-        const yAct = svgHeight - padding - (actualValues[i] / maxVal) * (svgHeight - padding * 2);
+        const yFor = (v) => svgHeight - padding - (v / maxVal) * (svgHeight - padding * 2);
 
-        actualPts.push({ x, y: yAct, week: w, value: actualValues[i] });
+        // A null is skipped rather than plotted, so the line joins the points either side of a gap. That is the same thing the single-player chart has always done with a week it has no data for - it left the week off the axis entirely - said on a shared axis instead.
+        if (actualValues[i] !== null) actualPts.push({ x, y: yFor(actualValues[i]), week: w, value: actualValues[i] });
+        if (otherValues && otherValues[i] !== null) otherPts.push({ x, y: yFor(otherValues[i]), week: w, value: otherValues[i] });
         if (labelIndices.has(i)) {
             svgStr += `<text x="${x}" y="${svgHeight - 10}" font-size="11" text-anchor="middle" style="fill:var(--chart-axis)">${labelFor(w)}</text>`;
         }
@@ -2552,19 +3168,164 @@ function drawPlayerTrendChart(player, stat, weekly, maxWk) {
         svgStr += `<line x1="${padding}" y1="${avgY}" x2="${svgWidth - padding}" y2="${avgY}" stroke-width="1.5" stroke-dasharray="6,4" style="stroke:var(--chart-avg)" />`;
     }
 
-    svgStr += `<polyline points="${actualPts.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke-width="2.5" style="stroke:var(--accent)" />`;
-    actualPts.forEach(p => {
-        // No opponent/matchup info here - a player may have been picked up by this fantasy team partway through the season, so a real matchup that week doesn't necessarily mean the player was actually rostered for it. Showing it without checking real transaction history would be misleading. Points are a scored total, not a rate. One decimal is the precision the league itself shows, and formatStatValue's three would print 26.400 for a 26.4-point matchup.
-        const displayValue = (isWeeklyRank || isWeeklyPoints) ? p.value.toFixed(1) : formatStatValue(p.value);
-        // labelFor, not axisUnit plus the raw x-value. On the Day axis those x-values are 0-BASED indexes, so the old line read "Matchup 2" over the third day - wrong noun AND off by one. labelFor is what the tick under the point already renders, so the two cannot disagree.
-        const pointLabel = dayAxis ? labelFor(p.week) : `${axisUnit().long} ${p.week}`;
-        const tooltipText = `${pointLabel}: ${escapeHtml(displayValue)} ${escapeHtml(stat.name)}`;
-        // A bigger transparent hit target on top of the small visible dot - r="4" alone is a tiny, hard-to-hover target, especially with many weeks crowded into a narrow chart.
-        svgStr += `<circle cx="${p.x}" cy="${p.y}" r="4" style="fill:var(--accent); pointer-events:none;" />`;
-        svgStr += `<circle cx="${p.x}" cy="${p.y}" r="10" fill="transparent" style="cursor:pointer;" data-tooltip="${tooltipText}" />`;
-    });
+    // ONE drawing routine, called once alone and twice in a comparison, so the two series cannot drift into different dot sizes, hit targets or tooltip wording. The colours are tokens (--compare-a / --compare-b), which is what lets each style choose its own pair; --compare-a is the accent both styles already drew this line in, so a single-player chart is unchanged. THE VERDICTS. Alone, every point wears a colour: on the matchup axis the season-best week of the plotted stat is gold, a week over the player's own median is green, under it red, at it grey (matchupVerdictInfo); on a day axis the day grammar built does the same job (dayInfoFor), with a signature day the gold. The line itself stays the accent, so the colour is a reading of each point and not a fourth series. A comparison paints nothing - two sets of verdicts in one frame would be unreadable, and the names are the key there.
+    const dayInfo = (!other && dayAxis) ? dayInfoFor(player, sport, dayAxis.days.map(d => d.period)) : null;
+    const matchupVerdicts = (!other && !dayAxis) ? matchupVerdictInfo(player, sport, weekly, stat, isWeeklyRank, isWeeklyPoints) : null;
+    const verdictOf = (p) => {
+        if (dayInfo) {
+            const v = dayInfo.byPeriod.get(periodOfIndex.get(p.week))?.verdict;
+            return v === 'signature' ? 'best' : (v === 'ordinary' ? 'even' : (v || 'even'));
+        }
+        if (matchupVerdicts) return matchupVerdicts.verdictOf(p.value);
+        return null;
+    };
+    const verdictColour = { best: 'var(--medal-gold)', above: 'var(--success)', below: 'var(--danger)', even: 'var(--text-faint)', off: 'var(--text-faint)' };
+    const drawSeries = (pts, color, name) => {
+        svgStr += `<polyline points="${pts.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke-width="2.5" style="stroke:${color}" />`;
+        pts.forEach(p => {
+            const verdict = verdictOf(p);
+            const dotColour = verdict ? verdictColour[verdict] : color;
+            // The hover on a zoomed or Current day carries what the chips used to say (C-B): the day's self-score and its notable line, after the chart's own number for the day.
+            const day = dayInfo ? dayInfo.byPeriod.get(periodOfIndex.get(p.week)) : null;
+            const dayExtra = day && day.played
+                ? [day.score !== null ? `Day score ${day.score}` : '', day.notable || day.line].filter(Boolean).join(MIDDOT_SEP)
+                : '';
+            // No opponent/matchup info here - a player may have been picked up by this fantasy team partway through the season, so a real matchup that week doesn't necessarily mean the player was actually rostered for it. Showing it without checking real transaction history would be misleading. Points are a scored total, not a rate. One decimal is the precision the league itself shows, and formatStatValue's three would print 26.400 for a 26.4-point matchup. A day self-score is already an integer by presentDayScore; one decimal on it would be the false precision that function exists to remove.
+            const displayValue = zoomSelfScore ? String(Math.round(p.value)) : ((isWeeklyRank || isWeeklyPoints) ? p.value.toFixed(1) : formatStatValue(p.value));
+            // labelFor, not axisUnit plus the raw x-value. On the Day axis those x-values are 0-BASED indexes, so the old line read "Matchup 2" over the third day - wrong noun AND off by one. labelFor is what the tick under the point already renders, so the two cannot disagree.
+            const pointLabel = dayAxis ? labelFor(p.week) : `${axisUnit().long} ${p.week}`;
+            // The name leads in a comparison, because two dots at the same x have to say whose they are before they say what they are. Alone there is nobody to confuse it with. A zoomed per-pool picker's value IS the day score, so the hover does not say it twice.
+            const figure = zoomSelfScore ? `Day score ${escapeHtml(displayValue)}` : `${escapeHtml(displayValue)} ${escapeHtml(stat.name)}`;
+            const extra = zoomSelfScore ? (day && day.played ? (day.notable || day.line) : '') : dayExtra;
+            const bestNote = verdict === 'best' && !dayInfo ? `${MIDDOT_SEP}Season best` : '';
+            const clickNote = (matchupVerdicts && !dayAxis) ? `${MIDDOT_SEP}Click for the days` : '';
+            const tooltipText = `${name ? `${escapeHtml(name)} - ` : ''}${pointLabel}: ${figure}${extra ? MIDDOT_SEP + escapeHtml(extra) : ''}${bestNote}${clickNote}`;
+            // A bigger transparent hit target on top of the small visible dot - r="4" alone is a tiny, hard-to-hover target, especially with many weeks crowded into a narrow chart. The season best wears a ring with a SURFACE halo under it. In Boxscore the line itself is gold, and a gold dot on a gold line is invisible; the halo cuts the line around the point, so the ring reads in both styles as the one point the line does not pass through.
+            if (verdict === 'best') {
+                svgStr += `<circle cx="${p.x}" cy="${p.y}" r="8.5" style="fill:var(--surface); pointer-events:none;" />`;
+                svgStr += `<circle cx="${p.x}" cy="${p.y}" r="7" fill="none" stroke-width="2" style="stroke:${dotColour}; pointer-events:none;" />`;
+            }
+            svgStr += `<circle cx="${p.x}" cy="${p.y}" r="${verdict === 'best' ? 3.5 : 4}" style="fill:${dotColour}; pointer-events:none;" />`;
+            const zoomAttr = (matchupVerdicts && !dayAxis) ? ` data-zoom-week="${p.week}"` : '';
+            svgStr += `<circle cx="${p.x}" cy="${p.y}" r="10" fill="transparent" style="cursor:pointer;" data-tooltip="${tooltipText}"${zoomAttr} />`;
+        });
+    };
+    drawSeries(actualPts, 'var(--compare-a)', other ? player.name : null);
+    if (other) drawSeries(otherPts, 'var(--compare-b)', other.player.name);
     svgStr += `</svg>`;
 
     svgWrap.innerHTML = svgStr;
     attachDataTooltips(svgWrap);
+
+    // The door in and the crumb out. Both redraw through the arguments this call was made with, so the zoomed chart is the same chart, not a second renderer.
+    const redraw = () => { if (lastTrendArgs) drawPlayerTrendChart(lastTrendArgs.player, lastTrendArgs.stat, lastTrendArgs.weekly, lastTrendArgs.maxWk, lastTrendArgs.other); };
+    svgWrap.querySelectorAll('[data-zoom-week]').forEach(el => {
+        el.addEventListener('click', () => {
+            chartZoom = { playerId: player.id, statId: stat.id, timeframe: AppState.timeframe, matchup: Number(el.dataset.zoomWeek) };
+            redraw();
+        });
+    });
+    const back = document.getElementById('trend-zoom-back');
+    if (back) back.addEventListener('click', () => { chartZoom = null; redraw(); });
+    const explain = document.getElementById('matchup-score-explainer');
+    if (explain) {
+        // The example week is the last one the chart actually plotted, so the figure in the modal is a point the reader can find on the line behind it.
+        const exampleWeek = zoomed ? chartZoom.matchup : (actualPts.length ? actualPts[actualPts.length - 1].week : null);
+        explain.addEventListener('click', () => openMatchupScoreExplainer(player, sport, weekly, exampleWeek));
+    }
+}
+
+// ==== THE MATCHUP SCORE EXPLAINER. Three steps, drawn rather than described, from one real week of the player on screen: the week's line, one percentile bar per scored category against the pool's other real weeks, and the average of those bars - which IS the score, off scoreWeekByCategory, the same rows scoreWeekAgainstBasis averages for the chart. ====
+function ensureMatchupScoreModal() {
+    let overlay = document.getElementById('matchup-modal-overlay');
+    if (overlay) return overlay;
+    overlay = document.createElement('div');
+    overlay.id = 'matchup-modal-overlay';
+    overlay.className = 'rank-modal-overlay';
+    overlay.innerHTML = `
+        <div class="rank-modal-content">
+            <button type="button" class="rank-modal-close" id="matchup-modal-close-btn">&times;</button>
+            <h3>How Matchup Score works</h3>
+            <div class="rank-modal-subtitle" id="matchup-modal-subtitle"></div>
+            <div class="rank-modal-step">
+                <div class="rank-modal-step-num">1</div>
+                <div class="rank-modal-step-body">
+                    <h4>Take the week</h4>
+                    <p>The player's line in every category the league scores.</p>
+                    <div class="rank-modal-category-list" id="matchup-modal-line"></div>
+                </div>
+            </div>
+            <div class="rank-modal-step">
+                <div class="rank-modal-step-num">2</div>
+                <div class="rank-modal-step-body">
+                    <h4>Compare each category to every other week</h4>
+                    <p id="matchup-modal-pool-note"></p>
+                    <p class="ms-bar-key">&darr; lower is better</p>
+                    <div class="ms-bars" id="matchup-modal-bars"></div>
+                </div>
+            </div>
+            <div class="rank-modal-step">
+                <div class="rank-modal-step-num">3</div>
+                <div class="rank-modal-step-body">
+                    <h4>Average the bars</h4>
+                    <div class="ms-total" id="matchup-modal-total"></div>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
+    overlay.querySelector('#matchup-modal-close-btn').addEventListener('click', () => overlay.classList.remove('open'));
+    return overlay;
+}
+
+function openMatchupScoreExplainer(player, sport, weekly, week) {
+    const overlay = ensureMatchupScoreModal();
+    const statMap = ESPN_STAT_MAPS[sport] || {};
+    const unit = axisUnit().long;
+    const wantPitchers = AppState.playerGroup === 'secondary';
+    const roleLabel = (GROUP_LABELS[sport] || GROUP_LABELS.flb)[wantPitchers ? 'secondary' : 'primary'];
+    const avgStatIds = AVERAGE_STATS[sport] || new Set();
+    const { categoryRates, perGame } = buildWeeklyRateBasis(sport);
+    const weekStats = week !== null && weekly[week] ? weekly[week] : null;
+    const games = (((AppState.playerWeeklyCache[player.id] || {}).weeklySums || {})[week] || {}).games || 0;
+    const stats = weekStats ? (perGame ? perGameCountingStats(weekStats, games, avgStatIds) : weekStats) : null;
+    const rows = stats ? scoreWeekByCategory(player, stats, categoryRates) : [];
+
+    overlay.querySelector('#matchup-modal-subtitle').textContent = weekStats
+        ? `${player.name}, ${unit} ${week}${games ? ` (${games} game${games === 1 ? '' : 's'})` : ''} - a worked example`
+        : `${player.name} - no ${unit.toLowerCase()} to work from yet`;
+
+    // Step 1: the raw line, as the box score would print it - not the per-game figure step 2 compares.
+    const lineIds = categoryRates.map(c => c.id).filter(id => weekStats && weekStats[id] !== undefined);
+    overlay.querySelector('#matchup-modal-line').innerHTML = lineIds.length
+        ? lineIds.map(id => `<span class="rank-modal-category-chip">${escapeHtml(statMap[id] || id)} ${escapeHtml(formatStatValue(weekStats[id]))}</span>`).join('')
+        : '<em>Nothing recorded.</em>';
+
+    // Step 2: one bar per category. The bar is how much of the pool's weeks this one beat; an inverse category (ERA, GAA) says so, because a small number filling a big bar needs the why.
+    const poolWeeks = categoryRates.length ? Math.max(...categoryRates.map(c => c.rates.length)) : 0;
+    overlay.querySelector('#matchup-modal-pool-note').textContent = perGame
+        ? `Against the real weeks every other ranked ${roleLabel.toLowerCase().replace(/s$/, '')} had in this timeframe (${poolWeeks} of them), per game played, so a long week and a short one are judged fairly. The bar is the share of those weeks this one beat.`
+        : `Against every other ranked ${roleLabel.toLowerCase().replace(/s$/, '')}'s typical week in this timeframe. The bar is the share of those this one beat.`;
+    overlay.querySelector('#matchup-modal-bars').innerHTML = rows.length
+        ? rows.map(r => {
+            const pct = Math.round(r.percentile);
+            const shown = perGame && !avgStatIds.has(r.id) ? `${formatStatValue(r.value)}/g` : formatStatValue(r.value);
+            return `<div class="ms-bar-row">
+                <span class="ms-bar-label">${escapeHtml(statMap[r.id] || r.id)}${r.inverse ? ' ↓' : ''}</span>
+                <span class="ms-bar-value">${escapeHtml(shown)}</span>
+                <span class="ms-bar-track"><span class="ms-bar-fill" style="width:${pct}%"></span></span>
+                <span class="ms-bar-pct">beat ${pct}%</span>
+            </div>`;
+        }).join('')
+        : '<em>No categories could be scored for this week.</em>';
+
+    // Step 3: the mean of the bars, and the fact that it is the chart's number.
+    const score = rows.length ? rows.reduce((a, r) => a + r.percentile, 0) / rows.length : null;
+    overlay.querySelector('#matchup-modal-total').innerHTML = score === null
+        ? ''
+        : `<span class="ms-total-sum">(${rows.map(r => Math.round(r.percentile)).join(' + ')}) &divide; ${rows.length}</span>
+           <span class="ms-total-eq">=</span>
+           <span class="ms-total-figure">${score.toFixed(1)}</span>
+           <span class="ms-total-note">the point on the chart. 50 is a mid-pack week; 100 beat every week in the pool.</span>`;
+    overlay.classList.add('open');
 }

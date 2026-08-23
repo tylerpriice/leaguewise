@@ -26,7 +26,7 @@ function oddsEnabled() {
     try { return localStorage.getItem('efv-odds') === 'on'; } catch { return false; }
 }
 
-// The diagnostic panel is a maintainer's tool, so it is OFF for everyone who has not asked for it ( item 9). Off means it is not on the page at all - the collapsed bar was still eating a row of a viewport the Team Metrics tab has none to spare in. Same localStorage shape as the odds preference above, and read synchronously for the same reason: the panel's visibility is decided during the first render, not after it. Turning it on mid-session is not a fresh start. The request tally it shows counts at the fetch site in api.js, so it has been running since the page opened, and switching this on shows the true numbers for the whole session rather than a count that begins when you look.
+// The diagnostic panel is a maintainer's tool, so it is OFF for everyone who has not asked for it. Off means it is not on the page at all - the collapsed bar was still eating a row of a viewport the Team Metrics tab has none to spare in. Same localStorage shape as the odds preference above, and read synchronously for the same reason: the panel's visibility is decided during the first render, not after it. Turning it on mid-session is not a fresh start. The request tally it shows counts at the fetch site in api.js, so it has been running since the page opened, and switching this on shows the true numbers for the whole session rather than a count that begins when you look.
 function setupDiagnosticPreference() {
     const box = document.getElementById('pref-diagnostic');
     if (!box) return;
@@ -42,7 +42,24 @@ function diagnosticEnabled() {
     try { return localStorage.getItem('efv-diagnostic') === 'on'; } catch { return false; }
 }
 
-// Theme is a select in the settings panel rather than a cycling button in the header. The chosen mode is stored in localStorage and re-applied synchronously by theme-init.js before the stylesheet paints, so there is no flash; "auto" removes data-theme entirely and hands control back to the prefers-color-scheme query in dashboard.css.
+// Theme is a select in the settings panel rather than a cycling button in the header. The chosen mode is stored in localStorage and re-applied synchronously by theme-init.js before the stylesheet paints, so there is no flash; "auto" removes data-theme entirely and hands control back to the prefers-color-scheme query in dashboard.css. The style select, beside the theme select and built the same way. theme-init.js has already stamped the attribute before first paint, so this only has to keep the control, the attribute and storage agreed after that - it deliberately re-applies on load anyway, so a control that somehow disagrees with the attribute loses rather than confusing the user. A display preference, so it is free forever (golden rule 9).
+function setupStylePreference() {
+    const select = document.getElementById('pref-style');
+    if (!select) return;
+    const read = () => {
+        try { return localStorage.getItem('efv-style') === 'modern' ? 'modern' : 'boxscore'; }
+        catch { return 'boxscore'; }
+    };
+    const apply = (style) => {
+        document.documentElement.setAttribute('data-style', style);
+        try { localStorage.setItem('efv-style', style); }
+        catch { /* private mode / storage disabled - the style still applies for this session */ }
+    };
+    select.value = read();
+    apply(select.value);
+    select.addEventListener('change', () => apply(select.value));
+}
+
 function setupThemeToggle() {
     const select = document.getElementById('pref-theme');
     if (!select) return;
@@ -67,7 +84,7 @@ function setupThemeToggle() {
 // Season Trends pop-out. Expands the trends chart into an in-page overlay filling the tab area, with the Data Filters content (Trend Lines + Teams legend) docked in a side rail so every control still live-updates the enlarged chart. The timeframe pills live in the always-visible tab bar above the overlay, so they stay usable without being moved. We MOVE the real chart and filter nodes (not clones) so their existing event wiring keeps working, then move them back on restore. The chart is re-rendered at the new container size via renderRightColumn (its SVG sizes to the container - see renderTrendGraph), never CSS-scaled up from the small render. Every pop-out overlay built by createPopoutController. Both overlays dock the SAME Teams legend node, so only one may be open at a time - opening one closes the others before it claims those nodes. Keeping the list here means neither controller has to know the other exists.
 const popoutControllers = [];
 
-// Shared machinery for the Season Trends (B2/) and Category Heatmap pop-outs. Both MOVE the real content and filter nodes into the overlay (never clones) so their existing event wiring keeps working, then move them back on restore - which is also why the restore order below matters: the filter groups live in the Data Filters body as [Trend Lines, Teams], and appending them in that order puts them back exactly where the static markup had them.
+// Shared machinery for the Season Trends and Category Heatmap pop-outs. Both MOVE the real content and filter nodes into the overlay (never clones) so their existing event wiring keeps working, then move them back on restore - which is also why the restore order below matters: the filter groups live in the Data Filters body as [Trend Lines, Teams], and appending them in that order puts them back exactly where the static markup had them.
 function createPopoutController({ openBtn, closeBtn, overlay, contentSlot, filtersSlot, content, contentHome, filters, filtersHome, titleFrom, onOpen, onClose }) {
     if (!openBtn || !closeBtn || !overlay || !contentSlot || !filtersSlot || !content || !contentHome || !filtersHome) return null;
     if (filters.some(f => !f)) return null;
@@ -182,6 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Theme toggle is independent of league data - wire it first so it works immediately.
     setupOddsPreference();
     setupDiagnosticPreference();
+    setupStylePreference();
     setupThemeToggle();
 
     // Season Trends and Category Heatmap pop-out overlays - wired once; their buttons live in the tab view that only appears after data loads, but the elements exist in the static markup from the start.
@@ -238,7 +256,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 3. Viewport Trigger Bindings Gear toggles the collapsed league-settings fields back open (see collapseSettingsBar) - class-based so the open/close eases via.settings-bar's transition.
     document.getElementById('settings-toggle-btn').addEventListener('click', () => {
         const collapsed = document.getElementById('settings-bar').classList.toggle('collapsed');
-        // The handle rides the rail's outer edge, so it moves with it ( redesign).
+        // The handle rides the rail's outer edge, so it moves with it.
         document.body.classList.toggle('settings-closed', collapsed);
     });
     // Deliberately no re-render here, and it stays that way. The bar is 64px of the page's height, so every view's budget changes when it moves, and the first attempt at this re-fitted My Team once the transition finished. That was worse than doing nothing. The roster overflowed for the half-second the bar was animating, then the density ladder snapped the type to a new size. Team Metrics and Player Metrics run no JS on this toggle at all, which is why they look right. Their content shrinks in CSS and the parts that cannot shrink scroll inside themselves. My Team can do exactly the same..mt-roster is flex:1 1 auto with min-height:0 and overflow-y:auto, so it takes whatever height is left and scrolls internally, no different from the leaderboard's table. The density chosen when the tab was entered stays, which is what makes the size stable instead of jumping on a control that is only meant to show a form.
@@ -264,7 +282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderRightColumn();
     });
 
-    // Both pop-outs' docked filter boxes collapse the same way ( for the heatmap, for the trends chart). Collapsing hands the height to the chart underneath, so each re-renders its own content into the taller slot - the same reason the main Data Filters toggle re-renders the columns it just resized.
+    // Both pop-outs' docked filter boxes collapse the same way. Collapsing hands the height to the chart underneath, so each re-renders its own content into the taller slot - the same reason the main Data Filters toggle re-renders the columns it just resized.
     const wireOverlayFilterToggle = (btnId, panelId, rerender) => {
         const btn = document.getElementById(btnId);
         const panel = document.getElementById(panelId);
@@ -341,7 +359,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // The panel's own <details> lazily skips serializing its payload while collapsed (see setDebugContext/renderActiveDebugContext in utils.js) - catch it up whenever it's opened, in case its active context changed in the background while it sat collapsed. Opening is also the trigger for the drill-down's on-demand diagnostic capture (see ensurePlayerDetailDiagnostic). A no-op unless a player is open with nothing captured yet.
     const debugPanel = document.getElementById('debug-panel');
-    // NO PUSH ANY MORE. B169's ruling is about TRANSIENT panels - open one, read it, close it - and it still governs the rank explanation, which still pins and still scrolls the page. The diagnostic panel is not transient: it is a setting, so once enabled it stays, and a page left permanently overflowing keeps a real viewport scrollbar in the column the utility rail needs. It is an overlay drawer now (see.debug-console), so there is nothing to push and nothing to pin - the document never grows past the viewport in the first place.
+    // NO PUSH ANY MORE. the ruling is about TRANSIENT panels - open one, read it, close it - and it still governs the rank explanation, which still pins and still scrolls the page. The diagnostic panel is not transient: it is a setting, so once enabled it stays, and a page left permanently overflowing keeps a real viewport scrollbar in the column the utility rail needs. It is an overlay drawer now (see.debug-console), so there is nothing to push and nothing to pin - the document never grows past the viewport in the first place.
     debugPanel.addEventListener('toggle', () => {
         refreshDebugPanel();
         if (debugPanel.open) ensurePlayerDetailDiagnostic();
@@ -358,7 +376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tabBtnHistory = document.getElementById('tab-btn-history');
     const viewHistory = document.getElementById('view-history');
 
-    // Each tab says here how to show itself, and the registry owns both call sites: a click on the tab button, and a league fetch committing while that tab is the one on screen ( item 6). A new tab registers alongside its siblings and is correct on a league switch for free.
+    // Each tab says here how to show itself, and the registry owns both call sites: a click on the tab button, and a league fetch committing while that tab is the one on screen. A new tab registers alongside its siblings and is correct on a league switch for free.
     registerLeagueView('team', {
         show: () => {
             setActiveDebugKind('team');
@@ -401,7 +419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         viewPlayer.style.display = name === 'player' ? 'flex' : 'none';
         viewMyTeam.style.display = isMine ? 'flex' : 'none';
         if (viewHistory) viewHistory.style.display = isHistory ? 'flex' : 'none';
-        // The one tab with no timeframe ( V1). Visibility only - the container keeps its place and its flex, so nothing in the row moves on the way in or out.
+        // The one tab with no timeframe. Visibility only - the container keeps its place and its flex, so nothing in the row moves on the way in or out.
         setTimeframeVisible(!isHistory);
         showLeagueView(name);
     }

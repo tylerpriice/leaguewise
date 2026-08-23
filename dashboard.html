@@ -20,7 +20,7 @@
                     <circle cx="21" cy="6" r="2.4" fill="var(--accent)"/>
                 </svg><span>ise</span>
             </a>
-            <!-- The matchup indicator rides the header row at the logo's height ( item 4). It had a row of its own below, which cost a band of vertical space to say six words; up here it uses the space beside a wordmark that was never going to fill the line. Hover behaviour is untouched - the dropdown still hangs off.scoreboard-hover. -->
+            <!-- The matchup indicator rides the header row at the logo's height. It had a row of its own below, which cost a band of vertical space to say six words; up here it uses the space beside a wordmark that was never going to fill the line. Hover behaviour is untouched - the dropdown still hangs off.scoreboard-hover. -->
             <div class="scoreboard-hover brand-scorecard">
                 <span id="week-indicator">&nbsp;</span>
                 <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
@@ -67,6 +67,13 @@
             <div class="settings-group">
                 <span class="settings-group-label">Display</span>
                 <div class="settings-field">
+                    <label for="pref-style">Style</label>
+                    <select id="pref-style">
+                        <option value="boxscore">Boxscore</option>
+                        <option value="modern">Modern</option>
+                    </select>
+                </div>
+                <div class="settings-field">
                     <label for="pref-theme">Theme</label>
                     <select id="pref-theme">
                         <option value="auto">Auto (match system)</option>
@@ -83,7 +90,7 @@
             </div>
         </aside>
 
-        <!-- ONE utility home ( V1). The gear used to be a lone tab on this edge and Legend, Export and Recap lived in the tab row; the row was carrying twelve interactive things and the owner called the sprawl. They are all here now, gear first, then a hairline, then the three - and the tab row keeps only tabs and timeframes. A sibling of.container's rows rather than a child of one: it is fixed to the viewport, and.form-row>div sets flex and position on any div inside that row, which stretched it to 980px the moment it lived there. -->
+        <!-- ONE utility home. The gear used to be a lone tab on this edge and Legend, Export and Recap lived in the tab row; the row was carrying twelve interactive things and the owner called the sprawl. They are all here now, gear first, then a hairline, then the three - and the tab row keeps only tabs and timeframes. A sibling of.container's rows rather than a child of one: it is fixed to the viewport, and.form-row>div sets flex and position on any div inside that row, which stretched it to 980px the moment it lived there. -->
         <div class="utility-rail">
             <button id="settings-toggle-btn" class="settings-toggle-btn utility-rail-btn"
                 title="Settings" aria-label="Settings"><span class="btn-icon">&#9881;</span><span class="btn-label">Settings</span></button>
@@ -119,7 +126,7 @@
                 <div class="layout">
                     <div class="col col-trends">
                         <div class="header-row">
-                            <h3 style="display: flex; align-items: center;"><span id="trends-box-title">Season Trends</span>
+                            <h3 style="display: flex; align-items: center;"><span id="trends-box-title" class="box-title">Season Trends</span>
                                 <span class="hint" id="trends-box-tooltip" tabindex="0" role="button" aria-label="About this chart"
                                     data-hint="Cat Wins and Match Wins over the selected timeframe. The dashed line marks the playoff start. Hover a point for the breakdown.">ⓘ</span>
                             </h3>
@@ -149,7 +156,7 @@
 
                 <div class="heatmap-band">
                     <div class="header-row">
-                        <h3 style="display: flex; align-items: center;">Category Heatmap
+                        <h3 style="display: flex; align-items: center;"><span class="box-title">Category Heatmap</span>
                             <span class="hint" tabindex="0" role="button" aria-label="About this heatmap"
                                 data-hint="Every team's total per category, shaded green for best down to red for worst. Click a category to sort by it.">ⓘ</span>
                         </h3>

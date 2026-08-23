@@ -105,7 +105,7 @@ export const RATE_COMPONENTS = {
     ]
 };
 
-// Roster slot ids that DON'T count toward standings - bench and injured reserve. A player's daily stats credit their team on a scoring period only when their lineupSlotId that day is NOT in this set ( started-day crediting, from the mRoster daily snapshots). The STARTING set is derived per league as { slot: lineupSlotCounts[slot] > 0 } minus these, so it adapts to each league's own roster construction while the bench/IR ids stay fixed per sport (ESPN's slot catalog is per-sport constant; only the counts vary by league). fhl: 7 = bench (BE), 8 = IR. CONFIRMED against the FGB 2025 daily snapshots - starting slots 3/4/5/6 (F/D/G/UTIL) fill to exactly their lineupSlotCounts caps every day with zero violations, 7/8 hold the overflow, and crediting only slots 3-6 reproduces every team's valuesByStat exactly (sum of per-category deltas = 0 across all 5 teams). flb: 16 = bench (BE), 17 = IL. CONFIRMED against a real in-progress 2026 MLB capture carrying four teams' actual current lineups (B90's validation gate). Every starting slot fills to exactly its lineupSlotCounts cap with zero overflow, all 64 starting entries carry their own lineupSlotId inside that player's eligibleSlots, and 16/17 are the only slots every one of the 83 rostered players is eligible for - the signature of bench and IL, which take anyone. The active MI/CI/UTIL/IF slots DO count.
+// Roster slot ids that DON'T count toward standings - bench and injured reserve. A player's daily stats credit their team on a scoring period only when their lineupSlotId that day is NOT in this set. The STARTING set is derived per league as { slot: lineupSlotCounts[slot] > 0 } minus these, so it adapts to each league's own roster construction while the bench/IR ids stay fixed per sport (ESPN's slot catalog is per-sport constant; only the counts vary by league). fhl: 7 = bench (BE), 8 = IR. CONFIRMED against the FGB 2025 daily snapshots - starting slots 3/4/5/6 (F/D/G/UTIL) fill to exactly their lineupSlotCounts caps every day with zero violations, 7/8 hold the overflow, and crediting only slots 3-6 reproduces every team's valuesByStat exactly (sum of per-category deltas = 0 across all 5 teams). flb: 16 = bench (BE), 17 = IL. CONFIRMED against a real in-progress 2026 MLB capture carrying four teams' actual current lineups. Every starting slot fills to exactly its lineupSlotCounts cap with zero overflow, all 64 starting entries carry their own lineupSlotId inside that player's eligibleSlots, and 16/17 are the only slots every one of the 83 rostered players is eligible for - the signature of bench and IL, which take anyone. The active MI/CI/UTIL/IF slots DO count.
 export const NON_STARTING_SLOTS = {
     flb: new Set([16, 17]),
     fhl: new Set([7, 8])
@@ -196,6 +196,8 @@ export const AppState = {
     selectedPlayerId: null,
     playerDetailStat: null,
     playerDetailRankPool: 'Overall',
+    // The second player in a 1v1 comparison, null whenever the drill-down is showing one player. It is view state rather than a mode flag: set it and the drill-down renders as a comparison, clear it and the same anchor is back on his own page.
+    comparePlayerId: null,
     playerDetailRankBreakdownOpen: false,
     playerWeeklyCache: {}
 };

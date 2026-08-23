@@ -1,4 +1,4 @@
-// League History's math ( M1). PURE - no DOM, no AppState, no fetches - for the same reason rank-engine.js is: it is the only way any of this gets a unit test, and every number here is summed across seasons where a mistake is invisible by inspection. VALIDATED against three real seasons of one league before a line was written (docs/DATA-SOURCES.md section 9). Three measurements shaped everything below: 1. primaryOwner SWID survives across seasons, team NAMES do not. One franchise read "RIP Wolves", then "Crease Crashers", then "Ice Wolves". 2. teamId is not a franchise. Slot 4 was one person in 2024-25 and a different person in 2026, so keying on it would merge two managers into one row. 3. FORMAT DRIFT: the same league was ROTO for two seasons then H2H categories. A roto season has no W-L-T and no matchups at all, so anything counting games has to know which seasons it is allowed to count and say so.
+// League History's math. PURE - no DOM, no AppState, no fetches - for the same reason rank-engine.js is: it is the only way any of this gets a unit test, and every number here is summed across seasons where a mistake is invisible by inspection. VALIDATED against three real seasons of one league before a line was written (docs/DATA-SOURCES.md section 9). Three measurements shaped everything below: 1. primaryOwner SWID survives across seasons, team NAMES do not. One franchise read "RIP Wolves", then "Crease Crashers", then "Ice Wolves". 2. teamId is not a franchise. Slot 4 was one person in 2024-25 and a different person in 2026, so keying on it would merge two managers into one row. 3. FORMAT DRIFT: the same league was ROTO for two seasons then H2H categories. A roto season has no W-L-T and no matchups at all, so anything counting games has to know which seasons it is allowed to count and say so.
 
 // ESPN writes the SWID braced and cased inconsistently between payloads, the same reason recap.js and myteam.js normalize before comparing.
 function normSwid(v) {
@@ -63,7 +63,7 @@ export function championKeyOf(payload) {
     return champion ? franchiseKeyOf(champion) : null;
 }
 
-// One season reduced to what the history view needs. Everything downstream reads these, never the raw payload, so the format branching happens once. Whether a season is OVER ( item 5). The careers block used to call the newest year live, so a league that finished in April still read "2026 is still being played" in August. The signal is ESPN's own scoring-period pair: latestScoringPeriod is how far the season has got, finalScoringPeriod is where it ends. Measured across four real league payloads - two roto seasons, a categories season and a points season - every one had latest above final, and every one was in fact complete. status.isActive is NOT the signal: it reads true on all four, including seasons two years finished. The negative case is unvalidated: no capture of a season mid-flight exists in the fixture set, so "latest below final means in progress" is read off the field names rather than off data. The fallback under it is the conservative one - a season nobody can measure is treated as settled and says nothing, which is the quiet answer rather than a wrong claim.
+// One season reduced to what the history view needs. Everything downstream reads these, never the raw payload, so the format branching happens once. Whether a season is OVER. The careers block used to call the newest year live, so a league that finished in April still read "2026 is still being played" in August. The signal is ESPN's own scoring-period pair: latestScoringPeriod is how far the season has got, finalScoringPeriod is where it ends. Measured across four real league payloads - two roto seasons, a categories season and a points season - every one had latest above final, and every one was in fact complete. status.isActive is NOT the signal: it reads true on all four, including seasons two years finished. The negative case is unvalidated: no capture of a season mid-flight exists in the fixture set, so "latest below final means in progress" is read off the field names rather than off data. The fallback under it is the conservative one - a season nobody can measure is treated as settled and says nothing, which is the quiet answer rather than a wrong claim.
 export function seasonFinished(payload) {
     const status = (payload && payload.status) || {};
     const latest = Number(status.latestScoringPeriod);
@@ -124,7 +124,7 @@ export function buildFranchises(seasons) {
             const prev = byKey.get(f.key);
             if (prev) {
                 prev.name = f.name;
-                // The latest season's abbreviation, for the same reason the name takes the latest one: a franchise that rebranded is called what it is called now ( rider).
+                // The latest season's abbreviation, for the same reason the name takes the latest one: a franchise that rebranded is called what it is called now.
                 prev.abbrev = f.abbrev;
                 prev.logo = f.logo;
                 prev.seasons.push(season.year);
@@ -179,7 +179,7 @@ export function allTimeRecords(seasons) {
     return { rows: out, countedYears };
 }
 
-// ONE W-L-T FORMATTER, used by every surface that prints a record ( item 1). The pager and the standings agreed on the numbers and still disagreed on the page: 54-9 against 54-9-0, the same record written two ways, which reads as two values. A zero tie is dropped, since that is how a record with no ties is written, and there is now exactly one place that decides.
+// ONE W-L-T FORMATTER, used by every surface that prints a record. The pager and the standings agreed on the numbers and still disagreed on the page: 54-9 against 54-9-0, the same record written two ways, which reads as two values. A zero tie is dropped, since that is how a record with no ties is written, and there is now exactly one place that decides.
 export function recordText(wins, losses, ties) {
     const w = Number(wins) || 0;
     const l = Number(losses) || 0;
@@ -193,7 +193,7 @@ export function isPostseasonGame(game) {
     return !!tier && tier !== 'NONE';
 }
 
-// Every franchise against every other, from H2H seasons only. Keyed "A|B" with A the lower key so one entry serves both directions and the grid reads either way round. REGULAR SEASON ONLY ( item 1). The pager's "against the league" line is the sum of these rows and has to be the same number the All-Time Standings show for that franchise, and the standings read ESPN's own team.record.overall. DIAGNOSED, not assumed: record.overall counts exactly the games whose playoffTierType is NONE. Checked on all 11 real captures in the fixture set - three scoring formats, 4, 6 and 20 team leagues - and it holds for every team of every one. The owner's reported case is in there: 11-9-1 in the standings against 12-10-1 in the pager, which is that franchise's two postseason games. Leagues whose schedule has no postseason tier at all never disagreed, which is the same finding from the other side. So the postseason is not dropped, it is MOVED: rivalryDetail below still counts those meetings and the card reports them under their own heading, which is the entry's rule - the pane may count more than the standings as long as it says so rather than disagreeing in silence.
+// Every franchise against every other, from H2H seasons only. Keyed "A|B" with A the lower key so one entry serves both directions and the grid reads either way round. REGULAR SEASON ONLY. The pager's "against the league" line is the sum of these rows and has to be the same number the All-Time Standings show for that franchise, and the standings read ESPN's own team.record.overall. DIAGNOSED, not assumed: record.overall counts exactly the games whose playoffTierType is NONE. Checked on all 11 real captures in the fixture set - three scoring formats, 4, 6 and 20 team leagues - and it holds for every team of every one. The owner's reported case is in there: 11-9-1 in the standings against 12-10-1 in the pager, which is that franchise's two postseason games. Leagues whose schedule has no postseason tier at all never disagreed, which is the same finding from the other side. So the postseason is not dropped, it is MOVED: rivalryDetail below still counts those meetings and the card reports them under their own heading, which is the entry's rule - the pane may count more than the standings as long as it says so rather than disagreeing in silence.
 export function headToHead(seasons, payloadsByYear) {
     const pairs = new Map();
     const entry = (aKey, bKey) => {
@@ -271,7 +271,7 @@ export function careerRate(componentTotals, spec) {
     return Number.isFinite(value) ? value * (spec.scale || 1) : null;
 }
 
-// A player's career IN THIS LEAGUE ( M4). Pure, like everything above it. VALIDATED before use, because the entry asserted it rather than measured it: ESPN player ids ARE stable across seasons. 797 ids appear in all three seasons of the measured league, and the ten whose text differs are the same person under a name variant - "Alex Wennberg" and "Alexander Wennberg", "Johnny Beecher" and "John Beecher". So the id is the identity and the NAME drifts, exactly as franchise names do, and the most recent name is the one to show. FORMAT DRIFT DOES NOT APPLY HERE, and that is the point worth stating rather than leaving implicit. A roto season's players count toward a career exactly like a head-to-head season's, because what is summed is raw components - hits, at-bats, goals, shots - and those are recorded the same way whatever the league does with them afterwards. Format decides how a season is WON, not what a player DID. This is the one part of League History that reads every season alike. Scope is players a franchise actually ROSTERED. A pool carries the whole player universe (1627 entries against 134 rostered in one measured season), and a career table of players nobody in the league ever owned is not league history.
+// A player's career IN THIS LEAGUE. Pure, like everything above it. VALIDATED before use, because the entry asserted it rather than measured it: ESPN player ids ARE stable across seasons. 797 ids appear in all three seasons of the measured league, and the ten whose text differs are the same person under a name variant - "Alex Wennberg" and "Alexander Wennberg", "Johnny Beecher" and "John Beecher". So the id is the identity and the NAME drifts, exactly as franchise names do, and the most recent name is the one to show. FORMAT DRIFT DOES NOT APPLY HERE, and that is the point worth stating rather than leaving implicit. A roto season's players count toward a career exactly like a head-to-head season's, because what is summed is raw components - hits, at-bats, goals, shots - and those are recorded the same way whatever the league does with them afterwards. Format decides how a season is WON, not what a player DID. This is the one part of League History that reads every season alike. Scope is players a franchise actually ROSTERED. A pool carries the whole player universe (1627 entries against 134 rostered in one measured season), and a career table of players nobody in the league ever owned is not league history.
 function seasonTotalsOf(entry) {
     const stats = (entry && entry.player && entry.player.stats) || [];
     // statSourceId 0 is real (not projected) and statSplitTypeId 0 is the season total. Both are required: the same player carries projections and per-period splits in the same array.
@@ -279,7 +279,7 @@ function seasonTotalsOf(entry) {
     return (block && block.stats) || null;
 }
 
-// ownersByYear is { year: Map<playerId, teamId[]> } - every franchise that held the player at any point that season, from the draft and transaction log ( item 5). Optional: without it this falls back to the pool's onTeamId, which is what the bug was.
+// ownersByYear is { year: Map<playerId, teamId[]> } - every franchise that held the player at any point that season, from the draft and transaction log. Optional: without it this falls back to the pool's onTeamId, which is what the bug was.
 export function buildCareers(poolsByYear, seasonsByYear, ownersByYear) {
     const players = new Map();
     const years = Object.keys(poolsByYear || {}).map(Number).sort((a, b) => a - b);
@@ -290,7 +290,7 @@ export function buildCareers(poolsByYear, seasonsByYear, ownersByYear) {
         const owners = (ownersByYear && ownersByYear[year]) || null;
         const franchiseOfTeam = new Map((season ? season.franchises : []).map(f => [f.teamId, f]));
         ((pool && pool.players) || []).forEach(entry => {
-            // WHO HELD HIM THAT SEASON, not who holds him now ( item 5). onTeamId is the roster as of the moment the pool was fetched, so a player dropped before that read as never having been in the league - and the bug was bigger than the missing franchise: this early return dropped his STATS and the season itself too, so a drafted-and-dropped player lost a whole year of his career. Measured on a real capture: 138 of 1039 pool entries were rostered at fetch time, so the snapshot is the exception, not the rule. The transaction log answers it properly, and the owner's ruling is that any stint counts however short. onTeamId stays as the fallback for a season whose log could not be read, which is the golden rule 8 behaviour rather than a blank column.
+            // WHO HELD HIM THAT SEASON, not who holds him now. onTeamId is the roster as of the moment the pool was fetched, so a player dropped before that read as never having been in the league - and the bug was bigger than the missing franchise: this early return dropped his STATS and the season itself too, so a drafted-and-dropped player lost a whole year of his career. Measured on a real capture: 138 of 1039 pool entries were rostered at fetch time, so the snapshot is the exception, not the rule. The transaction log answers it properly, and the owner's ruling is that any stint counts however short. onTeamId stays as the fallback for a season whose log could not be read, which is the golden rule 8 behaviour rather than a blank column.
             const entryId = entry.id || (entry.player || {}).id;
             const held = (owners && owners.get(entryId)) || [];
             const teamIds = held.length ? held : (entry.onTeamId ? [entry.onTeamId] : []);
@@ -372,7 +372,7 @@ export function sortCareers(rows, spec) {
 
 // ==== Pane arithmetic. Every sizing rule on this tab is computed from COUNTS against a constant and never from a measured element - the rule. These live here so they are unit-tested rather than reasoned about in a stylesheet. ====
 
-// THE CATEGORIES ROW PITCH ( item 3). What the bug was: the table carried height: 100%, and CSS table layout hands a table's surplus height to its ROW boxes - td { height: 16px } is a minimum there, never a cap, so nothing bounded the growth. Two seasons in a 326px table became two 154px rows, and since a cell's default vertical-align is middle, each row's text floated in the centre of its own band. That is the "header in a void with the rows glued low" the owner photographed: no margin and no space-between anywhere, just a table told to be tall. The replacement is this: the rows get a comfortable pitch computed from how many there are, the header sits directly on top of them, and whatever is left over stays left over. A budget divided by a count, clamped at both ends - no element is measured and nothing floats.
+// THE CATEGORIES ROW PITCH. What the bug was: the table carried height: 100%, and CSS table layout hands a table's surplus height to its ROW boxes - td { height: 16px } is a minimum there, never a cap, so nothing bounded the growth. Two seasons in a 326px table became two 154px rows, and since a cell's default vertical-align is middle, each row's text floated in the centre of its own band. That is the "header in a void with the rows glued low" the owner photographed: no margin and no space-between anywhere, just a table told to be tall. The replacement is this: the rows get a comfortable pitch computed from how many there are, the header sits directly on top of them, and whatever is left over stays left over. A budget divided by a count, clamped at both ends - no element is measured and nothing floats.
 export const CATEGORY_ROW_MIN = 20;
 export const CATEGORY_ROW_MAX = 34;
 // The scroll frame at 1280x800 less its heading row, measured once and held as a constant the way every other budget on this tab is. Being wrong by a few pixels costs nothing here: too small only means the rows stop growing sooner, and too large is caught by the clamp.
@@ -384,7 +384,7 @@ export function categoryRowHeight(seasonCount, budget = CATEGORY_ROWS_BUDGET) {
     return Math.min(CATEGORY_ROW_MAX, Math.max(CATEGORY_ROW_MIN, share));
 }
 
-// THE RIVALRY ( item 4). Everything the detail card says about one pair of franchises, from the payloads League History already holds - no fetch of any kind. headToHead above collapses a pair to one record because the list only needs the total; this keeps the MEETINGS, because a streak, a run and a last meeting are all questions about their order. Only seasons that count toward records contribute, for the reason the rest of this file gives: a roto season has no matchups, so it cannot host a meeting. A postseason meeting is any game whose playoffTierType is not NONE. Measured values across the fixture set: NONE, WINNERS_BRACKET, WINNERS_CONSOLATION_LADDER and LOSERS_CONSOLATION_LADDER. The consolation ladders are counted in, since they are played in the playoff weeks and are postseason games - the alternative reads "no playoff meetings" about two franchises who met in week 23.
+// THE RIVALRY. Everything the detail card says about one pair of franchises, from the payloads League History already holds - no fetch of any kind. headToHead above collapses a pair to one record because the list only needs the total; this keeps the MEETINGS, because a streak, a run and a last meeting are all questions about their order. Only seasons that count toward records contribute, for the reason the rest of this file gives: a roto season has no matchups, so it cannot host a meeting. A postseason meeting is any game whose playoffTierType is not NONE. Measured values across the fixture set: NONE, WINNERS_BRACKET, WINNERS_CONSOLATION_LADDER and LOSERS_CONSOLATION_LADDER. The consolation ladders are counted in, since they are played in the playoff weeks and are postseason games - the alternative reads "no playoff meetings" about two franchises who met in week 23.
 export function rivalryDetail(seasons, payloadsByYear, aKey, bKey) {
     const empty = {
         meetings: [], total: { w: 0, l: 0, t: 0 }, seasons: [], streak: null, longest: null,
@@ -425,7 +425,7 @@ export function rivalryDetail(seasons, payloadsByYear, aKey, bKey) {
     });
     if (!meetings.length) return empty;
 
-    // THE RECORD IS THE REGULAR SEASON, on the same basis headToHead uses and for the same reason ( item 1): the card's record has to agree with the row that opened it, and that row has to agree with the standings. Postseason meetings are counted separately and reported under their own heading, so nothing is hidden - it is just not silently folded into a number that means something narrower everywhere else.
+    // THE RECORD IS THE REGULAR SEASON, on the same basis headToHead uses and for the same reason: the card's record has to agree with the row that opened it, and that row has to agree with the standings. Postseason meetings are counted separately and reported under their own heading, so nothing is hidden - it is just not silently folded into a number that means something narrower everywhere else.
     const total = { w: 0, l: 0, t: 0 };
     const byYear = new Map();
     const playoff = { total: 0, aWins: 0, bWins: 0, ties: 0 };
@@ -441,7 +441,7 @@ export function rivalryDetail(seasons, payloadsByYear, aKey, bKey) {
         if (m.result === 'a') s.w += 1; else if (m.result === 'b') s.l += 1; else s.t += 1;
     });
 
-    // A TIE ENDS A STREAK rather than extending or reversing it, which is the reading every standings page uses: a run is consecutive wins, and a game nobody won is not one of them. THE CARD'S FACTS SPLIT BY KIND, not by one shared basis (, owner ruling). RATIO facts - the record and the season bars - stay regular-season, because they have to reconcile with the rivalry row that opened the card and with the All-Time Standings behind it ( item 1, untouched). Playoff meetings stay their own fact. SEQUENCE facts - the streak and the longest run - read EVERY meeting, alongside the last meeting which already did. A playoff win extends a run, a playoff loss breaks one, and a tie of either kind still ends it. This is the sports-page reading of "has won five straight meetings", which has never excluded the playoffs. The contradiction the old comment here worried about - "3 straight" printed beside a record showing two wins - is accepted and is now TRUE rather than avoided. The playoff-meetings fact on the same card is what explains the difference. The measured alternative was worse: the owner's card claimed a 3-game run for a franchise that had LOST inside it, in the playoffs.
+    // A TIE ENDS A STREAK rather than extending or reversing it, which is the reading every standings page uses: a run is consecutive wins, and a game nobody won is not one of them. THE CARD'S FACTS SPLIT BY KIND, not by one shared basis. RATIO facts - the record and the season bars - stay regular-season, because they have to reconcile with the rivalry row that opened the card and with the All-Time Standings behind it. Playoff meetings stay their own fact. SEQUENCE facts - the streak and the longest run - read EVERY meeting, alongside the last meeting which already did. A playoff win extends a run, a playoff loss breaks one, and a tie of either kind still ends it. This is the sports-page reading of "has won five straight meetings", which has never excluded the playoffs. The contradiction the old comment here worried about - "3 straight" printed beside a record showing two wins - is accepted and is now TRUE rather than avoided. The playoff-meetings fact on the same card is what explains the difference. The measured alternative was worse: the owner's card claimed a 3-game run for a franchise that had LOST inside it, in the playoffs.
     let streak = null;
     for (let i = meetings.length - 1; i >= 0; i--) {
         const r = meetings[i].result;
@@ -451,7 +451,7 @@ export function rivalryDetail(seasons, payloadsByYear, aKey, bKey) {
         else break;
     }
 
-    // The run carries EVERY meeting in it ( item 2), not just its ends. "Season 2026 Matchup 10 to 20" read as eleven matchups when the run was two, so the card names the actual meetings and the range form is gone. Each coordinate carries whether it was a playoff game, so the enumeration can mark it.
+    // The run carries EVERY meeting in it, not just its ends. "Season 2026 Matchup 10 to 20" read as eleven matchups when the run was two, so the card names the actual meetings and the range form is gone. Each coordinate carries whether it was a playoff game, so the enumeration can mark it.
     let longest = null;
     let run = null;
     meetings.forEach(m => {
@@ -471,12 +471,12 @@ export function rivalryDetail(seasons, payloadsByYear, aKey, bKey) {
         streak,
         longest,
         playoff,
-        // THE LAST MEETING IS THE LAST MEETING ( item 1). This one fact is about RECENCY, so it reads every meeting - a rivalry whose most recent game was a playoff win said nothing about it and named a regular-season game from five matchups earlier instead. The record, the streak and the longest run stay on the regular-season basis item 1 ruled; only this changes, and the card marks it when the meeting was a playoff game.
+        // THE LAST MEETING IS THE LAST MEETING. This one fact is about RECENCY, so it reads every meeting - a rivalry whose most recent game was a playoff win said nothing about it and named a regular-season game from five matchups earlier instead. The record, the streak and the longest run stay on the regular-season basis item 1 ruled; only this changes, and the card marks it when the meeting was a playoff game.
         last: meetings[meetings.length - 1] || null
     };
 }
 
-// THE SPLIT ( item 4). Roughly even while the list is short, list-heavy once it is long, because a 19-row list of bars needs the width more than a card of five short lines does. Computed from the opponent count against constants - never from what the rendered list turned out to need.
+// THE SPLIT. Roughly even while the list is short, list-heavy once it is long, because a 19-row list of bars needs the width more than a card of five short lines does. Computed from the opponent count against constants - never from what the rendered list turned out to need.
 export const RIVALRY_SPLIT_EVEN_MAX = 8;
 export const RIVALRY_SPLIT_HEAVY_MIN = 16;
 
@@ -488,10 +488,10 @@ export function rivalrySplit(opponentCount) {
     return 0.5 + ((n - RIVALRY_SPLIT_EVEN_MAX) / span) * 0.1;
 }
 
-// ALL FIVE FACTS, IN EVERY LEAGUE (, owner ruling). rivalryCardDepth used to decide how many of them the height afforded, and the result was a card that said different things about different leagues - streak and last meeting in the 20-team league, all five in the 4-team one. Facts behind a scrollbar beat facts that do not exist. The deepening order it computed survives only as the DISPLAY order below. There is no height lever left to pull honestly at high counts: the pane is what the standings leave ( item 4 put that back beyond argument), and the two columns are the same height by construction, so the list cannot cede any to the card. At 20 franchises the card therefore scrolls in its own frame, which is the ruled last resort rather than a compromise on which facts exist.
+// ALL FIVE FACTS, IN EVERY LEAGUE. rivalryCardDepth used to decide how many of them the height afforded, and the result was a card that said different things about different leagues - streak and last meeting in the 20-team league, all five in the 4-team one. Facts behind a scrollbar beat facts that do not exist. The deepening order it computed survives only as the DISPLAY order below. There is no height lever left to pull honestly at high counts: the pane is what the standings leave, and the two columns are the same height by construction, so the list cannot cede any to the card. At 20 franchises the card therefore scrolls in its own frame, which is the ruled last resort rather than a compromise on which facts exist.
 export const RIVALRY_CARD_SECTIONS = ['longest', 'playoff', 'titles'];
 
-// The run's meetings, named (, reformatted by item 2). A range was actively misleading: "Season 2026 Matchup 10 to 20" describes eleven matchups when the run is two wins, so the card enumerates instead. The season is restated only where the year changes, since repeating it on every number is the coordinate dump the owner did not want. one Season 2026 Matchup 10 two Season 2026 Matchup 10 and 20 three or more Season 2026 Matchup 10, 15, and 20 across seasons Season 2023 Matchup 20, Season 2024 Matchup 2, and 5 with a playoff Season 2024 Matchup 20 Playoffs, Season 2025 Matchup 1, and 2 The playoff marker rides WITHOUT a comma here, which is the one departure from the last-meeting fact's "2026 Matchup 24, Playoffs". Inside a comma-separated list that form is ambiguous - "Matchup 2, Playoffs, and 5" reads as three items, one of them called Playoffs. Noted in the entry.
+// The run's meetings, named. A range was actively misleading: "Season 2026 Matchup 10 to 20" describes eleven matchups when the run is two wins, so the card enumerates instead. The season is restated only where the year changes, since repeating it on every number is the coordinate dump the owner did not want. one Season 2026 Matchup 10 two Season 2026 Matchup 10 and 20 three or more Season 2026 Matchup 10, 15, and 20 across seasons Season 2023 Matchup 20, Season 2024 Matchup 2, and 5 with a playoff Season 2024 Matchup 20 Playoffs, Season 2025 Matchup 1, and 2 The playoff marker rides WITHOUT a comma here, which is the one departure from the last-meeting fact's "2026 Matchup 24, Playoffs". Inside a comma-separated list that form is ambiguous - "Matchup 2, Playoffs, and 5" reads as three items, one of them called Playoffs. Noted in the entry.
 export function runSpanText(run) {
     const meetings = (run && run.meetings) || [];
     if (!meetings.length) return '';
@@ -507,7 +507,7 @@ export function runSpanText(run) {
     return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
 }
 
-// The owner's own franchise, by SWID ( item 3), the way Team Metrics and My Team already open on it. A franchise key IS the normalized SWID (franchiseKeyOf above), so this is a comparison rather than a second matching rule. Returns 0 when nothing matches, which is the first franchise - a league the user is not in still opens on somebody.
+// The owner's own franchise, by SWID, the way Team Metrics and My Team already open on it. A franchise key IS the normalized SWID (franchiseKeyOf above), so this is a comparison rather than a second matching rule. Returns 0 when nothing matches, which is the first franchise - a league the user is not in still opens on somebody.
 export function defaultFranchiseIndex(franchises, swid) {
     const me = normSwid(swid);
     if (!me) return 0;
@@ -524,7 +524,7 @@ function yearPhrase(years) {
     return `${list.slice(0, -1).join(', ')}, and ${list[list.length - 1]}`;
 }
 
-// The coverage sentence under the pager ( item 6, the owner's wording with computed years). Empty when every season counts, since a line saying "all of them" is one nobody needs.
+// The coverage sentence under the pager. Empty when every season counts, since a line saying "all of them" is one nobody needs.
 export function coverageSentence(countedYears, allYears) {
     const counted = [...new Set(countedYears || [])].sort((a, b) => a - b);
     const all = [...new Set(allYears || [])].sort((a, b) => a - b);
@@ -532,4 +532,12 @@ export function coverageSentence(countedYears, allYears) {
     if (!counted.length || !others.length) return '';
     const plural = others.length > 1;
     return `Covers ${yearPhrase(counted)}. ${yearPhrase(others)} ${plural ? 'are' : 'is'} not applicable given ${plural ? 'they are' : 'it is'} not head to head.`;
+}
+
+
+// A pennant's two lines. The reference photo is a real ballclub's pennant, where the city runs small and italic above the nickname in block letters - PITTSBURGH over Pirates. A fantasy team has no city, so the split has to come from the name itself, and the rule that reads closest to the reference is that the LAST word is the nickname and whatever precedes it is the line above: "Bunt Force Trauma" hangs as BUNT FORCE over Trauma, which is the shape the reference has. A one-word name gets the nickname line only, and no empty line above it. The nickname is never the empty half for a name with any word in it, because the nickname is the part the pennant is really about - if only one line can be shown it has to be that one.
+export function pennantLines(name) {
+    const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return { top: '', nick: '' };
+    return { top: words.slice(0, -1).join(' '), nick: words[words.length - 1] };
 }

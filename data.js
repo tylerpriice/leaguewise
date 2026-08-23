@@ -1,37 +1,46 @@
 import { AppState, TEAM_COLORS } from './state.js';
 import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, collapseSettingsBar } from './controls.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand, resetRankingsViewState } from './graphs.js';
-import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData } from './players.js';
-import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat, resetLeagueViews, renderActiveLeagueView, leagueSeasonYears } from './utils.js';
+import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData, refreshOpenPlayerDetail, revalidateStalePoolIfDue } from './players.js';
+import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat, resetLeagueViews, revalidateLeagueViews, renderActiveLeagueView, leagueSeasonYears, matchupTally, matchupPoints, readsAsPlayedMatchup, matchupCatsForSide, matchResultOf } from './utils.js';
 
 // ESPN's own game ids, the authoritative statement of what sport a payload IS. Only the two this app supports are mapped; anything else falls back to the form (see AppState.loadedSport).
 const GAME_ID_SPORTS = { 2: 'flb', 4: 'fhl' };
 
-// Every real caller is a genuine new league/year/sport fetch (api.js) - there's no lighter "re-render without resetting" call anywhere in the project, so this always resets.
-export function processCoreData() {
+// Publishes the loaded sport to CSS, which is how the Boxscore theme picks its shapes - the ballpark set for baseball, the rink set for hockey. It is the LEAGUE's answer and never a user choice, which is why it is stamped here rather than wired to a control. Before any league loads the attribute is absent and Boxscore shows the baseball set, since light baseball is the look the store listings shoot.
+function setSportAttribute() {
+    document.documentElement.setAttribute('data-sport', AppState.loadedSport);
+}
+
+// Two callers, and the difference between them is the whole of. A FETCH is a genuine new league/year/sport, and everything a previous league left behind is wrong for it - so it resets the pool, the caches, the selection and every tab's own state. A REVALIDATE is the SAME league re-read a few seconds later because the dashboard was opened against a cached payload (see revalidateLeagueData in api.js). Nothing about the league changed except its numbers, so resetting would be the bug: it would drop a loaded player pool, close an open drill-down or comparison, un-hide a team the user hid, and snap the timeframe back to its default - all to show a score that moved by two. The recompute below and the re-render at the bottom are exactly what a revalidate wants; the resets are exactly what it does not.
+export function processCoreData({ revalidate = false } = {}) {
     if (!AppState.apiData) return;
     document.getElementById('results').style.display = 'flex';
-    // Data's in - tuck the one-time setup fields away behind the gear button.
-    collapseSettingsBar();
+    // Data's in - tuck the one-time setup fields away behind the gear button. Not on a revalidate: the bar may be open because the user just opened it, and a background refresh closing a panel under someone's cursor is the kind of thing that reads as a bug in the app rather than a refresh.
+    if (!revalidate) collapseSettingsBar();
 
     // FIRST, because everything below it (normalizePlayerViewStateForLeague especially) describes the league now loading and must read its sport from here rather than from the form. gameId is the payload's own answer, so a restored session and a fresh fetch agree, and the dropdown is only the fallback for a payload that somehow carries no gameId.
     AppState.loadedSport = GAME_ID_SPORTS[AppState.apiData.gameId]
         || document.getElementById('sport').value
         || 'flb';
+    setSportAttribute();
 
-    // A fresh league/year/sport fetch invalidates any previously loaded player pool - it'll be lazily re-fetched next time the Player Metrics tab is opened.
-    AppState.playerData = [];
-    AppState.playerDataLoaded = false;
-    // A previous league's pool failure says nothing about this one, and the user may have logged in since.
-    AppState.playerDataError = null;
-    AppState.playerWeeklyCache = {};
-    AppState.selectedPlayerId = null;
-    // A failed bulk weekly-stats fetch (see ensureLeaderboardWeeklyDataLoaded in players.js) from a previous league/season shouldn't permanently block this new one from trying.
-    resetLeaderboardWeeklyFetchState();
-    // Rankings box view position is not data. The viewed category and any sections flipped to a pie both belong to the league that was on screen, so a new league starts from its own first category with every section back on bars (B79/).
-    resetRankingsViewState();
-    // Every tab that keeps per-league state, cleared in one call ( item 6). Each tab registers its own reset in its own file, so this call site never needs editing when a tab is added - which is what went wrong three times, most recently when League History shipped without one.
-    resetLeagueViews();
+    if (!revalidate) {
+        // A fresh league/year/sport fetch invalidates any previously loaded player pool - it'll be lazily re-fetched next time the Player Metrics tab is opened.
+        AppState.playerData = [];
+        AppState.playerDataLoaded = false;
+        // A previous league's pool failure says nothing about this one, and the user may have logged in since.
+        AppState.playerDataError = null;
+        AppState.playerWeeklyCache = {};
+        AppState.selectedPlayerId = null;
+        AppState.comparePlayerId = null;
+        // A failed bulk weekly-stats fetch (see ensureLeaderboardWeeklyDataLoaded in players.js) from a previous league/season shouldn't permanently block this new one from trying.
+        resetLeaderboardWeeklyFetchState();
+        // Rankings box view position is not data. The viewed category and any sections flipped to a pie both belong to the league that was on screen, so a new league starts from its own first category with every section back on bars.
+        resetRankingsViewState();
+        // Every tab that keeps per-league state, cleared in one call. Each tab registers its own reset in its own file, so this call site never needs editing when a tab is added - which is what went wrong three times, most recently when League History shipped without one.
+        resetLeagueViews();
+    }
     // A stale AppState.timeframe selection from a previous season (e.g. "reg", forced by a playoff-less season) would otherwise silently carry over and hide postseason data on this fetch - handled by rebuildTimeframeOptions(true) below, which forces the correct default once this season's own hasPlayoffs is known. (The Bar/Pie dropdown that used to be reset alongside it is gone - pies live behind each section's own arrow now, and resetRankingsViewState above clears those.)
 
     const data = AppState.apiData;
@@ -58,6 +67,7 @@ export function processCoreData() {
                 champGame = game;
             }
         }
+        // ROLLUP ON PURPOSE, not the live tally. This asks "has this matchup put a score on the board", and the live block exists from the moment a matchup opens - reading it here would count today's barely-started matchup as completed and drag maxCompletedWeek forward a week. The live number belongs where the score is SHOWN, not where the schedule is read.
         if (game.home && (game.home.totalPoints > 0 || game.home.cumulativeScore?.wins > 0 || game.winner !== "UNDECIDED")) {
             if (game.matchupPeriodId > AppState.maxCompletedWeek) AppState.maxCompletedWeek = game.matchupPeriodId;
         }
@@ -88,7 +98,7 @@ export function processCoreData() {
     AppState.isPointsLeague = scoringType
         ? scoringType === 'H2H_POINTS'
         : teams.some(t => t.record?.overall?.pointsFor > 0);
-    // Season-long roto accumulates over the whole season with no weekly matchups, so the matchup-based half of Team Metrics has nothing to stand on - it gets its own views built from ESPN's own season standings numbers instead (B31-FULL).
+    // Season-long roto accumulates over the whole season with no weekly matchups, so the matchup-based half of Team Metrics has nothing to stand on - it gets its own views built from ESPN's own season standings numbers instead.
     AppState.isRotoLeague = scoringType === 'ROTO';
 
     let championTeamId = null;
@@ -128,7 +138,8 @@ export function processCoreData() {
     AppState.availableStatsSet.clear();
 
     teams.forEach(t => {
-        AppState.visibleTeams.add(t.id);
+        // NOT on a revalidate: this line is how a fresh league starts with every team shown, and on a background refresh it would quietly re-check a team the user had unticked in the Teams filter. Hiding a team is a view choice about a league, and the league has not changed.
+        if (!revalidate) AppState.visibleTeams.add(t.id);
         teamDataMap[t.id] = {
             id: t.id,
             name: t.name || `${t.location} ${t.nickname}`,
@@ -141,7 +152,7 @@ export function processCoreData() {
             weeklyTier: {},
             // Weeks this team sat out: a playoff BYE. Not a game, so it belongs in no W-L-T record, but the team still played real games that week and its points still count.
             weeklyBye: {},
-            // Roto standings, straight off the payload and never recomputed (B31-FULL). ESPN owns this math including its own tie handling, which is why per-category points arrive as halves when teams tie a category. Verified on both FGB captures. sum(pointsByStat) equals points exactly, and the scored ids with nonzero points are exactly the league's scoringItems ids. Empty objects for every non-roto league, which never reads them.
+            // Roto standings, straight off the payload and never recomputed. ESPN owns this math including its own tie handling, which is why per-category points arrive as halves when teams tie a category. Verified on both FGB captures. sum(pointsByStat) equals points exactly, and the scored ids with nonzero points are exactly the league's scoringItems ids. Empty objects for every non-roto league, which never reads them.
             rotoPoints: statValue(t.points) || 0,
             rotoPointsByStat: unwrapStats(t.pointsByStat || {}),
             rotoRank: t.rankCalculatedFinal ?? null
@@ -167,7 +178,8 @@ export function processCoreData() {
 
     schedule.forEach(game => {
         const week = game.matchupPeriodId;
-        if (week > AppState.maxCompletedWeek) return;
+        // THE LIVE MATCHUP IS READABLE TOO. This used to stop at maxCompletedWeek, which by design does not advance until a matchup has a result on the board - so on the first morning of a matchup the game being played right now was skipped, weeklyCats never got a row for it, and the Current timeframe had nothing to aggregate and drew 0-0 while the header showed the real live standing off the same schedule. See readsAsPlayedMatchup for why this is two numbers rather than a looser one.
+        if (!readsAsPlayedMatchup(week, AppState.maxCompletedWeek, AppState.currentMatchup)) return;
 
         ['home', 'away'].forEach(side => {
             if (game[side] && teamDataMap[game[side].teamId]) {
@@ -185,23 +197,25 @@ export function processCoreData() {
                 const isBye = !game.home || !game.away;
                 if (isBye) teamDataMap[tId].weeklyBye[week] = true;
 
+                // A RESULT EXISTS ONLY WHEN THE WINNER DOES. This loop admits the LIVE matchup so Current can read it, and its winner is UNDECIDED - but the result encoding is 1/0.5/0, where 0 means "lost", so writing it for a live game booked a loss for BOTH sides and every team read one loss high (the owner measured it). matchResultOf answers null until the winner exists, every record reader already skips a week with no entry, and the category tallies and points below keep flowing so the live views stay live.
+                const result = matchResultOf(game, side);
+
                 if (AppState.isPointsLeague) {
-                    teamDataMap[tId].weeklyMatchWins[week] = game[side].totalPoints || 0;
+                    teamDataMap[tId].weeklyMatchWins[week] = matchupPoints(game[side]);
                     // A points-league week still has a real winner - the higher-scoring side. Record that 1/0.5/0 result separately from the points total (which weeklyMatchWins holds so the Season Trends chart can plot a Points line), so the standings can show a genuine Match Wins record ALONGSIDE Points For instead of relabeling the points total as "match wins".
-                    if (!isBye) {
-                        let pWin = (game.winner === side.toUpperCase()) ? 1 : 0;
-                        if (game.winner === "TIE") pWin = 0.5;
-                        teamDataMap[tId].weeklyMatchResult[week] = pWin;
+                    if (!isBye && result !== null) {
+                        teamDataMap[tId].weeklyMatchResult[week] = result;
                     }
                 } else {
                     if (!isBye) {
-                        let mWin = (game.winner === side.toUpperCase()) ? 1 : 0;
-                        if (game.winner === "TIE") mWin = 0.5;
-                        teamDataMap[tId].weeklyMatchWins[week] = mWin;
+                        if (result !== null) {
+                            teamDataMap[tId].weeklyMatchWins[week] = result;
+                        }
 
-                        // Category wins are wins against an OPPONENT, so a bye has none to record. Writing a 0 here would read as losing every category that week.
-                        const cWins = game[side].cumulativeScore?.wins || 0;
-                        const cTies = game[side].cumulativeScore?.ties || 0;
+                        // Category wins are wins against an OPPONENT, so a bye has none to record. Writing a 0 here would read as losing every category that week. Live matchups DO write here on purpose: the running category total is a live surface, not a record.
+                        const tally = matchupTally(game[side]);
+                        const cWins = tally?.wins || 0;
+                        const cTies = tally?.ties || 0;
                         teamDataMap[tId].weeklyCatWins[week] = cWins + (cTies * 0.5);
                     }
                 }
@@ -213,12 +227,8 @@ export function processCoreData() {
                         boxStats[s.statId.toString()] = numericStat(firstDefined(s.appliedTotal, s.value));
                     });
                 } else {
-                    const statsObj = game[side].cumulativeScore?.scoreByStat || game[side].cumulativeScore?.statBySlot || {};
-                    for (let key in statsObj) {
-                        const statData = statsObj[key];
-                        const sId = statData.statId !== undefined ? statData.statId.toString() : key;
-                        boxStats[sId] = numericStat(firstDefined(statData.score, statData.value));
-                    }
+                    // Off the same block the tally came from, so the category rows and the W-L-T over them can never describe two different days - and through the same pure helper the suite asserts the header against, so Current and the header cannot disagree about a live matchup.
+                    Object.assign(boxStats, matchupCatsForSide(game[side]));
                 }
 
                 for (let sId in boxStats) {
@@ -249,17 +259,19 @@ export function processCoreData() {
             let hValue = 0, aValue = 0, homeScoreStr = '', awayScoreStr = '';
 
             if (AppState.isPointsLeague) {
-                hValue = g.home.totalPoints || 0;
-                aValue = g.away.totalPoints || 0;
+                hValue = matchupPoints(g.home);
+                aValue = matchupPoints(g.away);
                 homeScoreStr = hValue.toFixed(1);
                 awayScoreStr = aValue.toFixed(1);
             } else {
-                hValue = g.home.cumulativeScore?.wins || 0;
-                aValue = g.away.cumulativeScore?.wins || 0;
-                const hTies = g.home.cumulativeScore?.ties || 0;
-                const hLosses = g.home.cumulativeScore?.losses || 0;
-                const aTies = g.away.cumulativeScore?.ties || 0;
-                const aLosses = g.away.cumulativeScore?.losses || 0;
+                const hTally = matchupTally(g.home);
+                const aTally = matchupTally(g.away);
+                hValue = hTally?.wins || 0;
+                aValue = aTally?.wins || 0;
+                const hTies = hTally?.ties || 0;
+                const hLosses = hTally?.losses || 0;
+                const aTies = aTally?.ties || 0;
+                const aLosses = aTally?.losses || 0;
                 homeScoreStr = `${hValue}-${hLosses}-${hTies}`;
                 awayScoreStr = `${aValue}-${aLosses}-${aTies}`;
             }
@@ -294,7 +306,7 @@ export function processCoreData() {
     const scoreboardDropdown = document.getElementById('scoreboard-dropdown');
 
     if (weekIndicator && scoreboardDropdown) {
-        // Roto has no matchup periods and no live scoreboard behind them - the payload carries a single undecided placeholder entry - so this whole control stands down rather than reading "Week 1 | 0 Matchups" forever (B31-FULL).
+        // Roto has no matchup periods and no live scoreboard behind them - the payload carries a single undecided placeholder entry - so this whole control stands down rather than reading "Week 1 | 0 Matchups" forever.
         weekIndicator.style.display = AppState.isRotoLeague ? 'none' : '';
         // "Matchup", not "Week". currentWeek here IS status.currentMatchupPeriod, and this indicator sits on the same screen as graphs whose axes read M. It only ever renders for matchup leagues (hidden for roto just above), so the unit is theirs by construction.
         weekIndicator.innerHTML = `${axisUnit().long} ${currentWeek} <span style="color:#ccc; margin: 0 4px;">|</span> ${activeMatchups} Matchups ▾`;
@@ -319,7 +331,7 @@ export function processCoreData() {
     const apiSeasonId = data.seasonId || currentYearVal;
     const thisRealYear = new Date().getFullYear();
 
-    // Through the shared rule, so this list and the History tab's can never disagree again - they derived the same set separately and one of them was missing a term ( item 3).
+    // Through the shared rule, so this list and the History tab's can never disagree again - they derived the same set separately and one of them was missing a term.
     let availableYears = new Set([currentYearVal, ...leagueSeasonYears(AppState.leagueHistoryYears, apiSeasonId, thisRealYear)]);
 
     const sortedYears = Array.from(availableYears).sort((a, b) => b - a);
@@ -332,7 +344,8 @@ export function processCoreData() {
         yearSelect.appendChild(opt);
     });
 
-    rebuildTimeframeOptions(true);
+    // FORCE the default only on a fetch. The flag exists because a new season may not have the span the old selection named; a revalidate is the same season, so the user's own selection is still valid and rebuilding it with force would throw away a windowed timeframe they chose.
+    rebuildTimeframeOptions(!revalidate);
     renderCategoryAdvancedToggle();
     buildLegend();
 
@@ -341,6 +354,22 @@ export function processCoreData() {
     renderHeatmapBand();
     // And whichever tab is actually on screen, for the same reason the Team Metrics boxes re-render here. A fetch committed while another tab is showing otherwise leaves the PREVIOUS league sitting there - the stale-view rule, which had to be applied by hand to the third tab and was then missed on the fourth. The registry answers it for every tab at once, including ones that do not exist yet. Team Metrics is already drawn by the three calls above, so its own entry re-runs them; that is cheap and keeps the rule with no exceptions to remember.
     renderActiveLeagueView();
+
+    // An open drill-down or comparison is not redrawn by the registry - the player view's show() deliberately leaves it alone (see registerLeagueView('player') in main.js) - so a revalidate asks it to redraw itself. The pool behind it did not change, but the league's own bounds did: maxCompletedWeek and currentMatchup are what the chart's axis and the Current window are built from, and those are exactly the numbers a revalidate exists to move.
+    if (revalidate) {
+        if (AppState.selectedPlayerId !== null) refreshOpenPlayerDetail();
+        // THE REST OF THE LIVE FAMILY, now demand-consumed. The pool carries GS and every season stat line, and refetching its ~5s body on every open was a fixed cost paid whether or not anyone read a pool number. The revalidate FLAGS it stale instead; the first pool-showing surface to render consumes the flag and refetches stale-while-revalidate (revalidateStalePoolIfDue in players.js). When one is on screen RIGHT NOW, it consumes immediately below - so a visible surface waits for nothing and the contract holds at every moment someone is actually looking. Deliberately NOT re-harvested here: the weekly stat history, the roster snapshots and the transaction log. Those are many chunked requests each, they are already served fresh at the HTTP layer, and re-running them on every dashboard open is a traffic change that belongs to the efficiency review rather than to a staleness fix.
+        AppState.playerPoolStale = true;
+        const visible = (id) => {
+            const el = document.getElementById(id);
+            return el && el.style.display !== 'none';
+        };
+        const poolOnScreen = visible('view-player') || visible('view-myteam')
+            || (visible('view-team') && AppState.isRotoLeague);
+        if (poolOnScreen) revalidateStalePoolIfDue();
+        revalidateLeagueViews();
+        return;
+    }
 
     // Start pulling the (big, ~5s) Player Metrics pool in the background right away, so the tab opens near-instantly when it's eventually clicked - see prefetchPlayerData.
     prefetchPlayerData();

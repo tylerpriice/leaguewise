@@ -1,6 +1,6 @@
 import { AppState, AVERAGE_STATS, INVERSE_STATS, ESPN_STAT_MAPS } from './state.js';
-import { getZoomedFillPct, getTimeframeBounds, getNiceMax, getWeekTier, tierColor, splitByTier, escapeHtml, attachDataTooltips, percentileColor, orderStatIdsByRole, splitStatIdsByRole, statValue, layoutHoverTooltip, categoryCycleList, categoryHeaderLabel, axisUnit, parseTimeframe } from './utils.js';
-import { buildRotoRaceSeries, ensureWeeklyDataForRace, weeklyDataFailed, ensureRosterTransactionData, ensureRosterSnapshotData, activeRotoWindow, computeRotoWindow, rotoCategorySeries, rotoCategoryDailySeries } from './players.js';
+import { getZoomedFillPct, getTimeframeBounds, getNiceMax, getWeekTier, tierColor, splitByTier, escapeHtml, attachDataTooltips, percentileVar, orderStatIdsByRole, splitStatIdsByRole, statValue, layoutHoverTooltip, categoryCycleList, categoryHeaderLabel, axisUnit, parseTimeframe, matchupPoints } from './utils.js';
+import { buildRotoRaceSeries, ensureWeeklyDataForRace, weeklyDataFailed, ensureRosterTransactionData, ensureRosterSnapshotData, activeRotoWindow, computeRotoWindow, rotoCategorySeries, rotoCategoryDailySeries, teamCategorySeries, revalidateStalePoolIfDue } from './players.js';
 
 const TIER_LABELS = { reg: 'Regular Season', playoff: 'Playoffs', consolation: 'Consolation' };
 
@@ -20,7 +20,7 @@ function rowGapFor(pitch) {
     return pitch < STD_PITCH_TINY ? 1 : STD_ROW_GAP;
 }
 
-// The league's STANDARD separation between bars, in px, published by the standings ladder and adopted by the category rows (owner, follow-up: "where possible the gaps should be standardized... for example between team rankings and category rankings. If the available space does not permit then smaller ones can be used"). The standings ladder is the publisher because it is always the denser of the two - it draws two sections of the league where the category tab draws one - so the rhythm it can afford is a rhythm the category tab can afford too, and matching it costs the category only race height rather than costing the standings a fit. Direction matters and was decided by measurement, not taste. In the 6-team fixture the standings box is nearly full at its natural 6px rhythm (17px of slack in a 390px box), so standardizing DOWNWARD to the category's 2px would have left ~57px of the box hollow, while standardizing upward costs that league's race 20px of a 142px band. Filling the box wins. Null until a VISIBLE standings render measures one. A hidden container has no height, and a gap read off it would be the 1px famine value applied to every league. { gap, pitch, rows } - the last standings ladder's rhythm, its row height, and how many rows it had to place. The gap is adopted unconditionally; the PITCH is adopted only when the category tab is placing the same number of rows ( follow-up 2, owner: "This Matchup... both pages display the same amount of bar graphs while one is smaller vertically than the other"). Row count is the qualifier because it is what makes the two comparable. In the season view the standings ladder places two sections of the league against the category tab's one, so identical row heights there would mean the category leaving most of its box empty for no reason.
+// The league's STANDARD separation between bars, in px, published by the standings ladder and adopted by the category rows (owner, follow-up: "where possible the gaps should be standardized... for example between team rankings and category rankings. If the available space does not permit then smaller ones can be used"). The standings ladder is the publisher because it is always the denser of the two - it draws two sections of the league where the category tab draws one - so the rhythm it can afford is a rhythm the category tab can afford too, and matching it costs the category only race height rather than costing the standings a fit. Direction matters and was decided by measurement, not taste. In the 6-team fixture the standings box is nearly full at its natural 6px rhythm (17px of slack in a 390px box), so standardizing DOWNWARD to the category's 2px would have left ~57px of the box hollow, while standardizing upward costs that league's race 20px of a 142px band. Filling the box wins. Null until a VISIBLE standings render measures one. A hidden container has no height, and a gap read off it would be the 1px famine value applied to every league. { gap, pitch, rows } - the last standings ladder's rhythm, its row height, and how many rows it had to place. The gap is adopted unconditionally; the PITCH is adopted only when the category tab is placing the same number of rows. Row count is the qualifier because it is what makes the two comparable. In the season view the standings ladder places two sections of the league against the category tab's one, so identical row heights there would mean the category leaving most of its box empty for no reason.
 let leagueLadder = null;
 // What an UNFITTED standings ladder shows, straight from `.bar-row-group { margin-bottom }`. Only the two views' render order makes this necessary. The Rankings box renders one view at a time, so a league whose category tab is drawn before its standings tab has nothing published yet. Defaulting to the roomy rhythm rather than the fitted one is the right guess, because the fitted rhythm only happens in leagues dense enough that the standings tab has to be visited to get there. Keep in sync with that CSS rule.
 const STD_NATURAL_GAP = 6;
@@ -67,9 +67,9 @@ function buildBlockHeaderHtml(title, trailing = '') {
         </div>`;
 }
 
-// Shared "nothing to show" placeholder - used wherever a graph box has no content to render because of the user's own current filter selection (no metric toggled on, no category checked, every team hidden), rather than a real data problem.
+// Shared "nothing to show" placeholder - used wherever a graph box has no content to render because of the user's own current filter selection (no metric toggled on, no category checked, every team hidden), rather than a real data problem. A CLASS rather than an inline style. The styles here were identical, but an inline style cannot be overridden by a style sheet without !important, so the empty state was the one surface neither theme could dress. Nothing about how it looks under Modern changed.
 function buildEmptyStateHtml(message) {
-    return `<div style="color: var(--text-subtle); text-align: center; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 14px;">${message}</div>`;
+    return `<div class="empty-state">${message}</div>`;
 }
 
 // One team's row in a bar-comparison block - shared by renderSingleWeekBars (single-matchup Category Wins/Match Wins) and renderCategoryGraph (Category Rankings), which differ only in how they compute val/split/formatVal for their rows, not in how a row itself is built.
@@ -82,7 +82,7 @@ function buildComparisonBarRowHtml({ name, abbrev, val, color, minVal, maxVal, l
     const segments = buildBarSegments(split, color, overallTooltip, formatVal, forceSolid);
 
     return `
-        <div class="bar-row">
+        <div class="bar-row${isLeader ? ' is-leader' : ''}">
             ${buildBarTitleHtml(name, abbrev)}
             <div class="bar-track">
                 <div class="bar-fill" style="width:${fillPct}%;">
@@ -94,11 +94,17 @@ function buildComparisonBarRowHtml({ name, abbrev, val, color, minVal, maxVal, l
     `;
 }
 
-// The row's team label. Both the full name and the league's own abbreviation ship in the markup and CSS picks one (see.cat-2col), the same trick the matchup cards use. The two-column layout is decided per render, and carrying both means the choice costs no rebuild. The abbreviation is a real short name rather than an ellipsized long one, which is what makes a half-width row still say WHO; the full name stays on the title tooltip either way. Falls back to the full name when the league never set an abbreviation.
+// The row's team label. Both the full name and the league's own abbreviation ship in the markup and CSS picks one (see.cat-2col), the same trick the matchup cards use. The two-column layout is decided per render, and carrying both means the choice costs no rebuild. The abbreviation is a real short name rather than an ellipsized long one, which is what makes a half-width row still say WHO; the full name stays on the title tooltip either way. Falls back to the full name when the league never set an abbreviation. The champion's crown, which processCoreData appends to the team's NAME STRING rather than to any one view (see the championTeamId block in data.js), so it travels into the legend, the exports and every tooltip that prints a team name. That is Modern's mechanism and it stays exactly as it is. What this does is split the trailing glyph into its own span so a STYLE can have an opinion about it. Modern renders the same character in the same place, so its output is unchanged to the pixel; Boxscore hides the span and draws its own gold crown instead, because a colour emoji is the one thing a gold-on-navy band cannot take - which is the whole reason the crown was drawn as a mask in the first place. Splitting it here rather than in data.js is what keeps the change inside the renderer: the name string every other surface reads is untouched.
+const NAME_CROWN = ' \u{1F451}';
+
 function buildBarTitleHtml(name, abbrev) {
     const short = abbrev || name;
+    const crowned = name.endsWith(NAME_CROWN);
+    const bare = crowned ? name.slice(0, -NAME_CROWN.length) : name;
+    const crownHtml = crowned ? `<span class="bar-title-crown">${NAME_CROWN}</span>` : '';
+    // The tooltip keeps the whole name, crown included - it is the string the rest of the app uses, and a tooltip that disagreed with the legend would be a worse bug than the one this fixes.
     return `<span class="bar-title" title="${escapeHtml(name)}"
-        ><span class="bar-title-full">${escapeHtml(name)}</span
+        ><span class="bar-title-full">${escapeHtml(bare)}${crownHtml}</span
         ><span class="bar-title-abbr">${escapeHtml(short)}</span></span>`;
 }
 
@@ -138,7 +144,7 @@ function formatRecord(rec) {
 }
 
 // One team's row in the Rankings standings - a single bar scaled to the team's TOTAL across the selected range, split into one segment per bracket tier, regular season in the team's own color, playoffs shaded darker, consolation shaded lighter (the same tier-shading language the Category Rankings bars and Season Trends hover tags already use - see tierColor). Every segment carries its own tooltip with that tier's value (or W-L-T record, for H2H in category leagues), and the label baked into the bar is the range total. This replaces an older two-row design (a regular-season-only bar plus an SVG connector branching into a separate postseason sub-bar aligned at a shared x position) that showed the same data but through a lot of visual machinery - connectors, sub-tracks, per-row alignment math, and a whole separate row type for the Playoffs-only timeframe. One segmented bar per team reads the same breakdown with none of that, and Playoffs-only needs no special-casing (reg is 0 there, so no reg segment renders).
-function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallMax, recordByTier }) {
+function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallMax, recordByTier, isLeader }) {
     const widthPct = overallMax > 0 ? (split.total / overallMax) * 100 : 0;
     const isChampion = teamId === AppState.championTeamId;
 
@@ -178,7 +184,7 @@ function buildStandingsBarRowHtml({ teamId, name, abbrev, color, split, overallM
     // The value sits in its own column at the END of the row rather than inside the fill. In the fill it was invisible on exactly the rows that most need reading - a short bar has no room for its own number, so the width guard that used to live here dropped it, and at 20 teams that was most of the league. Out here it always shows, still on the bar's own line.
     return `
         <div class="bar-row-group">
-            <div class="bar-row">
+            <div class="bar-row${isLeader ? ' is-leader' : ''}${isChampion ? ' is-champion' : ''}">
                 ${buildBarTitleHtml(name, abbrev)}
                 <div class="bar-track">
                     <div class="bar-fill" style="width:${widthPct}%;">
@@ -198,7 +204,7 @@ let leftColumnRenderId = 0;
 
 export function renderLeftColumn() {
     const isCategory = AppState.rankingsBoxView === 'category';
-    // Roto gets the same two views, built from ESPN's season standings instead of weekly matchups (B31-FULL): Team Rankings is the roto-points table, Category Rankings is per-category season value plus the roto points that category awarded.
+    // Roto gets the same two views, built from ESPN's season standings instead of weekly matchups: Team Rankings is the roto-points table, Category Rankings is per-category season value plus the roto points that category awarded.
     if (AppState.isRotoLeague) {
         updateRankingsBoxChrome(isCategory);
         if (isCategory) renderRotoCategoryGraph();
@@ -233,7 +239,7 @@ function renderStandings() {
 
     const { start: startWeek, end: endWeek } = getTimeframeBounds(AppState.timeframe, AppState.maxCompletedWeek, AppState.regSeasonWeeks, AppState.currentMatchup);
 
-    // A single-matchup window can't make a W-L record - every team is just its own undecided 1/0 from this one week, so a whole league of "1W-0L" bars says nothing. Show the one ranking that IS real for a single week instead. Category leagues rank by categories won this matchup (the head-to-head story lives in the trends box's Matchup Scoreboard - see renderScoreboardBox), points leagues by points scored this matchup. renderSingleWeekBars picks the league-appropriate block, so the same showCat=true call covers both. No pie arrow on this timeframe. A single week has no shared season total to divide teams against, so its "distribution" would be a meaningless per-team split (B53's substitution applied to the pie view). renderSingleWeekBars builds its own block without section chrome.
+    // A single-matchup window can't make a W-L record - every team is just its own undecided 1/0 from this one week, so a whole league of "1W-0L" bars says nothing. Show the one ranking that IS real for a single week instead. Category leagues rank by categories won this matchup (the head-to-head story lives in the trends box's Matchup Scoreboard - see renderScoreboardBox), points leagues by points scored this matchup. renderSingleWeekBars picks the league-appropriate block, so the same showCat=true call covers both. No pie arrow on this timeframe. A single week has no shared season total to divide teams against, so its "distribution" would be a meaningless per-team split. renderSingleWeekBars builds its own block without section chrome.
     if (startWeek === endWeek) {
         renderSingleWeekBars(graph, startWeek, true, false, { intro: null });
 
@@ -263,7 +269,7 @@ function renderStandings() {
         return;
     }
 
-    // One standings section (a header + one segmented bar per team, sorted by the section's total). Operates on leftData, which is now the VISIBLE teams only ( reversed the old full-league convention - see the leftData comment above). valueKey picks the per-team total to sort and size by; weekValue reads that team's per-week contribution; a resultAt accessor (when given) renders a W-L-T record instead of a decimal sum.
+    // One standings section (a header + one segmented bar per team, sorted by the section's total). Operates on leftData, which is now the VISIBLE teams only. valueKey picks the per-team total to sort and size by; weekValue reads that team's per-week contribution; a resultAt accessor (when given) renders a W-L-T record instead of a decimal sum.
     const buildSection = ({ key, header, valueKey, weekValue, resultAt, isLast }) => {
         const teams = [...leftData].sort((a, b) => b[valueKey] - a[valueKey]);
         const asPie = sectionPieViews.has(key);
@@ -272,6 +278,8 @@ function renderStandings() {
         const overallMax = Math.max(...splits.map(s => s.total));
         const barsBody = teams.map((tv, i) => buildStandingsBarRowHtml({
             teamId: tv.id, name: tv.name, abbrev: tv.team?.abbrev, color: AppState.teamColorMap[tv.id],
+            // Read off the VALUE rather than off position, so a tie at the top bands both rows instead of crowning whichever the sort happened to put first.
+            isLeader: overallMax > 0 && splits[i].total === overallMax,
             split: splits[i], overallMax,
             recordByTier: resultAt ? computeRecordByTier(tv.team, startWeek, endWeek, resultAt) : null
         })).join('');
@@ -322,7 +330,7 @@ function formatRotoPoints(v) {
     return (num % 1 !== 0) ? num.toFixed(1) : String(num);
 }
 
-// Roto Team Rankings (B31-FULL): the classic roto table in house style, ordered by ESPN's own season total. Nothing is computed here beyond the sort - see the rotoPoints comment in data.js for why these numbers are rendered exactly as the payload reports them.
+// Roto Team Rankings: the classic roto table in house style, ordered by ESPN's own season total. Nothing is computed here beyond the sort - see the rotoPoints comment in data.js for why these numbers are rendered exactly as the payload reports them.
 function renderRotoStandings() {
     const graph = document.getElementById('left-graph-container');
     graph.innerHTML = '';
@@ -343,11 +351,12 @@ function renderRotoStandings() {
         return;
     }
 
-    // Roto has ONE standings section, and it gets the same flip arrow the H2H sections do (, owner's same-day addition: "this also applies to roto points pie charts").
+    // Roto has ONE standings section, and it gets the same flip arrow the H2H sections do.
     const asPie = sectionPieViews.has('roto');
     const overallMax = Math.max(0, ...leftData.map(tv => tv.rotoPoints));
     const barsBody = leftData.map(tv => buildStandingsBarRowHtml({
         teamId: tv.id, name: tv.name, abbrev: tv.team?.abbrev, color: AppState.teamColorMap[tv.id],
+        isLeader: overallMax > 0 && tv.rotoPoints === overallMax,
         // Roto has no bracket, so the bar is a single regular-season segment rather than a tier split - there is no postseason for it to shade differently.
         split: { reg: tv.rotoPoints, playoff: 0, consolation: 0, total: tv.rotoPoints },
         overallMax, recordByTier: null
@@ -375,7 +384,7 @@ function renderRotoStandings() {
     });
 }
 
-// Roto Category Rankings (B31-FULL): one block per picked category, teams ordered by the roto points THAT category awarded, with the season total behind it. Ordering by points rather than by raw value is what makes this match ESPN's own table without a separate inverse branch. An inverse category like GAA awards its points to the LOWEST value, and the points already encode that, so sorting on them is correct in both directions. The bar length follows the points for the same reason - it is the one number that is comparable across categories - and the season total rides along in the label and the hover.
+// Roto Category Rankings: one block per picked category, teams ordered by the roto points THAT category awarded, with the season total behind it. Ordering by points rather than by raw value is what makes this match ESPN's own table without a separate inverse branch. An inverse category like GAA awards its points to the LOWEST value, and the points already encode that, so sorting on them is correct in both directions. The bar length follows the points for the same reason - it is the one number that is comparable across categories - and the season total rides along in the label and the hover.
 function renderRotoCategoryGraph() {
     const container = document.getElementById('cat-graph-container');
     container.innerHTML = '';
@@ -775,7 +784,9 @@ export function renderRightColumn() {
         const title = document.getElementById('trends-box-title');
         const tooltip = document.getElementById('trends-box-tooltip');
         if (title) title.textContent = 'Roto Race';
-        if (tooltip) tooltip.setAttribute('data-hint', "Each team's cumulative roto points by week, rebuilt from its current roster. ESPN keeps no roster history, so past trades shift the line.");
+        // The unit in this sentence has to follow the axis, because at Current the race is drawn across the week's days and a hint that said "by week" over a row of days would be the app describing a chart it is not showing.
+        const byDay = parseTimeframe(AppState.timeframe).window === 1;
+        if (tooltip) tooltip.setAttribute('data-hint', `Each team's cumulative roto points by ${byDay ? 'day across the current week' : 'week'}, rebuilt from its current roster. ESPN keeps no roster history, so past trades shift the line.`);
         renderRotoRaceGraph(container);
         return;
     }
@@ -808,7 +819,7 @@ function updateTrendsBoxChrome(isScoreboard) {
 export function renderHeatmapBand() {
     const container = document.getElementById('heatmap-graph-container');
     if (!container) return;
-    // Roto reaches the same renderer. Its season totals feed the same shading, so B61's row cap, column sorting and pop-out all work on it with no roto-specific handling (B31-FULL). The row cap is an inline-band concern only. While the band is docked in the pop-out overlay it has room for a whole league, so it renders every row there.
+    // Roto reaches the same renderer. Its season totals feed the same shading, so the row cap, column sorting and pop-out all work on it with no roto-specific handling. The row cap is an inline-band concern only. While the band is docked in the pop-out overlay it has room for a whole league, so it renders every row there.
     renderDominanceHeatmap(container, { capRows: !isHeatmapPoppedOut() });
 }
 
@@ -873,7 +884,7 @@ export function teamCategoryProfile(teamId) {
         const better = vals.filter(x => cat.inverse ? x.v < mine.v : x.v > mine.v).length;
         return { id: cat.id, name: cat.name, rank: better + 1, of: vals.length };
     }).filter(Boolean);
-    // Owner's rule ( part 2 item 4). A category is BLEEDING when the team sits below the league's midpoint in it, winning when above. Expressed as a standing percentile rather than a rank so it means the same thing at any league size, so 4 teams bleed at #3 and #4, 5 teams bleed at #4 and #5 with #3 sitting exactly on the median and counting as neither. This replaces a best-three and worst-three cut, which was degenerate. With 14 categories over 4 teams a team usually holds enough firsts and lasts to fill both lists, so every chip read #1 or #4 and the middle of the table never appeared at all. The ranks themselves were right the whole time, and still are - they agree with the heatmap category by category.
+    // Owner's rule. A category is BLEEDING when the team sits below the league's midpoint in it, winning when above. Expressed as a standing percentile rather than a rank so it means the same thing at any league size, so 4 teams bleed at #3 and #4, 5 teams bleed at #4 and #5 with #3 sitting exactly on the median and counting as neither. This replaces a best-three and worst-three cut, which was degenerate. With 14 categories over 4 teams a team usually holds enough firsts and lasts to fill both lists, so every chip read #1 or #4 and the middle of the table never appeared at all. The ranks themselves were right the whole time, and still are - they agree with the heatmap category by category.
     const pctOf = (r) => (r.of <= 1 ? 50 : ((r.of - r.rank) / (r.of - 1)) * 100);
     const scored = ranked.map(r => ({ ...r, pct: pctOf(r) }));
     const best = scored.filter(r => r.pct > 50).sort((a, b) => a.rank - b.rank);
@@ -895,7 +906,7 @@ function formatCatScore(v) {
     return (n % 1 !== 0) ? n.toFixed(1) : n;
 }
 
-// Head-to-Head Scoreboard (single-matchup timeframe, category leagues) - replaces the old H2H Match Wins bars, which for one matchup were a useless all-or-nothing 1/0. Each matchup is a card: the two teams and their category-win score in the header, then a per-category breakdown of both teams' totals with the winning side of each category emphasized (inverse-aware, so a lower ERA wins). Filtered by AppState.visibleTeams ( reversed the old full-league convention): a card renders when AT LEAST ONE of its two teams is visible - filtering down to your own team keeps your own matchup (the opponent is the context that makes the card readable), and a card disappears only when both sides are hidden. renderScoreboardBox shows the empty state if that leaves no cards. Returns a plain grid of cards (no block header - the col-trends box's own h3 already reads "Matchup Scoreboard" via updateTrendsBoxChrome, so a second one here would be redundant). Stays builder-based (one function assembling all card markup from data) rather than being fused into renderScoreboardBox's layout/measurement code, on purpose. The planned premium win-odds column attaches an extra row to these same cards, and needs one seam to extend, not a rewrite of the ladder logic around it. EVERY scored category renders in every card, always (owner ruling, pass 2). There used to be a last-resort ladder step that kept only the tightest-margin categories and appended a "+N more in the heatmap below" line; a card that silently drops half the matchup is not a scoreboard. The height that step used to save is now absorbed by the grid choosing its column count and the cards filling the box - see renderScoreboardBox.
+// Head-to-Head Scoreboard (single-matchup timeframe, category leagues) - replaces the old H2H Match Wins bars, which for one matchup were a useless all-or-nothing 1/0. Each matchup is a card: the two teams and their category-win score in the header, then a per-category breakdown of both teams' totals with the winning side of each category emphasized (inverse-aware, so a lower ERA wins). Filtered by AppState.visibleTeams: a card renders when AT LEAST ONE of its two teams is visible - filtering down to your own team keeps your own matchup (the opponent is the context that makes the card readable), and a card disappears only when both sides are hidden. renderScoreboardBox shows the empty state if that leaves no cards. Returns a plain grid of cards (no block header - the col-trends box's own h3 already reads "Matchup Scoreboard" via updateTrendsBoxChrome, so a second one here would be redundant). Stays builder-based (one function assembling all card markup from data) rather than being fused into renderScoreboardBox's layout/measurement code, on purpose. The planned premium win-odds column attaches an extra row to these same cards, and needs one seam to extend, not a rewrite of the ladder logic around it. EVERY scored category renders in every card, always (owner ruling, pass 2). There used to be a last-resort ladder step that kept only the tightest-margin categories and appended a "+N more in the heatmap below" line; a card that silently drops half the matchup is not a scoreboard. The height that step used to save is now absorbed by the grid choosing its column count and the cards filling the box - see renderScoreboardBox.
 function buildH2HScoreboardHtml(week) {
     const games = (AppState.apiData?.schedule || []).filter(g =>
         g.matchupPeriodId === week && g.home && g.away && g.home.teamId != null && g.away.teamId != null);
@@ -958,7 +969,7 @@ function buildH2HScoreboardHtml(week) {
     return `<div class="h2h-grid">${cards}</div>`;
 }
 
-// The playoff series a matchup card is part of ( pass 3). During the playoffs a card says what it is FOR. Reuses data.js's tier classification straight off the schedule - WINNERS_BRACKET is the championship path, every other non-NONE playoffTierType is a consolation ladder - rather than re-deriving anything from ESPN. Empty string in the regular season, so a normal-week card carries no strip. Round names (semifinal/final) are deliberately not guessed here. The winners bracket spans several weeks and nothing in the game itself says which round without inferring bracket depth, so the tier label alone is what's defensible (see the pass-3 note).
+// The playoff series a matchup card is part of. During the playoffs a card says what it is FOR. Reuses data.js's tier classification straight off the schedule - WINNERS_BRACKET is the championship path, every other non-NONE playoffTierType is a consolation ladder - rather than re-deriving anything from ESPN. Empty string in the regular season, so a normal-week card carries no strip. Round names (semifinal/final) are deliberately not guessed here. The winners bracket spans several weeks and nothing in the game itself says which round without inferring bracket depth, so the tier label alone is what's defensible (see the pass-3 note).
 function playoffSeriesLabelHtml(game) {
     const tier = game.playoffTierType;
     if (!tier || tier === 'NONE') return '';
@@ -972,7 +983,7 @@ function formatPoints(v) {
     return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-// The Matchup Race (B51/): a points league's answer to the category breakdown. Where a category card lists who is winning each stat, a points matchup has one number per side, so the story worth telling is HOW it got there - two cumulative lines over the matchup's scoring periods, from the payload's own pointsByScoringPeriod, with the current margin called out underneath. VALIDATED against the 20-team points capture. Each side carries pointsByScoringPeriod as a { scoringPeriodId: pointsThatDay } map, and those days sum to that side's totalPoints exactly (163.1 and 159.7 on the first matchup of period 25). Days present on one side but not the other are unioned so both lines share an x-axis, and a missing day contributes 0 to that side rather than breaking the line. The chart is drawn in a normalized 0-100 viewBox with preserveAspectRatio="none" so it stretches to whatever cell the grid ladder hands it, and non-scaling-stroke keeps the lines the same weight however far it stretches. That is what lets a points card fill its space the way a category card does without the builder knowing anything about the final pixel size.
+// The Matchup Race: a points league's answer to the category breakdown. Where a category card lists who is winning each stat, a points matchup has one number per side, so the story worth telling is HOW it got there - two cumulative lines over the matchup's scoring periods, from the payload's own pointsByScoringPeriod, with the current margin called out underneath. VALIDATED against the 20-team points capture. Each side carries pointsByScoringPeriod as a { scoringPeriodId: pointsThatDay } map, and those days sum to that side's totalPoints exactly (163.1 and 159.7 on the first matchup of period 25). Days present on one side but not the other are unioned so both lines share an x-axis, and a missing day contributes 0 to that side rather than breaking the line. The chart is drawn in a normalized 0-100 viewBox with preserveAspectRatio="none" so it stretches to whatever cell the grid ladder hands it, and non-scaling-stroke keeps the lines the same weight however far it stretches. That is what lets a points card fill its space the way a category card does without the builder knowing anything about the final pixel size.
 function buildMatchupRaceHtml(home, away, side) {
     const hPts = side.home.pointsByScoringPeriod || {};
     const aPts = side.away.pointsByScoringPeriod || {};
@@ -1028,8 +1039,8 @@ function buildPointsScoreboardHtml(week) {
         if (!home || !away) return '';
         // At least one side visible, or the card is dropped.
         if (!AppState.visibleTeams.has(home.id) && !AppState.visibleTeams.has(away.id)) return '';
-        const hPts = statValue(g.home.totalPoints) || 0;
-        const aPts = statValue(g.away.totalPoints) || 0;
+        const hPts = statValue(matchupPoints(g.home)) || 0;
+        const aPts = statValue(matchupPoints(g.away)) || 0;
 
         const headTeam = (team, cls, winning) => `
             <div class="h2h-head-team ${cls}${winning ? ' h2h-head-lead' : ''}">
@@ -1089,7 +1100,7 @@ function cardPopoutButtonHtml(id, label) {
         title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">⛶</button>`;
 }
 
-// One matchup's race at full size. The card's normalized sparkline is redrawn as a real chart with axes, day labels, and a hover readout. Same padded-viewBox geometry as the Roto Race, including preserveAspectRatio="none" and the matching hover x-mapping (: the mapping assumes the viewBox stretches edge to edge, so the drawing has to actually stretch, and the cursor ratio has to divide by the PADDED width, not the element's).
+// One matchup's race at full size. The card's normalized sparkline is redrawn as a real chart with axes, day labels, and a hover readout. Same padded-viewBox geometry as the Roto Race, including preserveAspectRatio="none" and the matching hover x-mapping.
 function renderMatchupRaceDetail(container, visual) {
     const { home, away, side } = visual;
     const hPts = side.home.pointsByScoringPeriod || {};
@@ -1426,7 +1437,7 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
             if (v === undefined) return `<td class="dh-empty${sortedCls}">-</td>`;
             const info = pctByCat[c.id][t.id];
             const tip = `${escapeHtml(t.name)} · ${escapeHtml(c.name)}: ${formatCatValue(v)} (#${info.rank} of ${info.total})`;
-            return `<td class="dh-cell${sortedCls}" style="background:${percentileColor(info.pct)};" data-tooltip="${escapeHtml(tip)}">${formatCatValue(v)}</td>`;
+            return `<td class="dh-cell${sortedCls}" style="--pct:${percentileVar(info.pct)};" data-tooltip="${escapeHtml(tip)}">${formatCatValue(v)}</td>`;
         }).join('');
         return `
             <tr>
@@ -1696,7 +1707,7 @@ function renderTrendGraph() {
     const svgHeight = 350;
     const padding = 45;
 
-    // Two cumulative series, each with its own toggle, axis, line style, and vocabulary. Channel A is the SOLID line on the LEFT axis (toggle-cat); channel B the DASHED line on the RIGHT (toggle-match). Category leagues plot Cat Wins + Match Wins; points leagues plot Points (the cumulative point total that already rendered, now correctly labeled instead of wearing the Match Wins label) + Match Wins (the real 1/0.5/0 record from weeklyMatchResult, B52/). Both toggles now drive a real line in both league types, so neither is dead.
+    // Two cumulative series, each with its own toggle, axis, line style, and vocabulary. Channel A is the SOLID line on the LEFT axis (toggle-cat); channel B the DASHED line on the RIGHT (toggle-match). Category leagues plot Cat Wins + Match Wins; points leagues plot Points (the cumulative point total that already rendered, now correctly labeled instead of wearing the Match Wins label) + Match Wins (the real 1/0.5/0 record from weeklyMatchResult, ). Both toggles now drive a real line in both league types, so neither is dead.
     const chanA = AppState.isPointsLeague
         ? { show: showCat, field: 'weeklyMatchWins', label: 'PTS' }
         : { show: showCat, field: 'weeklyCatWins', label: 'CAT' };
@@ -1877,10 +1888,12 @@ function renderTrendGraph() {
 function renderRotoRaceGraph(container) {
     const sport = AppState.loadedSport;
 
-    // Kick every source the race needs BEFORE deciding what to draw - buildRotoRaceSeries holds a loading state until they land, so starting them after that check would wait forever. All three are no-ops once loaded, in flight, or failed, and each one's completion re-renders this box through setWeeklyProgressHook. No timeframe pills exist for roto, so this is the only trigger path. The two roster harvests are the daily snapshots for started-accurate crediting and the draft + transaction log for the rostered fallback tier plus B66/.
+    // Kick every source the race needs BEFORE deciding what to draw - buildRotoRaceSeries holds a loading state until they land, so starting them after that check would wait forever. All three are no-ops once loaded, in flight, or failed, and each one's completion re-renders this box through setWeeklyProgressHook. No timeframe pills exist for roto, so this is the only trigger path. The two roster harvests are the daily snapshots for started-accurate crediting and the draft + transaction log for the rostered fallback tier plus.
     if (!weeklyDataFailed()) ensureWeeklyDataForRace(sport);
     ensureRosterSnapshotData(sport);
     ensureRosterTransactionData(sport);
+    // The race reads pool-derived lines, so drawing it consumes a deferred pool revalidate.
+    revalidateStalePoolIfDue();
 
     const race = buildRotoRaceSeries(sport);
 
@@ -1917,12 +1930,16 @@ function renderRotoRaceGraph(container) {
     }
     svgStr += `<line id="roto-hover-line" y1="${padding}" y2="${svgHeight - padding}" stroke-width="1.5" stroke-dasharray="4,2" display="none" pointer-events="none" style="stroke:var(--chart-axis)" />`;
 
+    // At Current the race runs across the week's DAYS rather than the season's weeks, and a day is labelled by its position in the matchup rather than by its scoring-period id - "Day 3" is what a reader can place, where "period 147" is an ESPN internal. Same wording the drill-down and the category race already use for their day axes, so the three agree.
+    const dayAxis = !!race.dayAxis;
+    const labelAt = (wk, i) => dayAxis ? `Day ${i + 1}` : `${axisUnit().short}${wk}`;
+
     // Thin the x labels to at most ~10 so a full season's weeks don't crowd, always keeping the last.
     const maxLabels = 10;
     const labelStep = Math.max(1, Math.ceil(numPoints / maxLabels));
     weeks.forEach((wk, i) => {
         if (i % labelStep !== 0 && i !== numPoints - 1) return;
-        svgStr += `<text x="${xAt(i)}" y="${svgHeight - 10}" font-size="12" text-anchor="middle" style="fill:var(--chart-axis)">${axisUnit().short}${wk}</text>`;
+        svgStr += `<text x="${xAt(i)}" y="${svgHeight - 10}" font-size="12" text-anchor="middle" style="fill:var(--chart-axis)">${escapeHtml(labelAt(wk, i))}</text>`;
     });
 
     // hoverData[i] = the standings column at week i, sorted best-first for the tooltip.
@@ -1973,7 +1990,7 @@ function renderRotoRaceGraph(container) {
         hoverLine.setAttribute('x2', lineX);
         hoverLine.setAttribute('display', 'block');
 
-        // Same reflow-to-fit treatment as the Season Trends hover..tt-rows lets layoutHoverTooltip break a tall roster of teams into columns instead of clipping. col is already sorted best-first, so it reads as a mini-standings. Hidden teams are DROPPED from the readout now ( - the Data Filters apply here too), not listed with a dimmed swatch.
+        // Same reflow-to-fit treatment as the Season Trends hover..tt-rows lets layoutHoverTooltip break a tall roster of teams into columns instead of clipping. col is already sorted best-first, so it reads as a mini-standings. Hidden teams are DROPPED from the readout now, not listed with a dimmed swatch.
         let rows = '';
         col.filter(d => AppState.visibleTeams.has(d.id)).forEach(d => {
             rows += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
@@ -1982,7 +1999,7 @@ function renderRotoRaceGraph(container) {
                 <span style="font-weight:bold; white-space:nowrap;">${d.pts % 1 !== 0 ? d.pts.toFixed(1) : d.pts}</span>
             </div>`;
         });
-        tooltipEl.innerHTML = `<div class="tt-header" style="font-weight:bold; margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:6px; font-size:13px; color:#ddd;">Roto Points Thru ${axisUnit().long} ${weeks[i]}</div><div class="tt-rows">${rows}</div>`;
+        tooltipEl.innerHTML = `<div class="tt-header" style="font-weight:bold; margin-bottom:8px; border-bottom:1px solid #555; padding-bottom:6px; font-size:13px; color:#ddd;">Roto Points Thru ${escapeHtml(dayAxis ? `Day ${i + 1}` : `${axisUnit().long} ${weeks[i]}`)}</div><div class="tt-rows">${rows}</div>`;
         tooltipEl.style.display = 'block';
         layoutHoverTooltip(tooltipEl, e.clientX, e.clientY);
     });
@@ -1996,7 +2013,7 @@ function renderRotoRaceGraph(container) {
 // Incremented on every renderCategoryGraph() call - superseded-render guard for its deferred compaction measurement, same pattern as leftColumnRenderId above.
 let catGraphRenderId = 0;
 
-// Which category the box is showing (, reworked in; the row-page half of this state was deleted in when the row pager went). Module state rather than AppState because it is pure view position. Keyed by STAT ID, not index. Every re-render rebuilds the block list from scratch (a timeframe click, a Data Filters toggle, the Advanced Stats toggle changing its length and order), and an index would quietly land on a different category each time. Only a league switch resets it - a new league's categories are a different list entirely.
+// Which category the box is showing. Module state rather than AppState because it is pure view position. Keyed by STAT ID, not index. Every re-render rebuilds the block list from scratch (a timeframe click, a Data Filters toggle, the Advanced Stats toggle changing its length and order), and an index would quietly land on a different category each time. Only a league switch resets it - a new league's categories are a different list entirely.
 let catViewedStatId = null;
 
 // Which STANDINGS sections are currently drawn as a pie instead of bars, by section key. A Set rather than one flag because the sections flip INDEPENDENTLY - either, both, or neither. Same lifetime rule as the category cycle above. It survives every re-render (timeframe pills, Data Filters, a legend toggle) so a flipped section stays flipped, and only a league switch clears it.
@@ -2010,7 +2027,7 @@ export function resetRankingsViewState() {
     leagueLadder = null;
 }
 
-// The canonical Category Rankings row pitch (B74's 28px, from the 6-team density the owner called good) lives in CSS now (.cat-capped.bar-row height) - made that the ONE pitch everywhere rather than a cap that only engaged when the flex-fill would stretch past it.
+// The canonical Category Rankings row pitch lives in CSS now (.cat-capped.bar-row height) - made that the ONE pitch everywhere rather than a cap that only engaged when the flex-fill would stretch past it.
 
 // One category's RACE, each team's cumulative value in that category, week by week, under its ranking bars. introduced it as an unlabeled sparkline to fill reclaimed space; makes it a real part of the block - a divider seams it to the bars, it labels ITSELF with data (the week span at the ends, each line's end value in its team colour), and it answers a hover with exact values. buildCategoryRaceSeries produces the data for BOTH league families off whichever source is honest: H2H: teamStats.weeklyCats, accumulated across the selected timeframe's weeks. Roto: rotoCategorySeries (players.js) - the same started-day component sums the roto standings and heatmap use, so a category's race and its bar agree by construction. Rate categories come back already derived from summed components at each week, never averaged. Returns null when there is nothing honest to draw, fewer than two weeks to race across (This Matchup), or a roto league on a fallback tier, where per-week shape would be wrong because those tiers count benched days ESPN never did. A block with no race just gives the height to its bars.
 function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
@@ -2040,18 +2057,17 @@ function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
         return { weeks: series.weeks, points };
     }
 
-    // H2H at a single matchup has no race to draw. A CATEGORY league carries no per-day team values anywhere in the payload to build one from. pointsByScoringPeriod exists but is all zeros in every H2H_MOST_CATEGORIES capture checked, in both sports, because such a league scores categories rather than points, and cumulativeScore.scoreByStat is per MATCHUP, not per day ( audit). Building it would mean summing started players' daily lines the way roto does, which needs daily roster snapshots and pool-wide per-day player data - the memory the entry rules out. The block gives the height to its bars instead.
+    // H2H at a single matchup has no race to draw. A CATEGORY league carries no per-day team values anywhere in the payload to build one from. pointsByScoringPeriod exists but is all zeros in every H2H_MOST_CATEGORIES capture checked, in both sports, because such a league scores categories rather than points, and cumulativeScore.scoreByStat is per MATCHUP, not per day. Building it would mean summing started players' daily lines the way roto does, which needs daily roster snapshots and pool-wide per-day player data - the memory the entry rules out. The block gives the height to its bars instead.
     if (endWeek - startWeek < 1) return null;
     const weeks = [];
     for (let w = startWeek; w <= endWeek; w++) weeks.push(w);
-    const points = teams.map(t => {
-        let run = 0;
-        return {
-            id: t.id,
-            name: t.name,
-            values: weeks.map(w => { run += (t.team.weeklyCats[w] && t.team.weeklyCats[w][catId]) || 0; return run; })
-        };
-    });
+    // teamCategorySeries owns the accumulation, and the reason is item 3: this loop used to add up whatever sat under the category id, which is right for hits and nonsense for a batting average. A rate now recomputes from summed components at every point, through the same table the rest of the app derives rates with.
+    const sport = AppState.loadedSport;
+    const points = teams.map(t => ({
+        id: t.id,
+        name: t.name,
+        values: teamCategorySeries(t.team.weeklyCats, weeks, catId, sport)
+    }));
     return { weeks, points };
 }
 
@@ -2059,7 +2075,7 @@ function buildCategoryRaceSeries(catId, teams, startWeek, endWeek) {
 let catRaceSeq = 0;
 const catRaceData = new Map();
 
-// The race markup. The chart is a normalized 0-100 viewBox with preserveAspectRatio="none" so it stretches to whatever height the block hands it, and non-scaling-stroke keeps the line weight constant however far it stretches (B75's lesson). Every LABEL is HTML positioned over the plot, never SVG text. A non-uniformly stretched viewBox would squash text along with the drawing. Percentage positions survive the stretch exactly because they are resolved against the final box, not the viewBox. Inverse categories (ERA, GAA) are drawn as-is - the line is the real accumulated value, and the bars above already encode which end is good. Flipping the plot would make the same number read two different ways in one block.
+// The race markup. The chart is a normalized 0-100 viewBox with preserveAspectRatio="none" so it stretches to whatever height the block hands it, and non-scaling-stroke keeps the line weight constant however far it stretches. Every LABEL is HTML positioned over the plot, never SVG text. A non-uniformly stretched viewBox would squash text along with the drawing. Percentage positions survive the stretch exactly because they are resolved against the final box, not the viewBox. Inverse categories (ERA, GAA) are drawn as-is - the line is the real accumulated value, and the bars above already encode which end is good. Flipping the plot would make the same number read two different ways in one block.
 function buildCategoryRaceHtml(series, isInverse) {
     if (!series) return '';
     const { weeks, points } = series;
@@ -2164,7 +2180,7 @@ const CAT_PAGER_PAD = 12;
 // NOTE on why there is no minimum-pitch constant here. Clamping the pitch UP to a readable floor overflows the very box the shrink exists to fit inside. A 9px floor against an 87px track for 10 rows overflowed the block by 3px and clipped the last team, which is the exact failure this rung exists to prevent. Fitting every team is the ruling, so the arithmetic wins. Under this pitch the row sheds everything that isn't the bar itself. The value label moves to the hover (the segments already carry it) and the type drops to the small size.
 const CAT_PITCH_SHRUNK = 22;
 
-// Lays the Category Rankings box out. Shared by the H2H (renderCategoryGraph) and roto (renderRotoCategoryGraph) renderers, which each hand over DATA - { id, name, inverse, rowsHtml, race } - rather than finished markup, because the layout decides how the rows are arranged. made the pager the whole interface. The box shows exactly ONE category at full width and height and the arrows cycle the league's entire list, wrapping, with a "n / m" indicator. There is no picker and no selection state. One category owning the whole box is also what makes the two-column row layout below possible. settled what happens when a category's teams do not fit. They always fit. The row pager is GONE - not a last resort, deleted - because "scroll down to see the rest of the league" is not an acceptable answer to "who is winning this category". Fitting every team now outranks the canonical 28px pitch that B76/B79/ held fixed, and the ladder yields in this order: 1. One column at the canonical pitch, with the race taking the leftover. 2. Two columns at the canonical pitch, rows filling DOWN then across so the ranking still reads top to bottom, race spanning the full width below. 3. Drop the RACE - the ranking is the content, the race is the enrichment. 4. Shrink the PITCH to whatever the box demands. Under CAT_PITCH_SHRUNK the row also sheds its value label to the hover and drops to the small type. Shrinking is measured and only ever the last rung. The pitch returns to canonical the moment the space allows, so nothing that fits comfortably today gets tighter.
+// Lays the Category Rankings box out. Shared by the H2H (renderCategoryGraph) and roto (renderRotoCategoryGraph) renderers, which each hand over DATA - { id, name, inverse, rowsHtml, race } - rather than finished markup, because the layout decides how the rows are arranged. made the pager the whole interface. The box shows exactly ONE category at full width and height and the arrows cycle the league's entire list, wrapping, with a "n / m" indicator. There is no picker and no selection state. One category owning the whole box is also what makes the two-column row layout below possible. settled what happens when a category's teams do not fit. They always fit. The row pager is GONE - not a last resort, deleted - because "scroll down to see the rest of the league" is not an acceptable answer to "who is winning this category". Fitting every team now outranks the canonical 28px pitch that held fixed, and the ladder yields in this order: 1. One column at the canonical pitch, with the race taking the leftover. 2. Two columns at the canonical pitch, rows filling DOWN then across so the ranking still reads top to bottom, race spanning the full width below. 3. Drop the RACE - the ranking is the content, the race is the enrichment. 4. Shrink the PITCH to whatever the box demands. Under CAT_PITCH_SHRUNK the row also sheds its value label to the hover and drops to the small type. Shrinking is measured and only ever the last rung. The pitch returns to canonical the moment the space allows, so nothing that fits comfortably today gets tighter.
 function renderCategoryBlocks(container, blocks) {
     // clientHeight INCLUDES the container's own padding, which the block never gets to use. Measured rather than hardcoded so a padding change in CSS can't silently re-introduce the overflow this budget exists to prevent.
     const cs = getComputedStyle(container);

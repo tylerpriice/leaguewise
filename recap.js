@@ -1,7 +1,7 @@
 // Shareable weekly "league recap" - the Phase 1 viral-loop item from ROADMAP.md: a lightly branded image + text block summarizing one matchup week (results, blowout/nail-biter, team of the week, standings with movement), built to be posted into a league group chat where every reader is a prospect. Sharing: the Web Share API (navigator.share with files) hands the image+text straight to the OS share sheet - on phones/tablets and share-capable desktops that reaches Signal, Messenger, WhatsApp, etc. directly. Browsers without it (notably desktop Firefox) get first-class fallbacks instead: copy the text, copy the image, or download the PNG and drop it into any chat app. The model/text builders are pure-ish (AppState in, plain data out) and unit-tested in tests/features.test.html; the canvas renderer and modal own the presentation.
 
 import { AppState, ESPN_STAT_MAPS, INVERSE_STATS } from './state.js';
-import { escapeHtml, orderStatIdsByRole, splitStatIdsByRole } from './utils.js';
+import { escapeHtml, orderStatIdsByRole, splitStatIdsByRole, matchupTally, matchupPoints } from './utils.js';
 
 const BRAND_NAME = 'Leaguewise';
 const BRAND_TAGLINE = 'Free fantasy league analytics';
@@ -91,12 +91,13 @@ export function buildRecapModel(week) {
             const team = teamById[id];
             let value, scoreStr;
             if (isPoints) {
-                value = g[key].totalPoints || 0;
+                value = matchupPoints(g[key]);
                 scoreStr = value.toFixed(1);
             } else {
-                const wins = g[key].cumulativeScore?.wins || 0;
-                const losses = g[key].cumulativeScore?.losses || 0;
-                const ties = g[key].cumulativeScore?.ties || 0;
+                const tally = matchupTally(g[key]);
+                const wins = tally?.wins || 0;
+                const losses = tally?.losses || 0;
+                const ties = tally?.ties || 0;
                 value = wins + ties * 0.5;
                 scoreStr = `${wins}-${losses}-${ties}`;
             }
@@ -502,12 +503,13 @@ export function buildTeamMatchupRecapModel(week, teamId) {
         const team = teamById[id];
         let value, scoreStr;
         if (isPoints) {
-            value = game[key].totalPoints || 0;
+            value = matchupPoints(game[key]);
             scoreStr = value.toFixed(1);
         } else {
-            const wins = game[key].cumulativeScore?.wins || 0;
-            const losses = game[key].cumulativeScore?.losses || 0;
-            const ties = game[key].cumulativeScore?.ties || 0;
+            const tally = matchupTally(game[key]);
+            const wins = tally?.wins || 0;
+            const losses = tally?.losses || 0;
+            const ties = tally?.ties || 0;
             value = wins + ties * 0.5;
             scoreStr = `${wins}-${losses}-${ties}`;
         }

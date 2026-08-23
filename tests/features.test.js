@@ -1,24 +1,25 @@
-// Unit tests for the pure/testable halves of the export (export.js) and weekly recap (recap.js) features - open tests/features.test.html through any static server (file:// won't work for ES modules;.claude/serve.ps1 is a zero-dependency option). The builders read the AppState singleton, so each test sets up exactly the state it needs first.
+// Unit tests for the pure/testable halves of the export (export.js) and weekly recap (recap.js) features - open tests/features.test.html through any static server (file:// won't work for ES modules; python -m http.server is a zero-dependency option). The builders read the AppState singleton, so each test sets up exactly the state it needs first.
 import { AppState } from '../state.js';
 import {
     delimitedCell, buildDelimitedText, timeframeLabel,
     buildStandingsExport, buildCategoryTotalsExport
 } from '../export.js';
-import { buildLeaderboardExportModel, aggregateStatsForWeekRange, aggregateDailyCumulative, periodsOfMatchup } from '../players.js';
+import { buildLeaderboardExportModel, aggregateStatsForWeekRange, aggregateDailyCumulative, periodsOfMatchup, teamCategorySeries } from '../players.js';
 import {
     defaultRecapWeek, buildRecapModel, buildRecapText,
     detectMyTeamId, buildTeamMatchupRecapModel, buildTeamMatchupText
 } from '../recap.js';
 import { orderStatIdsByRole, splitStatIdsByRole, buildMatchupPeriodMap, matchupOfPeriod, getTimeframeBounds, parseTimeframe, injuryLabel, injuryBadgeHtml, playerPoolErrorText, openingSortDir, leagueSeasonYears } from '../utils.js';
 import { buildRosterGroups, rostersFromPayload, findOwnedTeamId } from '../myteam.js';
-import { buildGamePeriodIndex, buildProTeamAbbrevs, typicalMatchupLength, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor } from '../probables.js';
+import { buildGamePeriodIndex, datesByScoringPeriod, buildProTeamAbbrevs, typicalMatchupLength, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor } from '../probables.js';
 import {
     isSidelined, teamOffence, percentileOf, offenceStrength, offenceBreakdown, pastStartsByOpponent,
     startDifficulty, difficultyLabel, daysBetween, venueTeamIdFor,
     SHORT_REST_ADJUSTMENT, MLB_PARK_FACTORS
 } from '../matchup-difficulty.js';
-import { numericStat } from '../utils.js';
+import { numericStat, matchupTally, matchupPoints, readsAsPlayedMatchup, matchupCatsForSide, matchResultOf } from '../utils.js';
 import { isAllowedLogoUrl } from '../images.js';
+import { dominantColour, darkenUntilContrast, contrastRatio, relativeLuminance, parseCssColour, toCssRgb } from '../logo-colour.js';
 import { countApiRequest, countImageRequest, getRequestTally } from '../utils.js';
 import {
     franchiseKeyOf, teamDisplayName, seasonFormat, championKeyOf, summarizeSeason,
@@ -27,7 +28,7 @@ import {
     CATEGORY_ROW_MIN, CATEGORY_ROW_MAX, CATEGORY_ROWS_BUDGET,
     rivalryDetail, rivalrySplit, isPostseasonGame, recordText, runSpanText,
     defaultFranchiseIndex, coverageSentence,
-    RIVALRY_CARD_SECTIONS
+    RIVALRY_CARD_SECTIONS, pennantLines
 } from '../history.js';
 
 const results = [];
@@ -277,6 +278,21 @@ test('availability filter: FA/rostered narrow rows but never change the Rank poo
 });
 
 // ==== Recap model + text ====
+
+// A result exists only when the winner does: the live matchup's UNDECIDED must answer null - a zero would book a loss for both sides, which is the one-loss-high record the owner measured on every team. Hand-computed against the encoding: HOME win = home 1 / away 0, TIE = 0.5 both, UNDECIDED and a missing side = null.
+test('matchResultOf: decided games score 1/0.5/0, a live matchup scores nothing', () => {
+    const live = { winner: 'UNDECIDED', home: { teamId: 1, cumulativeScoreLive: { wins: 3, losses: 0, ties: 11 } }, away: { teamId: 2 } };
+    assertEq(matchResultOf(live, 'home'), null, 'live home has no result');
+    assertEq(matchResultOf(live, 'away'), null, 'live away has no result');
+    const done = { winner: 'HOME', home: { teamId: 1 }, away: { teamId: 2 } };
+    assertEq(matchResultOf(done, 'home'), 1, 'decided home won');
+    assertEq(matchResultOf(done, 'away'), 0, 'decided away lost');
+    const tie = { winner: 'TIE', home: { teamId: 1 }, away: { teamId: 2 } };
+    assertEq(matchResultOf(tie, 'home'), 0.5, 'tie is half');
+    assertEq(matchResultOf(tie, 'away'), 0.5, 'tie is half both ways');
+    const bye = { winner: 'UNDECIDED', home: { teamId: 1 } };
+    assertEq(matchResultOf(bye, 'away'), null, 'a missing side has no result');
+});
 
 // Category-league schedule game: cumulativeScore per side, decided winner.
 const catGame = (week, homeId, awayId, homeWLT, awayWLT, winner) => ({
@@ -1638,7 +1654,7 @@ test('daysBetween: whole days, and null when a date is missing', () => {
     assertEq(daysBetween(null, 86400000), null, 'a missing date yields null');
 });
 
-// ==== League History ( M1). The fixtures below mirror what was MEASURED in a real three-season league (docs/DATA-SOURCES.md section 9): the same franchise renames itself every year, a team slot changes hands between owners, franchises come and go, and the league switched from roto to head-to-head partway through. Every expected value is hand-computed. ====
+// ==== League History. The fixtures below mirror what was MEASURED in a real three-season league (docs/DATA-SOURCES.md section 9): the same franchise renames itself every year, a team slot changes hands between owners, franchises come and go, and the league switched from roto to head-to-head partway through. Every expected value is hand-computed. ====
 
 const SWID_A = '{AAAAAAAA-1111}';
 const SWID_B = '{BBBBBBBB-2222}';
@@ -2303,6 +2319,335 @@ test('sortCareers: no key leaves the order alone, and never mutates the input', 
     sortCareers(SORT_ROWS, { key: 'g', dir: 'asc' });
     assertEq(SORT_ROWS.map(r => r.name), before, 'the caller keeps its array');
 });
+
+// P2: the pennant's two lines. The reference is a ballclub pennant, city over nickname, and a fantasy name has no city - so the last word is the nickname and the rest hangs above it. ---------------------------------------------------------------------------
+
+test('pennantLines: the last word is the nickname, the rest is the line above', () => {
+    const three = pennantLines('Bunt Force Trauma');
+    assert(three.top === 'Bunt Force' && three.nick === 'Trauma', 'BUNT FORCE over Trauma');
+    const two = pennantLines('Big Inning');
+    assert(two.top === 'Big' && two.nick === 'Inning', 'two words split one and one');
+});
+
+test('pennantLines: one word is a nickname with nothing above it', () => {
+    const one = pennantLines('Sluggers');
+    assert(one.nick === 'Sluggers', 'the one word is the nickname, never the top line');
+    assert(one.top === '', 'and nothing hangs above it');
+});
+
+test('pennantLines: nothing in, nothing out, and stray spacing does not invent a line', () => {
+    const none = pennantLines('');
+    assert(none.top === '' && none.nick === '', 'empty name');
+    const nul = pennantLines(null);
+    assert(nul.top === '' && nul.nick === '', 'no name at all');
+    const spaced = pennantLines('  Walk   Off   Warriors  ');
+    assert(spaced.top === 'Walk Off' && spaced.nick === 'Warriors', 'runs of spaces collapse');
+});
+
+
+// : the live matchup tally. cumulativeScore counts FINALIZED DAYS ONLY; ESPN attaches cumulativeScoreLive to the in-progress matchup and to no other. Values below are the real shapes from JSON_debug/espn-debug-1785096490224.json, matchup 16 (live) and 15 (completed). ---------------------------------------------------------------------------
+
+test('matchupTally: the live block wins when it is there', () => {
+    const side = {
+        cumulativeScore: { wins: 6, losses: 5, ties: 3 },
+        cumulativeScoreLive: { wins: 6, losses: 6, ties: 2 }
+    };
+    const t = matchupTally(side);
+    assert(t.wins === 6 && t.losses === 6 && t.ties === 2, 'the live 6-6-2, not the frozen 6-5-3');
+});
+
+test('matchupTally: a completed matchup has no live block, so the rollup stands', () => {
+    // Exactly the shape a finished matchup arrives in - ESPN attaches no live block at all.
+    const side = { cumulativeScore: { wins: 9, losses: 4, ties: 1 } };
+    const t = matchupTally(side);
+    assert(t.wins === 9 && t.losses === 4 && t.ties === 1, 'byte for byte the authoritative number');
+});
+
+test('matchupTally: an empty live block does not shadow a real rollup', () => {
+    const side = { cumulativeScore: { wins: 3, losses: 2, ties: 0 }, cumulativeScoreLive: {} };
+    assert(matchupTally(side).wins === 3, 'presence is not enough - it has to carry a wins count');
+});
+
+test('matchupTally: a zeroed live block is still the live one', () => {
+    // A matchup that has just opened is genuinely 0-0-0, and that is not the same as absent.
+    const side = { cumulativeScore: { wins: 8, losses: 1, ties: 0 }, cumulativeScoreLive: { wins: 0, losses: 0, ties: 0 } };
+    assert(matchupTally(side).wins === 0, 'zero is a number');
+});
+
+test('matchupTally: nothing at all is null rather than a throw', () => {
+    assert(matchupTally(null) === null, 'no side');
+    assert(matchupTally({}) === null, 'a side with neither block');
+});
+
+test('matchupPoints: the live total is preferred, including a live zero', () => {
+    assert(matchupPoints({ totalPoints: 163.1, totalPointsLive: 171.4 }) === 171.4, 'live wins');
+    assert(matchupPoints({ totalPoints: 163.1, totalPointsLive: 0 }) === 0, 'a live 0 is a real score');
+    assert(matchupPoints({ totalPoints: 163.1 }) === 163.1, 'no live field, use the plain one');
+    assert(matchupPoints({}) === 0, 'neither');
+    assert(matchupPoints(null) === 0, 'no side');
+});
+
+// item 2: DAY ONE OF A MATCHUP. The recurring failure is that the windowed aggregates see no finalized day while the header reads the live block, so Current renders 0-0 against a header that knows better. These stage day one explicitly - a live block present, zero finalized days - and assert the two agree, which they now do by construction because both go through matchupTally. ---------------------------------------------------------------------------
+
+test('readsAsPlayedMatchup: the live matchup is readable even though it is not complete', () => {
+    // The morning matchup 16 opens: 15 is the last with a result, 16 is being played.
+    assert(readsAsPlayedMatchup(15, 15, 16) === true, 'the completed one');
+    assert(readsAsPlayedMatchup(16, 15, 16) === true, 'the live one - this is the fix');
+    assert(readsAsPlayedMatchup(17, 15, 16) === false, 'a matchup that has not started');
+});
+
+test('readsAsPlayedMatchup: a finished season has no live matchup to admit', () => {
+    // AppState.currentMatchup is 0 once the season is over, so the max collapses to the last completed matchup with no special case.
+    assert(readsAsPlayedMatchup(25, 25, 0) === true, 'the final matchup still reads');
+    assert(readsAsPlayedMatchup(26, 25, 0) === false, 'nothing past it');
+});
+
+test('day one: Current reads the SAME per-category values the header shows', () => {
+    // Zero finalized days: the rollup is all zeros and the live block carries the real standing. This is the owner's 0-0 case - the rollup is exactly what Current used to aggregate.
+    const side = {
+        cumulativeScore: {
+            wins: 0, losses: 0, ties: 0,
+            scoreByStat: { '1': { score: 0 }, '5': { score: 0 }, '47': { score: 0 } }
+        },
+        cumulativeScoreLive: {
+            wins: 3, losses: 0, ties: 11,
+            scoreByStat: { '1': { score: 14 }, '5': { score: 2 }, '47': { score: 3.5 } }
+        }
+    };
+    const cats = matchupCatsForSide(side);
+    // The header's number, straight off matchupTally - the same call the scoreboard makes.
+    const header = matchupTally(side);
+    assert(header.wins === 3 && header.ties === 11, 'the header reads the live standing');
+    assert(cats['1'] === 14 && cats['5'] === 2 && cats['47'] === 3.5,
+        'Current must agree with the header, got ' + JSON.stringify(cats));
+});
+
+test('day one: a completed matchup still reads its finalized values', () => {
+    const side = { cumulativeScore: { wins: 9, losses: 4, ties: 1, scoreByStat: { '1': { score: 61 } } } };
+    assert(matchupCatsForSide(side)['1'] === 61, 'no live block, the rollup stands');
+});
+
+test('matchupCatsForSide: an entry that names its own statId wins over the key', () => {
+    // statBySlot is keyed by slot rather than by stat, and each entry carries the real statId.
+    const side = { cumulativeScore: { statBySlot: { '22': { statId: 5, score: 7 } } } };
+    assert(matchupCatsForSide(side)['5'] === 7, 'filed under the stat, not the slot');
+});
+
+
+// item 3: RATE CATEGORIES IN THE RACE CHART. A rate can never be summed across weeks. Every expectation below is hand-computed from the components, and each message names the summed value the owner was actually seeing. ---------------------------------------------------------------------------
+
+const closeTo = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
+
+test('teamCategorySeries: AVG recomputes from cumulative H/AB, never summed', () => {
+    // AB is stat 0, H is stat 1, AVG is stat 2.
+    const weeklyCats = {
+        1: { '0': 30, '1': 9, '2': 0.300 },
+        2: { '0': 20, '1': 4, '2': 0.200 },
+        3: { '0': 50, '1': 20, '2': 0.400 }
+    };
+    const got = teamCategorySeries(weeklyCats, [1, 2, 3], '2', 'flb');
+    // Hand-computed: 9/30 =.300, 13/50 =.260, 33/100 =.330.
+    assert(closeTo(got[0], 0.300), 'week 1 ' + got[0]);
+    assert(closeTo(got[1], 0.260), 'week 2 ' + got[1] + ' - summing the weekly rates gives .500');
+    assert(closeTo(got[2], 0.330), 'week 3 ' + got[2] + ' - summing gives .900, and a season of that is the reported 4.9');
+});
+
+test('teamCategorySeries: ERA recomputes from cumulative ER and outs', () => {
+    // OUTS is stat 34, ER is stat 45, ERA is stat 47 with scale 27 (ER * 9 / innings).
+    const weeklyCats = {
+        1: { '34': 27, '45': 3, '47': 3.00 },
+        2: { '34': 27, '45': 6, '47': 6.00 },
+        3: { '34': 54, '45': 3, '47': 1.50 }
+    };
+    const got = teamCategorySeries(weeklyCats, [1, 2, 3], '47', 'flb');
+    // Hand-computed: 3*27/27 = 3.00, 9*27/54 = 4.50, 12*27/108 = 3.00.
+    assert(closeTo(got[0], 3.00), 'week 1 ' + got[0]);
+    assert(closeTo(got[1], 4.50), 'week 2 ' + got[1] + ' - summing gives 9.00');
+    assert(closeTo(got[2], 3.00), 'week 3 ' + got[2] + ' - summing gives 10.50');
+    // ERA is an inverse category and this returns the REAL era either way - which end of the scale is good belongs to the renderer. A good week pulling the cumulative number DOWN is what proves the direction is not being flipped somewhere in the accumulation.
+    assert(got[2] < got[1], 'a good week pulls a cumulative ERA down');
+});
+
+test('teamCategorySeries: a counting category still accumulates', () => {
+    const weeklyCats = { 1: { '5': 2 }, 2: { '5': 3 }, 3: { '5': 4 } };
+    const got = teamCategorySeries(weeklyCats, [1, 2, 3], '5', 'flb');
+    assert(got[0] === 2 && got[1] === 5 && got[2] === 9, 'home runs add up: ' + got);
+});
+
+test('teamCategorySeries: a rate with no component rule falls back to the mean, not a sum', () => {
+    // W-L% (55) is in AVERAGE_STATS with no entry in RATE_COMPONENTS, so it takes the fallback.
+    const weeklyCats = { 1: { '55': 0.600 }, 2: { '55': 0.400 }, 3: { '55': 0.800 } };
+    const got = teamCategorySeries(weeklyCats, [1, 2, 3], '55', 'flb');
+    assert(closeTo(got[0], 0.600) && closeTo(got[1], 0.500) && closeTo(got[2], 0.600),
+        'running mean, not a running total: ' + got);
+});
+
+test('teamCategorySeries: a week with no value is skipped rather than counted as zero', () => {
+    // A bye leaves a gap. Averaging it in as a zero would drag the line toward nothing.
+    const weeklyCats = { 1: { '55': 0.600 }, 3: { '55': 0.800 } };
+    const got = teamCategorySeries(weeklyCats, [1, 2, 3], '55', 'flb');
+    assert(closeTo(got[1], 0.600), 'the empty week holds the line, got ' + got[1]);
+    assert(closeTo(got[2], 0.700), 'then two real weeks average, got ' + got[2]);
+});
+
+test('teamCategorySeries: an empty rate window is zero rather than NaN', () => {
+    const got = teamCategorySeries({}, [1, 2], '2', 'flb');
+    assert(got[0] === 0 && got[1] === 0, 'no components, no division by zero');
+});
+
+// : DOMINANT-COLOUR SAMPLING. Pure, over synthetic pixel data - a real logo is not needed to prove the histogram picks the right cell, and a hand-built array is the only way to know exactly what the answer should be. ---------------------------------------------------------------------------
+
+// Build an RGBA byte array from [r,g,b,a] tuples, one per pixel.
+const px = (...pixels) => new Uint8ClampedArray(pixels.flat());
+
+test('dominantColour: the most common colour wins, not the average of two', () => {
+    // Three red pixels and one blue. An average would return a purple the logo does not contain.
+    const data = px([200, 30, 40, 255], [200, 30, 40, 255], [200, 30, 40, 255], [30, 40, 200, 255]);
+    const got = dominantColour(data);
+    assert(got[0] === 200 && got[1] === 30 && got[2] === 40, 'the red, exactly: ' + got);
+});
+
+test('dominantColour: a winning bucket averages its OWN pixels, so the answer is a real shade', () => {
+    // Two near-identical reds share a bucket and average to the shade between them; the lone blue is a bucket of one and loses. The channel values here are chosen to sit INSIDE one cell rather than to look tidy. Buckets are 256/6 wide, about 42.7, so 40 and 50 straddle a boundary and would land two pixels that look almost identical in different cells - which is exactly what the first version of this test did, and it failed until the fixture was built to the real bucket width rather than to what a reader assumes it is.
+    const data = px([200, 30, 40, 255], [208, 36, 40, 255], [30, 40, 200, 255]);
+    const got = dominantColour(data);
+    assert(got[0] === 204 && got[1] === 33 && got[2] === 40, 'mean of the winning bucket: ' + got);
+});
+
+test('dominantColour: two shades either side of a bucket edge stay apart', () => {
+    // The other half of the same fact, asserted so a future change to BUCKETS shows up here as a decision rather than as a surprise: 40 and 50 are one cell apart at six buckets per channel, so neither red merges and the first-seen cell wins the tie.
+    const data = px([200, 30, 40, 255], [210, 40, 50, 255]);
+    const got = dominantColour(data);
+    assert(got[0] === 200 && got[2] === 40, 'no merge across the edge: ' + got);
+});
+
+test('dominantColour: transparent pixels are background, not colour', () => {
+    // ESPN's league logos are SVGs on a transparent field (DATA-SOURCES 13). Counting the cleared canvas would make almost every logo the same colour.
+    const data = px([0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [200, 30, 40, 255]);
+    const got = dominantColour(data);
+    assert(got[0] === 200, 'only the opaque pixel counted: ' + got);
+});
+
+test('dominantColour: near-white and near-black are paper and outline, not identity', () => {
+    // A crest on white with a black outline: both are more numerous than the actual colour, and both would make a nonsense pennant.
+    const data = px(
+        [255, 255, 255, 255], [250, 250, 250, 255], [255, 255, 255, 255],
+        [0, 0, 0, 255], [10, 10, 10, 255],
+        [40, 90, 200, 255]
+    );
+    const got = dominantColour(data);
+    assert(got[2] === 200 && got[0] === 40, 'the blue survives the paper and the ink: ' + got);
+});
+
+test('dominantColour: GREYS are not an identity either - the purple-pennant case', () => {
+    // The real numbers from the flb default_logos/12.svg on g.espncdn, the logo that hung a black pennant. It contains purple AND more grey by area, so a by-area histogram picked the grey: rgb(82,82,82). Four grey pixels against two purple ones reproduces exactly that shape.
+    const data = px(
+        [210, 211, 211, 255], [163, 165, 165, 255], [73, 73, 73, 255], [204, 204, 205, 255],
+        [120, 85, 163, 255], [86, 44, 135, 255]
+    );
+    const got = dominantColour(data);
+    assert(got !== null, 'the purple survives the greys');
+    // Hand-computed: the two purples share a bucket and average to (103, 65, 149).
+    assert(got[0] === 103 && got[1] === 65 && got[2] === 149, 'the purple, not the grey: ' + got);
+    // The saturation of every grey above is at or below 0.012 and of every purple at or above 0.479, so this is not a tuned threshold - it is two orders of magnitude of daylight.
+});
+
+test('dominantColour: a logo with nothing but paper and ink yields null', () => {
+    // A genuinely monochrome logo has no colour to dye with, and null is what sends that team to theme black rather than to an invented colour.
+    const data = px([255, 255, 255, 255], [0, 0, 0, 255], [0, 0, 0, 0]);
+    assert(dominantColour(data) === null, 'nothing to sample');
+    assert(dominantColour(px()) === null, 'and an empty image is null too');
+});
+
+test('contrastRatio and relativeLuminance agree with the known anchors', () => {
+    // The two ends of the scale, which every other measurement in this app is calibrated against.
+    assert(Math.abs(relativeLuminance([255, 255, 255]) - 1) < 1e-9, 'white is 1');
+    assert(Math.abs(relativeLuminance([0, 0, 0]) - 0) < 1e-9, 'black is 0');
+    assert(Math.abs(contrastRatio([255, 255, 255], [0, 0, 0]) - 21) < 1e-9, 'black on white is 21:1');
+    assert(Math.abs(contrastRatio([120, 120, 120], [120, 120, 120]) - 1) < 1e-9, 'a colour on itself is 1:1');
+});
+
+test('darkenUntilContrast: a bright colour is darkened until the gold passes', () => {
+    const gold = [244, 208, 111];
+    // A bright yellow logo: gold on it is unreadable, so it must come down a long way.
+    const bright = [250, 220, 60];
+    assert(contrastRatio(bright, gold) < 4.5, 'the premise - it starts failing');
+    const fixed = darkenUntilContrast(bright, gold, 4.5);
+    assert(fixed.passed, 'it got there');
+    assert(contrastRatio(fixed.rgb, gold) >= 4.5, 'and the result really measures: ' + contrastRatio(fixed.rgb, gold).toFixed(2));
+    assert(fixed.steps > 0, 'it had to move');
+    // Darkening only scales down - it never invents a hue the logo did not have.
+    assert(fixed.rgb[0] <= bright[0] && fixed.rgb[1] <= bright[1] && fixed.rgb[2] <= bright[2], 'no channel went up');
+});
+
+test('darkenUntilContrast: a colour that already passes is left alone', () => {
+    const gold = [244, 208, 111];
+    const navy = [22, 41, 74];
+    assert(contrastRatio(navy, gold) >= 4.5, 'the premise - it already passes');
+    const fixed = darkenUntilContrast(navy, gold, 4.5);
+    assert(fixed.steps === 0, 'no darkening needed');
+    assert(fixed.rgb[0] === 22 && fixed.rgb[1] === 41 && fixed.rgb[2] === 74, 'untouched: ' + fixed.rgb);
+});
+
+test('darkenUntilContrast: an impossible floor reports failure rather than lying', () => {
+    // Nothing can reach 21:1 against mid-grey, not even black. The caller leaves that flag undyed.
+    const impossible = darkenUntilContrast([200, 30, 40], [120, 120, 120], 21);
+    assert(impossible.passed === false, 'it says so');
+    assert(darkenUntilContrast(null, [0, 0, 0], 4.5) === null, 'and no sample is null, not a crash');
+});
+
+test('parseCssColour and toCssRgb round-trip the forms the sheet actually produces', () => {
+    assert(parseCssColour('#f4d06f').join() === '244,208,111', 'six-digit hex');
+    assert(parseCssColour('#abc').join() === '170,187,204', 'three-digit hex');
+    assert(parseCssColour('rgb(12, 34, 56)').join() === '12,34,56', 'rgb()');
+    assert(parseCssColour('rgba(12, 34, 56, 0.5)').join() === '12,34,56', 'rgba() drops the alpha');
+    assert(parseCssColour('nonsense') === null, 'and anything else is null');
+    assert(toCssRgb([1, 2, 3]) === 'rgb(1, 2, 3)', 'and back out again');
+});
+
+
+// item 2: PERIOD -> DATE off the pro schedule, and item 3's promise that the chip's figure IS the chart's. Both pure, both hand-computed. ---------------------------------------------------------------------------
+
+test('datesByScoringPeriod: a period takes its EARLIEST game', () => {
+    // Two games on period 5, one of them a late finish. The earlier one is the day.
+    const sched = { settings: { proTeams: [
+        { id: 1, proGamesByScoringPeriod: { 5: [{ id: 'a', scoringPeriodId: 5, date: 1600000200000 }] } },
+        { id: 2, proGamesByScoringPeriod: { 5: [{ id: 'b', scoringPeriodId: 5, date: 1600000000000 }],
+                                            6: [{ id: 'c', scoringPeriodId: 6, date: 1600086400000 }] } }
+    ] } };
+    const map = datesByScoringPeriod(sched);
+    assertEq(map.get(5), 1600000000000, 'the earlier of the two');
+    assertEq(map.get(6), 1600086400000, 'and the next day');
+    assertEq(map.size, 2, 'nothing invented');
+});
+
+test('datesByScoringPeriod: a dateless or shapeless schedule yields an empty map', () => {
+    // The chips fall back to Day N on an empty map, which is the never-guess rule.
+    assertEq(datesByScoringPeriod(null).size, 0, 'null');
+    assertEq(datesByScoringPeriod({}).size, 0, 'shapeless');
+    assertEq(datesByScoringPeriod({ settings: { proTeams: [
+        { id: 1, proGamesByScoringPeriod: { 5: [{ id: 'a', scoringPeriodId: 5 }] } }
+    ] } }).size, 0, 'a game with no date contributes nothing');
+});
+
+test('the chip figure IS the chart value: one cumulative series, not two', () => {
+    // item 3 says the chip shows the same number the chart plots. Both call aggregateDailyCumulative over the same days, so this asserts the property the strip relies on: the value at each day is the running total of that stat through it. Hand-computed on HR (stat 5): 1, then 1+0, then 1+0+2.
+    const daily = {
+        10: { games: 1, sums: { '5': 1 } },
+        11: { games: 1, sums: { '5': 0 } },
+        12: { games: 1, sums: { '5': 2 } }
+    };
+    const series = aggregateDailyCumulative(daily, [10, 11, 12], 'flb');
+    assertEq(series[0].totals['5'], 1, 'day one');
+    assertEq(series[1].totals['5'], 1, 'day two adds nothing');
+    assertEq(series[2].totals['5'], 3, 'day three carries the running total');
+    // An off day still holds the running total rather than dropping to zero, which is what lets a dashed chip sit in the strip without breaking the line the chart draws.
+    const withGap = aggregateDailyCumulative(
+        { 10: { games: 1, sums: { '5': 1 } }, 11: { games: 0, sums: {} } }, [10, 11], 'flb');
+    assertEq(withGap[1].totals['5'], 1, 'the gap holds the total');
+    assertEq(withGap[1].played, false, 'and still reports itself unplayed');
+});
+
 
 // Report ---------------------------------------------------------------------------
 
