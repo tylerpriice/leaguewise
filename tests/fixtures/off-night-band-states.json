@@ -1,0 +1,48 @@
+{
+  "_synthetic": "FOUR STATES for off-night-band.js's own fixture.html and tests, built by hand off the shapes rosterNightCoverage() actually returns (tests/fixtures/off-night.json is the data lane's own frozen instance for state 1; the other three vary slots/unknownClub/ties by hand since the data lane's generator captures only one real week).",
+  "withHoleAndUnknown": {
+    "roleLabel": "Skaters",
+    "coverage": {
+      "byPeriod": [
+        { "period": 161, "playing": 2, "idle": 1, "emptySlots": 2, "playerIds": [-101, -102] },
+        { "period": 162, "playing": 1, "idle": 2, "emptySlots": 3, "playerIds": [-103] },
+        { "period": 163, "playing": 1, "idle": 2, "emptySlots": 3, "playerIds": [-101] },
+        { "period": 164, "playing": 2, "idle": 1, "emptySlots": 2, "playerIds": [-102, -103] },
+        { "period": 165, "playing": 1, "idle": 2, "emptySlots": 3, "playerIds": [-101] },
+        { "period": 166, "playing": 2, "idle": 1, "emptySlots": 2, "playerIds": [-102, -103] },
+        { "period": 167, "playing": 1, "idle": 2, "emptySlots": 3, "playerIds": [-103] }
+      ],
+      "players": 3,
+      "unknownClub": 1,
+      "thinnest": 1,
+      "fullest": 2
+    }
+  },
+  "fullyKnownNoSlots": {
+    "roleLabel": "Goalies",
+    "coverage": {
+      "byPeriod": [
+        { "period": 161, "playing": 1, "idle": 0, "emptySlots": null, "playerIds": [-201] },
+        { "period": 162, "playing": 1, "idle": 0, "emptySlots": null, "playerIds": [-201] },
+        { "period": 163, "playing": 0, "idle": 1, "emptySlots": null, "playerIds": [] }
+      ],
+      "players": 1,
+      "unknownClub": 0,
+      "thinnest": 0,
+      "fullest": 1
+    }
+  },
+  "oneNightRound": {
+    "roleLabel": "Skaters",
+    "coverage": {
+      "byPeriod": [
+        { "period": 200, "playing": 3, "idle": 0, "emptySlots": 1, "playerIds": [-1, -2, -3] }
+      ],
+      "players": 3,
+      "unknownClub": 0,
+      "thinnest": 3,
+      "fullest": 3
+    }
+  },
+  "noCoverage": null
+}

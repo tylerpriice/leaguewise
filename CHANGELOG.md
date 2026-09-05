@@ -1,5 +1,25 @@
 ﻿# Changelog
 
+## 1.6.0 (2026-09-05)
+
+Added
+- Football leagues (ESPN Fantasy Football): points scoring, D/ST and kicking categories, the NFL pro-team schedule.
+- Pre-draft view on Team Metrics: draft date, ranked projections, last season's standings, mock lineup with starters and bench.
+- Player Metrics: team and club picker rail; window control (this matchup, next matchup, rest of season) with games left per player and starts left per starting pitcher; Matchup rank column with its breakdown in the drill-down; projection pacing strip in the drill-down.
+- My Team: coverage strip and drawer (losing categories, who carries them, best free-agent adds); opponent comparison by category, played or projected.
+- Team Rankings: donut view with a standings table.
+- Preseason: projections retained from before the season.
+
+Changed
+- Tabs and controls that need games are disabled until the first game.
+- Explanatory sentences removed from the pre-draft and drill-down surfaces; figures only.
+- Leaderboard header fixed while scrolling.
+
+Fixed
+- Matchup window span in multi-week matchups.
+- Stale rest-of-season projections; the remainder is derived per club game.
+- Injured or suspended players named as adds.
+
 ## 1.5.0 (2026-08-22)
 
 Added

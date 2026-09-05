@@ -58,7 +58,9 @@ function summarizeTeam(t, start, end) {
         if (isPoints) points += mw;
         // A playoff bye scored points but played nobody, so it counts toward Points For and toward no record at all.
         if (t.weeklyBye?.[wk]) continue;
-        const result = isPoints ? (t.weeklyMatchResult[wk] || 0) : mw;
+        // A WEEK WITH NO RESULT IS NOT A LOSS. In a points league weeklyMatchWins holds POINTS, so the undefined check above only skips a week with no points entry at all - the RESULT lives in weeklyMatchResult, and data.js withholds it for a week nobody has played. `|| 0` turned that absence into a 0, and 0 is the loss branch, so an unplayed league read 0-1-0 on its first week. graphs.js has skipped it correctly since (computeRecordByTier), which is why Team Rankings and this disagreed.
+        const result = isPoints ? t.weeklyMatchResult[wk] : mw;
+        if (result === undefined) continue;
         matchWins += result;
         cWins += t.weeklyCatWins[wk] || 0;
         if (result === 1) w++; else if (result === 0.5) ties++; else l++;
@@ -241,6 +243,13 @@ function setExportStatus(text, isError = false) {
     el.className = 'export-status' + (isError ? ' export-status-error' : text ? ' export-status-ok' : '');
 }
 
+// DATASETS REGISTERED FROM ELSEWHERE. The three built-in datasets are built here because their data lives here. A tab that owns its own model - the draft board is the first - registers instead, which keeps the dependency pointing one way: that tab imports this module to open the modal, and this module never imports the tab. The obvious alternative, importing the builder from here, closes a cycle between the two files. Same merge-not-replace shape as registerLeagueView in utils.js, and for the same reason.
+const extraDatasets = new Map();
+
+export function registerExportDataset(key, dataset) {
+    extraDatasets.set(key, { ...(extraDatasets.get(key) || {}), ...dataset });
+}
+
 export function openExportModal() {
     if (!AppState.apiData) return;
     const overlay = ensureExportModal();
@@ -263,7 +272,14 @@ export function openExportModal() {
                 ? 'Exactly as currently shown: group tab, search, position filter, sort, and timeframe all apply.'
                 : 'Player data is still loading (or unavailable). Open the Player Metrics tab first.',
             enabled: leaderboardReady
-        }
+        },
+        // Each registered dataset decides for itself whether it has anything to offer this league.
+        ...Array.from(extraDatasets.entries()).map(([key, d]) => ({
+            key,
+            label: d.label,
+            note: d.available && d.available() ? d.note : d.emptyNote,
+            enabled: !!(d.available && d.available())
+        }))
     ];
 
     const optionsEl = overlay.querySelector('#export-dataset-options');
@@ -282,6 +298,8 @@ export function openExportModal() {
         const includeAdvanced = overlay.querySelector('#export-include-advanced').checked;
         if (key === 'categories') return buildCategoryTotalsExport(sport, includeAdvanced);
         if (key === 'leaderboard') return buildLeaderboardExport(includeAdvanced);
+        const extra = extraDatasets.get(key);
+        if (extra) return extra.build();
         return buildStandingsExport();
     };
 

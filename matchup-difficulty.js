@@ -1,6 +1,6 @@
 // How hard is a pitcher's next start. PURE - no DOM, no AppState, no fetches, so every weight is stated once, in one place, and hand-checkable in a test. The chain is ESPN's own data end to end, with no new source and no new host permission: the player pool every hitter, their proTeamId, season stats and injuryStatus proTeamSchedules_wl who plays whom, on which day, and which side is at home a per-day stat line externalId IS the ESPN game id for that line VALIDATED against real captures. A per-day stat line's externalId resolves against the schedule 82 of 82 times, which is what makes the last item true: a pitcher's own history can be split by opponent and by home or away without inferring anything from dates. What is deliberately NOT here: platoon splits. ESPN's fantasy payload carries no handedness at all. Checked across 1618 player objects, there is no bats or throws field, and statSplitTypeId only ever holds 0, 1 or 5, so there is nothing vs-LHP or vs-RHP to read. That half needs a source decision (docs/DATA-SOURCES.md) rather than a cleverer parse.
 
-// A hitter counts toward his team's offence unless he cannot play. DAY_TO_DAY stays in, because a day-to-day hitter starts most days; the longer statuses are the ones that actually remove a bat.
+// A hitter counts toward the team's offence unless unable to play. DAY_TO_DAY stays in, because a day-to-day hitter starts most days; the longer statuses are the ones that actually remove a bat.
 const SIDELINED = new Set(['OUT', 'INJURY_RESERVE', 'SUSPENSION', 'SEVEN_DAY_DL', 'TEN_DAY_DL',
                            'FIFTEEN_DAY_DL', 'SIXTY_DAY_DL', 'NON_ROSTER']);
 
@@ -79,6 +79,8 @@ export function teamOffence(hitters, statIds, options = {}) {
     const healthyByTeam = new Map();
     (hitters || []).forEach(h => {
         if (!h || h.proTeamId == null) return;
+        // FREE AGENCY IS NOT A CLUB. ESPN files unrostered players under proTeamId 0, and `!= null` lets a zero through, so every unsigned player was being aggregated into a thirty-third team that then competed in the percentile basis. MEASURED on the real 2026 hockey pool: 33 clubs where the league has 32, the phantom ranking last, and 31 of the 32 REAL clubs shifting - by up to 2.5 percentile points - once it is removed. Baseball ran the same code and had the same phantom. Every other proTeamId aggregation in the app already excludes 0; this was the one that did not.
+        if (Number(h.proTeamId) === 0) return;
         if (isSidelined(h.injuryStatus)) return;
         if (!healthyByTeam.has(h.proTeamId)) healthyByTeam.set(h.proTeamId, []);
         healthyByTeam.get(h.proTeamId).push(h);
@@ -175,7 +177,7 @@ export function offenceBreakdown(byTeam, statIds, proTeamId, options = {}) {
              excluded: planOffenceRates(statIds, options).excluded };
 }
 
-// A pitcher's own past outings, split by who he faced and where. This is the join the module exists for. Each per-day line names its game through externalId, and the schedule says who was playing and which side was home, so a real head-to-head record falls out of data already in hand. lines: [{ externalId, totals: { <statId>: value } }] one per day the pitcher recorded a stat
+// A pitcher's own past outings, split by the opponent faced and where. This is the join the module exists for. Each per-day line names its game through externalId, and the schedule says who was playing and which side was home, so a real head-to-head record falls out of data already in hand. lines: [{ externalId, totals: { <statId>: value } }] one per day the pitcher recorded a stat
 export function pastStartsByOpponent(lines, gameIndex, pitcherTeamId) {
     const byOpponent = new Map();
     (lines || []).forEach(line => {

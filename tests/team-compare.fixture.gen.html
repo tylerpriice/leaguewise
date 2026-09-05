@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>team-compare.json generator</title>
+</head>
+
+<body>
+    <!-- THE GENERATOR FOR tests/fixtures/team-compare.json. Run it through the static server and read the <pre>: chrome --headless=new --dump-dom http://localhost:8123/tests/team-compare.fixture.gen.html It imports the REAL team-compare.js and drives it with REAL captured leagues, so the instance cannot drift from what the module emits. TWO CAPTURES, BECAUSE NO SINGLE ONE ANSWERS BOTH WINDOWS - measured, not assumed: full-mlb-2025 a FINISHED 2025 baseball season (latestScoringPeriod 196 past the final 195), 6 teams, all 24 matchups carrying cumulativeScore.scoreByStat. It is the PLAYED window's fixture and the only capture whose every matchup is complete. It carries no roster and no pro schedule, so it cannot answer a projected window at all. full-nhl-2 the only capture holding a pro schedule BESIDE a pool whose entries carry onTeamId, which together are the two halves a projected window needs - each rostered player's per-game line and his club's games in the stretch. Team rosters come from the POOL's onTeamId, not from team.json: no capture in the tree carries teams[].roster, which is why this generator reads the pool for the projected side and not the league payload. THE MULTI-MATCHUP PLAYED WINDOW IS THE INTERESTING ONE. Its rates cannot use ESPN's own per-matchup figures - averaging two matchups' batting averages is not the batting average of the two - so they are rebuilt from RATE_COMPONENTS. In this league AVG, ERA, WHIP and K/9 rebuild, and OPS reads null: OPS is OBP + SLG, and neither component appears in scoreByStat. That null is not a defect to fix, it is the refusal the contract asks for, arising here on real data rather than being staged. -->
+    <pre id="out"></pre>
+
+    <script type="module">
+        import { teamCompare } from '../team-compare.js';
+        import { gamesByProTeamForMatchup } from '../schedule-insight.js';
+        // The stat map, the rate set, the inverse set and the component table come from the app's
+        // OWN validated tables rather than copies kept here - a generator that spells its own stat
+        // ids is a second, unvalidated stat map (golden rule 4).
+        import { ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, lowerIsBetterIds } from '../state.js';
+        import { GAMES_PLAYED_IDS } from '../rank-engine.js';
+
+        const DIR = 'JSON_debug';
+        const grab = (cap, file) => fetch(`../${DIR}/${cap}/${file}`).then(r => r.json());
+
+        const ctxFor = (sport, league) => {
+            const items = league?.settings?.scoringSettings?.scoringItems || [];
+            const weights = {};
+            items.forEach(i => { if (i.points) weights[String(i.statId)] = i.points; });
+            return {
+                scoredIds: items.map(i => String(i.statId)),
+                statLabels: ESPN_STAT_MAPS[sport],
+                rateIds: AVERAGE_STATS[sport],
+                lowerIsBetterIds: lowerIsBetterIds(INVERSE_STATS[sport], weights),
+                rateComponents: RATE_COMPONENTS[sport]
+            };
+        };
+
+        // ------------------------------------------------------------------ the played windows
+        const mlb = await grab('full-mlb-2025', 'team.json');
+        const mlbCtx = ctxFor('flb', mlb);
+
+        // played[teamId][matchupPeriod][statId], the same shape data.js builds weeklyCats in. The
+        // SCORE, not the rank: scoreByStat carries both and only one of them is the category total.
+        const played = {};
+        const periodsOf = {};
+        mlb.schedule.forEach(row => {
+            [row.home, row.away].forEach(side => {
+                if (!side || side.teamId === undefined) return;
+                const byStat = (side.cumulativeScore && side.cumulativeScore.scoreByStat) || {};
+                const bucket = (played[side.teamId] = played[side.teamId] || {});
+                const cell = (bucket[row.matchupPeriodId] = bucket[row.matchupPeriodId] || {});
+                Object.entries(byStat).forEach(([id, v]) => {
+                    const n = Number(v && v.score);
+                    if (Number.isFinite(n)) cell[id] = n;
+                });
+                // The days a matchup spans, read off the payload rather than recomputed - the
+                // per-period points map is keyed by exactly those scoring periods.
+                const days = Object.keys(side.pointsByScoringPeriod || {}).map(Number);
+                if (days.length) {
+                    const seen = (periodsOf[row.matchupPeriodId] = periodsOf[row.matchupPeriodId] || new Set());
+                    days.forEach(d => seen.add(d));
+                }
+            });
+        });
+        const periodsFor = (mp) => [...(periodsOf[mp] || [])].sort((a, b) => a - b);
+
+        // ANONYMOUS LABELS, NOT THE CAPTURE'S NAMES (B218 O43). teamCompare takes {teamId, name}
+        // and the name is a LABEL the caller supplies - team-compare-band.js:74 escapes it into a
+        // headline and nothing else reads it, so what it says changes no number in this fixture.
+        // Taking it off the capture put two real league-mates' team names into a contract instance
+        // and was the only thing keeping that instance out of the public repository.
+        const MINE = 1, THEIRS = 3;                       // the owner's team, and one opponent
+        const nameOf = (id) => (id === MINE ? 'My Team' : `Opponent ${id}`);
+        const LAST = Math.max(...Object.keys(periodsOf).map(Number));
+        const allPeriods = [...new Set(Object.keys(periodsOf).flatMap(mp => periodsFor(mp)))].sort((a, b) => a - b);
+
+        const mineTeam = { teamId: MINE, name: nameOf(MINE) };
+        const theirTeam = { teamId: THEIRS, name: nameOf(THEIRS) };
+
+        const playedSingle = teamCompare(mineTeam, theirTeam, {
+            ...mlbCtx, played,
+            window: {
+                kind: 'played', label: `Matchup ${LAST}`, matchup: LAST,
+                periods: periodsFor(LAST), asOf: Math.max(...periodsFor(LAST))
+            }
+        });
+        const playedSeason = teamCompare(mineTeam, theirTeam, {
+            ...mlbCtx, played,
+            window: {
+                kind: 'played', label: 'Full season', matchup: null,
+                periods: allPeriods, asOf: Math.max(...allPeriods)
+            }
+        });
+
+        // ------------------------------------------------------------------ the projected window
+        const nhl = await grab('full-nhl-2', 'team.json');
+        const nhlCtx = ctxFor('fhl', nhl);
+        const pool = await grab('full-nhl-2', 'player-pool.json');
+        const sched = await grab('full-nhl-2', 'pro-schedule.json');
+
+        // THE LAST SEVEN DAYS THE SCHEDULE ACTUALLY COVERS, and the reason it is not "the next
+        // seven" is a measured fact worth stating: every capture in this tree holding a pro
+        // schedule is a FINISHED season (this one reads scoringPeriodId 197 against a final period
+        // of 196). Taking seven days from the league's current period therefore ran past the end of
+        // the schedule, every club came back with zero games, and every cell was correctly null -
+        // the model answering a window in which nobody plays. No capture can exercise a genuinely
+        // FUTURE window until a live league's pro schedule is captured.
+        //
+        // A real past stretch exercises the identical path with real numbers: the model cannot tell
+        // where in the calendar its window sits, and does not need to. The window is labelled for
+        // what it is rather than dressed up as a forecast.
+        const proTeams = (sched && sched.settings && sched.settings.proTeams) || [];
+        const scheduled = new Set();
+        proTeams.forEach(t => Object.keys(t.proGamesByScoringPeriod || {}).forEach(p => scheduled.add(Number(p))));
+        const WINDOW = [...scheduled].sort((a, b) => a - b).slice(-7);
+        const START = WINDOW[0];
+        const byClub = gamesByProTeamForMatchup(proTeams, WINDOW);
+
+        const GAMES_ID = GAMES_PLAYED_IDS.fhl.primary;
+        const entries = pool.players || pool || [];
+        const projected = {};
+        entries.forEach(entry => {
+            const teamId = Number(entry && entry.onTeamId);
+            if (!teamId) return;
+            const p = entry.player || entry;
+            const found = (p.stats || []).find(s =>
+                s.statSourceId === 1 && s.statSplitTypeId === 0 && s.seasonId === nhl.seasonId);
+            const line = found && found.stats;
+            if (!line) return;
+            const projGames = Number(line[GAMES_ID]);
+            if (!Number.isFinite(projGames) || projGames <= 0) return;
+            // COUNTING STATS ONLY, divided by the player's projected games. A rate is deliberately
+            // NOT carried: a rate multiplied by a game count is meaningless, and the model never
+            // reads one - it rebuilds every projected rate from these components instead.
+            const rates = {};
+            Object.entries(line).forEach(([id, v]) => {
+                if (nhlCtx.rateIds.has(String(id))) return;
+                const n = Number(v);
+                if (Number.isFinite(n)) rates[id] = n / projGames;
+            });
+            const club = byClub.get(Number(p.proTeamId));
+            projected[teamId] = projected[teamId] || [];
+            projected[teamId].push({ rates, games: (club && club.games) || 0 });
+        });
+
+        const nhlName = (id) => `Team ${id}`;   // a label, as above
+        const [A, B] = Object.keys(projected).map(Number).sort((a, b) => a - b);
+        const projectedWindow = teamCompare(
+            { teamId: A, name: nhlName(A) }, { teamId: B, name: nhlName(B) },
+            {
+                ...nhlCtx, projected,
+                window: { kind: 'projected', label: 'Final week', matchup: null, periods: WINDOW, asOf: START }
+            });
+
+        // ------------------------------------------------------------------ the refusals
+        // Emitted as an explicit block rather than omitted, because "null, never a zeroed table" is
+        // the part of the contract a renderer is most likely to get wrong.
+        const base = {
+            ...mlbCtx, played,
+            window: {
+                kind: 'played', label: `Matchup ${LAST}`, matchup: LAST,
+                periods: periodsFor(LAST), asOf: LAST
+            }
+        };
+        const refusals = {
+            pointsLeague: teamCompare(mineTeam, theirTeam, { ...base, isPointsLeague: true }),
+            sameTeamBothSides: teamCompare(mineTeam, { teamId: MINE, name: nameOf(MINE) }, base),
+            noOpponent: teamCompare(mineTeam, null, base),
+            windowWithNoPeriods: teamCompare(mineTeam, theirTeam,
+                { ...base, window: { kind: 'played', label: 'x', matchup: LAST, periods: [] } }),
+            projectedWithNoRoster: teamCompare(mineTeam, theirTeam, {
+                ...mlbCtx, projected: {},
+                window: { kind: 'projected', label: 'Rest of season', matchup: null, periods: allPeriods }
+            })
+        };
+
+        const out = {
+            // THE KIND OF LEAGUE AND THE SEASON, not the capture and not the league id. Naming the
+            // capture would make this a published fixture pointing at a private one, which
+            // mirror-coverage.ps1 refuses - and rightly, since nobody outside this tree can follow
+            // the pointer. What a reader needs to judge the instance is which sport and what state
+            // the season was in, and that is what this says.
+            _source: 'generated by tests/team-compare.fixture.gen.html - '
+                + `played from a finished ${mlb.seasonId} baseball league, `
+                + `projected from a ${nhl.seasonId} hockey league`,
+            _contract: 'tests/fixtures/team-compare.md',
+            playedSingleMatchup: playedSingle,
+            playedWholeSeason: playedSeason,
+            projectedWindow,
+            refusals
+        };
+        document.getElementById('out').textContent = JSON.stringify(out, null, 2);
+    </script>
+</body>
+
+</html>

@@ -60,7 +60,9 @@ function standingsThrough(thruWeek, isPoints) {
             if (isPoints) points += val;
             // A playoff bye is not a game and belongs in no record.
             if (t.weeklyBye?.[wk]) continue;
-            const result = isPoints ? (t.weeklyMatchResult[wk] || 0) : val;
+            // A WEEK WITH NO RESULT IS NOT A LOSS. In a points league weeklyMatchWins holds POINTS, so the undefined check above only skips a week with no points entry at all - the RESULT lives in weeklyMatchResult, and data.js withholds it for a week nobody has played. `|| 0` turned that absence into a 0, and 0 is the loss branch, so an unplayed league read 0-1-0 on its first week. graphs.js has skipped it correctly since (computeRecordByTier), which is why Team Rankings and this disagreed.
+            const result = isPoints ? t.weeklyMatchResult[wk] : val;
+            if (result === undefined) continue;
             matchWins += result;
             cWins += t.weeklyCatWins[wk] || 0;
             if (result === 1) w++; else if (result === 0.5) ties++; else l++;

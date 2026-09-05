@@ -1,0 +1,202 @@
+{
+  "_synthetic": "HAND-BUILT, NOT A CAPTURE. No league in the captured corpus is preseason-shaped - all three real ones are drafted with a full season of play behind them - so the pre-draft and post-draft-preseason states have no capture to be staged from. This file is the minimum payload season-state.js reads: teams with nothing accumulated, an undecided schedule, a draft flag and a draft date. Team names are invented in the house style and match no real league. Change the draft date freely; the tests pass their own clock in. Scoring items are copied verbatim from a real capture so the board has categories to rank on; nothing else here is real.",
+  "gameId": 2,
+  "seasonId": 2026,
+  "scoringPeriodId": 1,
+  "status": {
+    "isActive": true,
+    "currentMatchupPeriod": 1,
+    "firstScoringPeriod": 1,
+    "latestScoringPeriod": 1,
+    "finalScoringPeriod": 186
+  },
+  "draftDetail": {
+    "drafted": false,
+    "picks": []
+  },
+  "settings": {
+    "name": "Synthetic Preseason League",
+    "draftSettings": {
+      "date": 1790000000000,
+      "type": "SNAKE",
+      "pickOrder": [
+        3,
+        1,
+        4,
+        2
+      ]
+    },
+    "rosterSettings": {
+      "lineupSlotCounts": {
+        "0": 1,
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 3,
+        "12": 1,
+        "14": 2,
+        "15": 2,
+        "16": 4,
+        "17": 1
+      }
+    },
+    "scheduleSettings": {
+      "matchupPeriodCount": 22,
+      "playoffMatchupPeriodLength": 1
+    },
+    "scoringSettings": {
+      "scoringType": "H2H_MOST_CATEGORIES",
+      "scoringItems": [
+        {
+          "statId": 5,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 41,
+          "isReverseItem": true,
+          "points": 1
+        },
+        {
+          "statId": 72,
+          "isReverseItem": true,
+          "points": 1
+        },
+        {
+          "statId": 48,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 49,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 18,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 20,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 21,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 53,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 47,
+          "isReverseItem": true,
+          "points": 1
+        },
+        {
+          "statId": 23,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 57,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 63,
+          "isReverseItem": false,
+          "points": 1
+        },
+        {
+          "statId": 2,
+          "isReverseItem": false,
+          "points": 1
+        }
+      ]
+    }
+  },
+  "teams": [
+    {
+      "id": 1,
+      "abbrev": "BFT",
+      "location": "Bunt",
+      "nickname": "Force Trauma",
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0
+        }
+      }
+    },
+    {
+      "id": 2,
+      "abbrev": "WOW",
+      "location": "Walk Off",
+      "nickname": "Warriors",
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0
+        }
+      }
+    },
+    {
+      "id": 3,
+      "abbrev": "RC",
+      "location": "Rally",
+      "nickname": "Caps",
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "abbrev": "FCC",
+      "location": "Full",
+      "nickname": "Count Club",
+      "record": {
+        "overall": {
+          "wins": 0,
+          "losses": 0,
+          "ties": 0
+        }
+      }
+    }
+  ],
+  "schedule": [
+    {
+      "id": 1,
+      "matchupPeriodId": 1,
+      "winner": "UNDECIDED",
+      "home": {
+        "teamId": 1
+      },
+      "away": {
+        "teamId": 2
+      }
+    },
+    {
+      "id": 2,
+      "matchupPeriodId": 1,
+      "winner": "UNDECIDED",
+      "home": {
+        "teamId": 3
+      },
+      "away": {
+        "teamId": 4
+      }
+    }
+  ]
+}

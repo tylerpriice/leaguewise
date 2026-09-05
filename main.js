@@ -1,13 +1,15 @@
-import { checkAuth, setupAuthWatchers, loadStoredSettings, fetchEspnData, setPostFetchHook, renderMyLeaguesOptions } from './api.js';
-import { renderLeftColumn, renderRightColumn, renderHeatmapBand, setupCardPopout, isCardPopoutOpen, closeCardPopout } from './graphs.js';
+import { checkAuth, setupAuthWatchers, loadStoredSettings, fetchEspnData, setPostFetchHook, renderMyLeaguesOptions, ensureDraftDetailCapture, ensureRosterCapture } from './api.js';
+import { renderLeftColumn, renderRightColumn, renderHeatmapBand, renderTeamMetricsTab, setupCardPopout, isCardPopoutOpen, closeCardPopout } from './graphs.js';
 import { AppState } from './state.js';
 import { loadPlayerTabIfNeeded, renderPlayerLeaderboard, openPlayerDetail, closePlayerDetail, ensurePlayerDetailDiagnostic, reprioritizeWeeklyQueue, setWeeklyProgressHook, retryPlayerPoolAfterLogin } from './players.js';
-import { downloadDebugData, setActiveDebugKind, refreshDebugPanel, setupHintTooltips, pinDebugKind, registerLeagueView, showLeagueView, wirePushPanel, setDiagnosticPanelEnabled } from './utils.js';
+import { downloadDebugData, downloadAllDebugData, setActiveDebugKind, refreshDebugPanel, setupHintTooltips, setupLongPressDisclosures, pinDebugKind, registerLeagueView, showLeagueView, renderActiveLeagueView, wirePushPanel, setDiagnosticPanelEnabled } from './utils.js';
+import { seasonState, isPreseason, SEASON_STATE } from './season-state.js';
 import { openExportModal } from './export.js';
 import { openRecapModal } from './recap.js';
 import { syncRotoTimeframePills, setTimeframeVisible } from './controls.js';
 import { renderMyTeamTab, invalidateMyTeamLayout } from './myteam.js';
 import { renderHistoryTab } from './history-view.js';
+import { renderDraftTab, resetDraftView } from './draft-view.js';
 
 // Betting lines are OFF until the user turns them on, and while they are off the scoreboard is never even requested (see myteam.js) - so an install that never opts in makes no betting-related call at all. That is the honest default for a fantasy tool and it is also the posture the store question in docs/PUBLISHING.md turns on. localStorage rather than browser.storage, matching the theme beside it. Both are display preferences that must be readable synchronously at render time.
 function setupOddsPreference() {
@@ -176,6 +178,38 @@ function setupPopouts() {
     });
 }
 
+// phase M2 item 5: the mobile-only swipeable pager over Season Trends / the Rankings box. CSS scroll-snap (dashboard.css's own mobile block) does the actual swiping; this only keeps.tm-pager-dots in sync with.layout's own scroll position, and lets a tap on a dot scroll there too - swipe must never be the only way to turn a page. Runs at every width (the dots are display:none above 700px, and.layout's own scrollLeft never moves there since it isn't a scroller at that width), so there is no matchMedia branch to keep in sync with the CSS's own. THE HEATMAP STAYS A BELOW-PAGER BAND, not a third page - tried folding it in first. The heatmap already scrolls HORIZONTALLY inside its own wrapper once a league scores more categories than 375px holds (the same shape the roster table's own overflow-x takes on My Team), and nesting that inside the pager's own horizontal snap scroll is the textbook scroll-jacking conflict: a swipe meant to pan the heatmap's own columns reads exactly like a swipe meant to turn the page, and nothing can tell the two apart. Below the pager it is reached the way Data Filters already is - vertical scroll, the mechanism #view-team uses for everything past the top row - which never contests the pager for the same gesture.
+function wireMobilePager() {
+    const layout = document.querySelector('#view-team .layout');
+    const dotsEl = document.querySelector('#view-team .tm-pager-dots');
+    if (!layout || !dotsEl) return;
+    const dots = [...dotsEl.querySelectorAll('.tm-pager-dot')];
+    if (!dots.length) return;
+
+    const setActive = (i) => {
+        dots.forEach((d, idx) => {
+            const on = idx === i;
+            d.classList.toggle('active', on);
+            d.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+    };
+
+    // clientWidth is 0 (and scrollLeft always 0) whenever.layout is not the horizontal scroller the mobile CSS makes it - the desktop two-column row, or a hidden tab - so the division is guarded rather than trusted to land on page 0 by luck.
+    layout.addEventListener('scroll', () => {
+        if (!layout.clientWidth) return;
+        const page = Math.round(layout.scrollLeft / layout.clientWidth);
+        setActive(Math.max(0, Math.min(dots.length - 1, page)));
+    }, { passive: true });
+
+    // 'instant', not 'smooth' - tried smooth first and it never animated in this session's own testing (a JS-driven smooth scrollTo sat at scrollLeft 0 for two full seconds, on a document reporting itself visible and not hidden, with scroll-snap ruled out by disabling it and getting the same result). A real swipe still gets its native momentum from the touchscreen itself; the dot is the secondary, accessible way to turn a page, where landing there immediately is a fine trade against depending on an animation that may not run.
+    dots.forEach((dot, i) => {
+        dot.addEventListener('click', () => {
+            layout.scrollTo({ left: i * layout.clientWidth, behavior: 'instant' });
+            setActive(i);
+        });
+    });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
 
     // Redirect to a full tab if opened as a small popup (width < 800px) - but ONLY on the first, untagged load. The tab this opens carries ?tab=1, and a tagged load skips this check entirely regardless of its own width. That tag is what stops an infinite loop on Firefox for Android is why. There, EVERY surface (the popup AND the tab it opens) renders at the phone's screen width, always under 800px - without the tag, the tab this code just opened would trip the same width check on its own load and open ANOTHER tab, forever. A width heuristic alone can't distinguish "the cramped popup that should redirect" from "the real tab that redirect landed in" on a device where both are narrow; a URL param can, since it only marks "this load IS the redirect target," not "this screen is wide." We strip ?tab=1 from the URL after this check (below) so the address bar reads clean, so the guard also honors a per-tab sessionStorage marker. A manual reload of the stripped tab is untagged but still marked, so it won't spawn a duplicate. Page window.sessionStorage (per-tab, survives reload, dies with the tab) is exactly the right scope - NOT browser.storage.session, which is extension-global and would wrongly suppress the redirect in every future popup too.
@@ -218,6 +252,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Refresh the Player Metrics view after any successful league fetch. This lives on the shared hook rather than in the Fetch Data handler below because the My Leagues picker auto-fetches without going near that handler, which left its leaderboard showing the PREVIOUS league's players. Registered before checkAuth() since that builds the picker, and the picker can start a fetch the moment it exists.
     setPostFetchHook(async ({ reopenPlayerId }) => {
+        // R3: a league switch landing on a tab the NEW league disables (My Team in the preseason, refreshMyTeamTabAvailability's own gate) goes to Team Metrics instead of leaving a disabled, unreachable tab on screen. processCoreData() (inside fetchEspnData, already run by the time this hook fires) has already refreshed.disabled for the new league, so this reads the settled state, not a stale one.
+        if (tabBtnMyTeam.classList.contains('active') && tabBtnMyTeam.disabled) switchTab('team');
+
         // processCoreData() already invalidated the cached player pool (new year/league/sport), but if Player Metrics is the tab currently on screen, nothing else re-triggers a reload until the tab is clicked again - refresh it immediately instead of leaving the previous fetch's stale leaderboard showing.
         const playerView = document.getElementById('view-player');
         if (!playerView || playerView.style.display === 'none') return;
@@ -231,6 +268,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // One delegated listener for every ⓘ on the page, including the ones panels render later. Wired once, before anything renders.
     setupHintTooltips();
+    // The rank explainer's touch form - a touch-and-hold on.rank-chip/.stat-chip, the honest equivalent of the desktop hover-and-wait a tap cannot sustain.
+    setupLongPressDisclosures();
+    // The mobile Team Metrics pager - dot indicator wiring only, the swipe itself is CSS scroll-snap.
+    wireMobilePager();
 
     // Logging in with the dashboard already open should heal it where the user is standing, on any tab, without a manual refresh. made the cookies arriving detectable; this is what the app does about it. Two failures are worth retrying and they are ordered, since the league payload is what the pool is fetched against: 1. The league itself was refused, which is a private league read with no cookies. Re-fetch it, and the post-fetch hook above rebuilds every tab from there. 2. The league loaded (restrictionType NONE) but the pool was refused. Re-fetch just that. Anything else means nothing was broken, which is the ordinary logged-in startup, so it stops.
     document.addEventListener('leaguewise:auth-restored', async () => {
@@ -323,6 +364,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     document.getElementById('player-availability-filter').addEventListener('change', (e) => {
         AppState.playerAvailabilityFilter = e.target.value;
+        // Team breakout: the tab SET a selection was made from is different once availability changes (fantasy teams disappear under Free Agents, pro teams under On Teams), so a stale id would silently filter to nothing, or worse, to a different team that happens to share the id space. Same reset normalizePlayerViewStateForLeague does on a league switch, for the same reason.
+        AppState.playerBreakoutFilter = { kind: 'all', id: null };
+        renderPlayerLeaderboard();
+    });
+
+    // Delegated, since the row itself (renderBreakoutTabs, players.js, drawing player-rail.js's markup) is rebuilt on every render - the same reason the availability/position selects above are wired once here while their OPTIONS are rebuilt per render, except a delegated click is what a rebuilt row of buttons needs instead of re-attaching a listener to each one every time. [data-kind] rather than a class name catches the All chip (.lb-rail-chip), a fantasy team crest (.lb-rail-fteam, R2/S51) and a club crest (.lb-rail-crest) with one selector - S16's rail redraw, same filter state throughout every reshape since.
+    document.getElementById('player-breakout-slot')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-kind]');
+        if (!btn) return;
+        const kind = btn.dataset.kind;
+        const id = btn.dataset.id ? Number(btn.dataset.id) : null;
+        AppState.playerBreakoutFilter = { kind, id };
         renderPlayerLeaderboard();
     });
 
@@ -352,6 +405,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 5. Debug Panel Bindings
     document.getElementById('debug-download-btn').addEventListener('click', downloadDebugData);
+    // The hook fills the kinds nothing fetches on its own (the draft detail; the roster, when My Team's own embedded-payload path never ran or came up empty for every team) before the archive is built, so "open the league, visit the tabs, Download All" really does carry everything - Promise.allSettled so one kind failing to load never hides the other landing.
+    document.getElementById('debug-download-all-btn')
+        .addEventListener('click', () => downloadAllDebugData(
+            () => Promise.allSettled([ensureDraftDetailCapture(), ensureRosterCapture()])
+        ));
     // Delegated, because the buttons are rebuilt every time a response lands or the shown kind changes, so anything bound to an individual button would be thrown away with it.
     document.getElementById('debug-kinds').addEventListener('click', (e) => {
         const btn = e.target.closest('.debug-kind');
@@ -375,16 +433,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     const viewMyTeam = document.getElementById('view-myteam');
     const tabBtnHistory = document.getElementById('tab-btn-history');
     const viewHistory = document.getElementById('view-history');
+    // THE DRAFT TAB IS HIDDEN: "the entire draft tab has a long way to go before being useful". It ships in no release until it earns its way back. REMOVED FROM THE DOM, not hidden with CSS. A display:none tab is still in the page - it reads in the accessibility tree, it is one devtools click from being switched on, and anyone inspecting the page can see a half-finished feature we chose not to ship. Taking the nodes out means the shipped dashboard has four tabs and no trace of a fifth. EVERYTHING ELSE STAYS LIVE. draft-view.js, draft-engine.js, the CSS, the suites and the export registration are all untouched, because development continues - this hides the door, it does not demolish the room behind it. THE GATE IS DEVELOPER-ONLY BY CONSTRUCTION. A query parameter that only dev-preview can carry, or a localStorage flag someone sets by hand in a console. There is deliberately no setting, no keyboard shortcut and no hidden click target: a user-visible toggle is a shipped feature with a confusing name, which is the thing the ruling was avoiding.
+    const draftGateOn = (() => {
+        try {
+            if (new URLSearchParams(location.search).get('draft') === '1') return true;
+        } catch { /* no location to read, which is answer enough */ }
+        try {
+            return localStorage.getItem('efv-dev-draft') === '1';
+        } catch { return false; }  // storage disabled is not a reason to show it
+    })();
+
+    const tabBtnDraft = draftGateOn ? document.getElementById('tab-btn-draft') : null;
+    const viewDraft = draftGateOn ? document.getElementById('view-draft') : null;
+    if (!draftGateOn) {
+        document.getElementById('tab-btn-draft')?.remove();
+        document.getElementById('view-draft')?.remove();
+    }
 
     // Each tab says here how to show itself, and the registry owns both call sites: a click on the tab button, and a league fetch committing while that tab is the one on screen. A new tab registers alongside its siblings and is correct on a league switch for free.
     registerLeagueView('team', {
         show: () => {
             setActiveDebugKind('team');
-            // Re-render on return. The columns' layout-measuring steps (inline-pie placement, compact-row fallback - see renderLeftColumn/renderCategoryGraph in graphs.js) read zero heights for anything measured while this tab was display:none, silently dropping the inline pies until some other re-render happened to run while visible (confirmed: pies vanishing after a visit to the Player tab, coming back only after toggling the timeframe). Re-rendering now measures real geometry.
-            if (!AppState.apiData) return;
-            renderLeftColumn();
-            renderRightColumn();
-            renderHeatmapBand();
+            // Re-render on return. The columns' layout-measuring steps (inline-pie placement, compact-row fallback - see renderLeftColumn/renderCategoryGraph in graphs.js) read zero heights for anything measured while this tab was display:none, silently dropping the inline pies until some other re-render happened to run while visible (confirmed: pies vanishing after a visit to the Player tab, coming back only after toggling the timeframe). Re-rendering now measures real geometry. Which face the tab wears is decided inside renderTeamMetricsTab, so this call site and the one in data.js cannot disagree about it.
+            renderTeamMetricsTab();
         }
     });
     registerLeagueView('player', {
@@ -396,7 +467,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     registerLeagueView('myteam', {
         show: () => {
-            setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'player-pool');
+            // The roster IS this tab's subject, so the panel offers mRoster rather than the pool it used to. An open drill-down still wins - same rule as the Player tab. The roster kind is only populated once fetchRosterForPeriod has landed (a completed season; a live one reads its rosters out of the league payload), and until then the panel shows its own "nothing captured" line, which is truer than a pool schema under a roster tab.
+            setActiveDebugKind(AppState.selectedPlayerId !== null ? 'player-detail' : 'roster');
             // Re-fit from scratch on entry. What was measured last time was measured for whatever league, roster and window size were on screen then, and any of the three can have changed while this tab was away.
             invalidateMyTeamLayout();
             renderMyTeamTab();
@@ -406,26 +478,54 @@ document.addEventListener('DOMContentLoaded', async () => {
         // History fetches a payload per past season, so entry is where that starts. The view keeps its own per-league state and re-renders from it, so a second entry costs nothing.
         show: () => { renderHistoryTab(); }
     });
+    // Registered only when the gate is open. The registry's show() renders into a container that no longer exists otherwise, and a league switch calls every registered view.
+    if (draftGateOn) {
+        registerLeagueView('draft', {
+            // The Draft tab reads the pool the Player tab fetches and makes no request of its own, so entry is a render and nothing more. reset clears which face was open, because a face chosen on one league must not decide what the next league opens on.
+            show: () => {
+                setActiveDebugKind('player-pool');
+                renderDraftTab();
+            },
+            reset: () => { resetDraftView(); }
+        });
+    }
 
     function switchTab(name) {
+        // R4/S45: the native `disabled` attribute (controls.js's refreshMyTeamTabAvailability) already stops a click from ever firing this for the tab button itself - this is the belt-and-suspenders half the ruling's own "the tab switch refusing it" asks for, in case some other caller ever invokes switchTab('myteam') directly (a keyboard shortcut, a deep link) without going through the disabled button.
+        if (name === 'myteam' && seasonState(AppState.apiData) === SEASON_STATE.PRE_DRAFT) return;
         const isTeam = name === 'team';
         const isMine = name === 'myteam';
         const isHistory = name === 'history';
+        const isDraft = name === 'draft';
         tabBtnTeam.classList.toggle('active', isTeam);
         tabBtnPlayer.classList.toggle('active', name === 'player');
         tabBtnMyTeam.classList.toggle('active', isMine);
         if (tabBtnHistory) tabBtnHistory.classList.toggle('active', isHistory);
+        if (tabBtnDraft) tabBtnDraft.classList.toggle('active', isDraft);
         viewTeam.style.display = isTeam ? 'flex' : 'none';
         viewPlayer.style.display = name === 'player' ? 'flex' : 'none';
         viewMyTeam.style.display = isMine ? 'flex' : 'none';
         if (viewHistory) viewHistory.style.display = isHistory ? 'flex' : 'none';
-        // The one tab with no timeframe. Visibility only - the container keeps its place and its flex, so nothing in the row moves on the way in or out.
-        setTimeframeVisible(!isHistory);
+        if (viewDraft) viewDraft.style.display = isDraft ? 'flex' : 'none';
+        // The tabs with no timeframe. Visibility only - the container keeps its place and its flex, so nothing in the row moves on the way in or out. The draft reads projections for a season that has not been played, so there is no window over it to choose.
+        setTimeframeVisible(!isHistory && !isDraft);
         showLeagueView(name);
     }
+
+    // THE POOL DECIDES BOTH PRESEASON FACES. They are built from drafted rosters times PROJECTED LINES, and the pool those lines live in lands AFTER the league payload - so the first render has no players, finds no rosters, and quietly draws the ordinary tab instead. My Team already listens to this same event for the same symptom, which is the tell that the answer changed rather than that the render was wrong. Gated on preseason so a played league re-renders nothing it did not need to. The draft's picks, for the graded card's third line. Same shape and the same gate as the pool listener below: the card was drawn before the answer existed, so the tab redraws once it does. Only the preseason face asks for them, so only the preseason face has to redraw.
+    document.addEventListener('leaguewise:draft-picks-ready', () => {
+        if (!isPreseason(seasonState(AppState.apiData))) return;
+        renderActiveLeagueView();
+    });
+
+    document.addEventListener('leaguewise:player-pool-ready', () => {
+        if (!isPreseason(seasonState(AppState.apiData))) return;
+        renderActiveLeagueView();
+    });
 
     tabBtnTeam.addEventListener('click', () => switchTab('team'));
     tabBtnPlayer.addEventListener('click', () => switchTab('player'));
     tabBtnMyTeam.addEventListener('click', () => switchTab('myteam'));
     if (tabBtnHistory) tabBtnHistory.addEventListener('click', () => switchTab('history'));
+    if (tabBtnDraft) tabBtnDraft.addEventListener('click', () => switchTab('draft'));
 });

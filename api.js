@@ -1,5 +1,5 @@
 import { AppState } from './state.js';
-import { setDebugContext, escapeHtml, countApiRequest } from './utils.js';
+import { setDebugContext, hasDebugContext, setDebugLoading, escapeHtml, countApiRequest, leagueSeasonYears } from './utils.js';
 import { buildRosterTimeline, ownerTeamIdsByPlayer } from './roster-timeline.js';
 import { processCoreData } from './data.js';
 
@@ -100,7 +100,8 @@ export function setupAuthWatchers() {
 
 // ESPN's fan-profile endpoint knows every fantasy league the logged-in account belongs to - keyed by the SWID cookie, authenticated by the same espn_s2 cookie every other call here already uses (fan.api.espn.com is under the.espn.com cookie domain and the extension's existing *.espn.com host permission). gameId mapping per entry: 1=ffl, 2=flb, 3=fba, 4=fhl. UNVERIFIED against a real account as written - the exact response shape (entry.name vs groups[].groupName for the league's display name, especially) needs one validation pass with real cookies, which is why parsing is defensive field-by-field and any failure just leaves the picker hidden. Also unverified: that a multi-season league actually surfaces one pref.metaData.entry per season (the assumption the sport:leagueId dedupe below relies on to pick the highest seasonId) rather than some other shape. Best-effort by design. Manual league-id entry remains the fallback for public leagues the user isn't a member of, and for any account this endpoint misbehaves for.
 const FAN_API_GAME_IDS = { 1: 'ffl', 2: 'flb', 3: 'fba', 4: 'fhl' };
-const SUPPORTED_SPORTS = new Set(['flb', 'fhl']);
+// Football joins so league discovery lists ffl leagues and the picker can select one. Every league URL in this file is already `games/${sport}/...`, so the endpoint family needs nothing - what ffl does NOT yet have is validated stat ids, and the surfaces degrade explicitly for that rather than this gate pretending the sport is absent.
+const SUPPORTED_SPORTS = new Set(['flb', 'fhl', 'ffl']);
 
 // The full cross-sport league list from the last successful discovery, kept in memory so a #sport change can re-render the picker filtered to the selected sport without re-fetching the fan API.
 let discoveredLeagues = [];
@@ -255,20 +256,45 @@ function getLeagueParams() {
     };
 }
 
-// Runs `worker` over every item in `items`, at most `limit` calls in flight at once - fails fast on the first rejection, same as Promise.all would. PACING: the cap bounds PARALLELISM but never bounded RATE - six lanes cycling fast answers drain a 194-period season at ~25 requests a second for half a minute, and that burst profile is the scraper signature whatever the total. Callers with three-digit fan-outs pass `pacing`, and each lane sleeps paceMs plus up to jitterMs after every item: six lanes at 900+0..300ms land near five requests a second. Short queues (a dozen weekly chunks) stay unpaced - a one-second blip is not a signature. THE THROTTLE GATE: a worker that throws `throttled` (fetchEspnJson's 429/Retry-After shape) pauses EVERY lane behind one shared gate for retryAfterMs, then retries that item - slowing down being the entire point of the signal. Three pauses per queue run; a queue still throttled after that stops retrying and hands the item `undefined`, which every fan-out consumer already treats as its empty fallback - the harvest completes late or degrades exactly as an unreadable period always has (golden rule 8), and never fails the whole queue.
-async function runWithConcurrencyLimit(items, limit, worker, pacing) {
+// Runs `worker` over every item in `items`, at most `limit` calls in flight at once - fails fast on the first rejection, same as Promise.all would. PACING: the cap bounds PARALLELISM but never bounded RATE - six lanes cycling fast answers drain a 194-period season at ~25 requests a second for half a minute, and that burst profile is the scraper signature whatever the total. Callers with three-digit fan-outs pass `pacing`, and each lane sleeps paceMs plus up to jitterMs after every item: six lanes at 900+0..300ms land near five requests a second. Short queues (a dozen weekly chunks) stay unpaced - a one-second blip is not a signature. THE THROTTLE GATE: a worker that throws `throttled` (fetchEspnJson's 429/Retry-After shape) pauses EVERY lane behind one shared gate for retryAfterMs, then retries that item - slowing down being the entire point of the signal. Three pauses per queue run; a queue still throttled after that stops retrying and hands the item `undefined`, which every fan-out consumer already treats as its empty fallback - the harvest completes late or degrades exactly as an unreadable period always has (golden rule 8), and never fails the whole queue. A REFUSAL is the host declining to answer AT ALL, and it is the only failure a circuit breaker should act on. Two shapes, both named by fetchEspnJson: `throttled` (429, or any 4xx carrying a positive Retry-After - see throttleOf) and `authRequired` (401/403/405 without one). Everything else stays per-request: a period that 404s, a body that will not parse, a season ESPN has no log for. Those are the unreadable-period case golden rule 8 already answers by degrading, and one of them says nothing about the next request. DELIBERATELY NOT COVERED: being offline. A dead network throws a bare TypeError, which the per-period workers swallow into an empty slice, so the breaker never sees it and a walk run with no connection still issues every request. Covering it means rethrowing network errors out of those workers, which changes what an ordinary unreadable period does, and that is a wider change than this one. Named here so the gap is known rather than assumed shut.
+const isRefusal = (e) => !!(e && (e.throttled || e.authRequired));
+
+// FIVE, and the number is the argument. One refusal is ordinary and always has been. Five IN A ROW cannot be a property of five particular scoring periods - with six lanes in flight it means every answer coming back is a refusal - so the wall is the host's, and the next 190 requests would all be refused too. Before this, they were all sent: fetchTransactionPeriod swallowed the failure, runWithConcurrencyLimit issued the rest regardless, and a season whose first twenty periods were refused still spent the other ~175 asking a host that had already said no. That is the opposite of backing off, and it is the failure mode that matters if a lockout was ever rate-limiting.
+const REFUSALS_BEFORE_STOP = 5;
+
+// `breaker` is optional and opt-in: { stopAfter, onTrip }. Without it the behaviour below is exactly what it was, which is why only the three per-period walks pass one.
+async function runWithConcurrencyLimit(items, limit, worker, pacing, breaker) {
     const results = new Array(items.length);
     let nextIndex = 0;
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     let gate = null;
     let pausesLeft = 3;
+    let refusals = 0;
+    let tripped = false;
+
+    // Counted, and at the threshold the queue stops HANDING OUT work - the lanes still finish what they are holding, so nothing is abandoned mid-flight and every result already in hand is kept. The item that tripped it, and every item never started, take `undefined`, which every fan-out consumer here already treats as its empty fallback.
+    const refuse = (e) => {
+        if (!breaker) return undefined;
+        refusals += 1;
+        if (refusals >= breaker.stopAfter && !tripped) {
+            tripped = true;
+            nextIndex = items.length;
+            if (breaker.onTrip) breaker.onTrip(e);
+        }
+        return undefined;
+    };
 
     async function attempt(i) {
         try {
-            return await worker(items[i], i);
+            const out = await worker(items[i], i);
+            refusals = 0; // any real answer means the host is talking again
+            return out;
         } catch (e) {
-            if (!e || !e.throttled) throw e;
-            if (pausesLeft <= 0) return undefined;
+            if (!e || !e.throttled) {
+                if (breaker && isRefusal(e)) return refuse(e);
+                throw e;
+            }
+            if (pausesLeft <= 0) return refuse(e);
             if (!gate) {
                 pausesLeft -= 1;
                 const wait = Math.min(Math.max(e.retryAfterMs || 30000, 1000), 300000);
@@ -463,6 +489,8 @@ export async function fetchDraftDetail(sport, leagueId, year) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mDraftDetail`;
         const data = await fetchEspnJson(url);
+        // Raw, before the picks are unwrapped below: the panel exists for the questions not asked yet, and the draft's own settings and keeper fields live outside the picks array.
+        setDebugContext('draft-detail', data);
         return (data && data.draftDetail && data.draftDetail.picks) || [];
     } catch (e) {
         // A throttle escapes the swallow so the queue's gate can slow down and retry; a swallowed throttle would read as "this season has no draft", which is silent data loss.
@@ -471,15 +499,47 @@ export async function fetchDraftDetail(sport, leagueId, year) {
     }
 }
 
+// The most recent PAST season's payload, for the pre-draft face's last-season card. One request, through the same cache the League History tab fills, so a reader who has already opened that tab pays nothing and one who has not pays once. Returns null rather than throwing for a first-season league - there is no past year to ask for - and null for a season that could not be read. The card is absent in both cases, which is the spec's "never faked": a league with no history shows no history rather than an empty card or an error where a summary should be.
+export async function loadMostRecentPastSeason() {
+    const { sport, leagueId } = getLeagueParams();
+    const current = Number(AppState.apiData?.seasonId);
+    if (!sport || !leagueId || !Number.isFinite(current)) return null;
+    const years = leagueSeasonYears(AppState.leagueHistoryYears, current, new Date().getFullYear());
+    const past = [...new Set(years)].filter(y => Number(y) < current).sort((a, b) => b - a);
+    if (!past.length) return null;
+    try {
+        const payloads = await loadHistorySeasons(sport, leagueId, [past[0]]);
+        return (payloads && payloads[past[0]]) || null;
+    } catch {
+        return null;
+    }
+}
+
+// Fills the panel's draft-detail kind for the LOADED league, on demand. Download All calls this before it collects, which is what makes a draft-shaped capture a normal download rather than a special ask - the draft detail is fetched by nothing until a surface wants it, so on a league whose draft nobody has opened the kind would otherwise always be empty. One request, only when the kind is empty, and only for a league that is actually loaded. It is the ensurePlayerDetailDiagnostic pattern: the panel shows its loading line while this is in flight, and fetchDraftDetail's own success path writes the capture.
+export async function ensureDraftDetailCapture() {
+    if (hasDebugContext('draft-detail') || !AppState.apiData) return;
+    const { sport, leagueId, year } = getLeagueParams();
+    if (!sport || !leagueId || !year) return;
+    setDebugLoading('draft-detail', true);
+    try {
+        await fetchDraftDetail(sport, leagueId, year);
+    } finally {
+        // fetchDraftDetail's success path clears this by writing the context; the finally covers the failure path, so a league whose draft view 404s does not strand a loading line.
+        setDebugLoading('draft-detail', false);
+    }
+}
+
 // One scoring period's transaction slice. mTransactions2 silently scopes to the CURRENT period unless an explicit scoringPeriodId is passed (M0 probe C), which is why the plain call read empty for a completed season. Batching many periods through X-Fantasy-Filter returned 0 rows (M0), so the harvest is genuinely one request per period.
 async function fetchTransactionPeriod(sport, leagueId, year, scoringPeriodId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mTransactions2&scoringPeriodId=${scoringPeriodId}`;
         const data = await fetchEspnJson(url);
+        // Whichever period landed last, exactly as the roster kind works. A harvest is ~196 requests and is NEVER started for a download - this only holds something when the app already ran one for its own reasons.
+        setDebugContext('transactions', data);
         return (data && data.transactions) || [];
     } catch (e) {
-        // Throttles escape so the queue gate handles them - an empty slice for a throttled period would attribute players wrongly and never say so.
-        if (e && e.throttled) throw e;
+        // Throttles escape so the queue gate handles them - an empty slice for a throttled period would attribute players wrongly and never say so. A refusal escapes for the same reason one step up: swallowed, it reads as "this period had no moves" and the breaker above can never see the wall it exists to stop at.
+        if (isRefusal(e)) throw e;
         return [];
     }
 }
@@ -491,29 +551,89 @@ export async function harvestTransactions(sport, leagueId, year, firstScoringPer
 
     // The foreground lane. The only caller is the Roto Race, which draws nothing until this lands and is on screen while it does - the watched, user-initiated shape the lane was ruled for. There is no background trigger for either roster harvest: the prefetch chain never reaches them, so the slow lane here was a wait nobody was being spared.
     const slices = await runWithConcurrencyLimit(periods, WEEKLY_MAX_CONCURRENT_CHUNKS,
-        (period) => fetchTransactionPeriod(sport, leagueId, year, period), FOREGROUND_PACING);
+        (period) => fetchTransactionPeriod(sport, leagueId, year, period), FOREGROUND_PACING,
+        { stopAfter: REFUSALS_BEFORE_STOP });
 
     const byId = new Map();
     slices.flat().forEach(t => { if (t && t.id != null && !byId.has(t.id)) byId.set(t.id, t); });
     return Array.from(byId.values());
 }
 
-// The pro sports schedule, which is what turns a probable-start game id into a day. A SEASON endpoint, not a league one. It carries no league id, needs no cookies, and is the same host the manifest already lists, so it adds no permission and no privacy question. One fetch per sport and season, cached in session storage. The response is ~850KB for baseball and a season's schedule does not move, so re-fetching it on every My Team render would be pure waste. Failure is silent by design. The tab's projected-start line does not render, and nothing else on the page depends on it. The other half of invalidating the schedule: myteam.js resetting its own built index was never enough, because this module's AppState copy and the storage.session key kept serving the old body - so "the schedule refetches on the next render" was a comment, not a behaviour, and the Schedule tab could run a whole browser session on one fetch. Dropping both here makes the next ensureProSchedule genuinely ask the network (conditionally - the live class rides ETags now, so an unchanged season answers 304-cheap).
+// The pro sports schedule, which is what turns a probable-start game id into a day. A SEASON endpoint, not a league one. It carries no league id, needs no cookies, and is the same host the manifest already lists, so it adds no permission and no privacy question. One fetch per sport and season, cached in session storage. The response is ~850KB for baseball and a season's schedule does not move, so re-fetching it on every My Team render would be pure waste. Failure is silent by design. The tab's projected-start line does not render, and nothing else on the page depends on it. The other half of invalidating the schedule: myteam.js resetting its own built index was never enough, because this module's AppState copy and the storage.session key kept serving the old body - so "the schedule refetches on the next render" was a comment, not a behaviour, and the Schedule tab could run a whole browser session on one fetch. Dropping both here makes the next ensureProSchedule genuinely ask the network (conditionally - the live class rides ETags now, so an unchanged season answers 304-cheap). THE ONE PLACE THE KEY IS SPELLED. Reader and writer built it separately before, which is how a store belonging to one sport could be read by another: the abbreviations come from this response and nothing else, MLB id 17 is CIN while NFL id 17 is NE, so a football schedule left in memory printed NE over a Cincinnati player and then asked the crest host for mlb/500/NE.png, which 404s. Same function for both sides, so they cannot drift.
+function proScheduleKey(sport, year) {
+    return `proTeamSchedules:${sport}:${year}`;
+}
+
+// PURE, so the wrong-sport case is a test rather than a staging exercise: the body only when the stored key is the one this league would have written, and null otherwise. A payload from another sport or year reads as ABSENT - no club, no crest - never as a plausible wrong club.
+export function proScheduleFor(store, sport, year) {
+    return store && store.key === proScheduleKey(sport, year) ? store.data : null;
+}
+
+// The body for the league on screen, or null.
+export function currentProSchedule() {
+    const { sport, year } = getLeagueParams();
+    return proScheduleFor(AppState.proTeamSchedules, sport, year);
+}
+
+// WHETHER THIS LEAGUE'S SCHEDULE HAS BEEN ASKED FOR, which is NOT the same question as whether one is in hand. fetchProTeamSchedules stores `{ key, data: null }` when the fetch fails, so a truthy wrapper with an empty body means "asked and got nothing" - and the leaderboard's lens reasons read exactly that to tell a FAILED schedule from one nobody has requested yet. Collapsing the two into a single data-or-null accessor would turn every failed fetch into a permanent "loading".
+export function proScheduleAttemptedFor(store, sport, year) {
+    return !!store && store.key === proScheduleKey(sport, year);
+}
+
+export function proScheduleAttempted() {
+    const { sport, year } = getLeagueParams();
+    return proScheduleAttemptedFor(AppState.proTeamSchedules, sport, year);
+}
+
+// THE PRESEASON SNAPSHOT'S STORAGE HALF. The DECISIONS - what to keep, when, and what to drop - are pure and live in preseason-snapshot.js; this is only the reading and writing, kept here because api.js already owns browser.storage and because storage is the least testable thing in an extension. The contract is tests/fixtures/preseason-snapshot.md. storage.LOCAL rather than session: the whole point is to outlive the session, and the season.
+export async function readPreseasonSnapshot(key) {
+    try {
+        const got = await browser.storage.local.get(key);
+        return (got && got[key]) || null;
+    } catch { return null; }   // storage unavailable is "no snapshot", which every reader handles
+}
+
+// Every preseason key currently stored, so the retention pass can see what it is pruning. Nothing else is read - the rest of storage.local is not this feature's business.
+export async function preseasonSnapshotKeys() {
+    try {
+        const all = await browser.storage.local.get(null);
+        return Object.keys(all || {}).filter(k => k.startsWith('preseason:'));
+    } catch { return []; }
+}
+
+// WRITE THEN PRUNE, in that order and deliberately. If the write fails there is nothing to make room for, and pruning first would have deleted a good old snapshot to store nothing.
+export async function writePreseasonSnapshot(key, value, stale) {
+    try {
+        await browser.storage.local.set({ [key]: value });
+    } catch {
+        return false;   // over quota or storage disabled - the feature is absent, not broken
+    }
+    if (stale && stale.length) {
+        try { await browser.storage.local.remove(stale); } catch { /* the new one is stored; old ones can wait */ }
+    }
+    return true;
+}
+
 export async function invalidateStoredProSchedule() {
     const { sport, year } = getLeagueParams();
-    const key = `proTeamSchedules:${sport}:${year}`;
+    const key = proScheduleKey(sport, year);
     if (AppState.proTeamSchedules && AppState.proTeamSchedules.key === key) AppState.proTeamSchedules = null;
     try { await browser.storage.session.remove(key); } catch { /* nothing stored, nothing to drop */ }
 }
 
 export async function fetchProTeamSchedules() {
     const { sport, year } = getLeagueParams();
-    const key = `proTeamSchedules:${sport}:${year}`;
-    if (AppState.proTeamSchedules && AppState.proTeamSchedules.key === key) return AppState.proTeamSchedules.data;
+    const key = proScheduleKey(sport, year);
+    // THE PANEL GETS THE BODY ON EVERY PATH. setDebugContext used to sit on the network branch alone, so a session that answered from memory or from session storage - which is most of them, this being cached per league per session - left the capture's pro-schedule kind EMPTY. A Download All then produced a set with no schedule in it, and the next lane to stage that capture found the clubs missing and had to go looking for a bug in the reader. The kind describes what the app HOLDS, not which code path fetched it.
+    if (AppState.proTeamSchedules && AppState.proTeamSchedules.key === key) {
+        setDebugContext('pro-schedule', AppState.proTeamSchedules.data);
+        return AppState.proTeamSchedules.data;
+    }
     try {
         const cached = await browser.storage.session.get(key);
         if (cached && cached[key]) {
             AppState.proTeamSchedules = { key, data: cached[key] };
+            setDebugContext('pro-schedule', cached[key]);
             return cached[key];
         }
     } catch { /* session storage unavailable, fall through to the network */ }
@@ -521,6 +641,7 @@ export async function fetchProTeamSchedules() {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}?view=proTeamSchedules_wl`;
         const data = await fetchEspnJson(url);
         AppState.proTeamSchedules = { key, data };
+        setDebugContext('pro-schedule', data);
         try { await browser.storage.session.set({ [key]: data }); } catch { /* over quota, keep the memory copy */ }
         return data;
     } catch {
@@ -532,12 +653,15 @@ export async function fetchProTeamSchedules() {
 // The day's scoreboard, which is where ESPN carries betting lines. Public and UNAUTHENTICATED - validated, 200 with no cookies - on the same host the manifest wildcard already covers, so no new permission and no third party. Deliberately the DEFAULT response, with no ?dates=. Odds attach to ESPN's current SLATE, and that slate spans two UTC dates because night games roll past midnight Zulu; asking for a specific date returns those same games WITHOUT odds. Asking for "today" is the only query that carries them. NOT cached in session storage, unlike the season schedule. A line moves during the day, and a stale price shown as current is worse than no price. The in-memory copy is keyed by sport and hour so a render storm costs one fetch, not one per render. Failure is silent by design - the cards carry no line, which is what most of them do anyway.
 export async function fetchScoreboardOdds() {
     const { sport, year } = getLeagueParams();
-    const path = sport === 'fhl' ? 'hockey/nhl' : 'baseball/mlb';
+    // A TABLE, NOT A TERNARY. This read "hockey if fhl, otherwise baseball", so a third sport would have asked ESPN for MLB scores and quietly drawn baseball odds onto its cards. A sport with no scoreboard path here has no odds, which is what most cards show anyway.
+    const path = { fhl: 'hockey/nhl', flb: 'baseball/mlb' }[sport];
+    if (!path) return null;
     const key = `scoreboard:${sport}:${year}:${new Date().toISOString().slice(0, 13)}`;
     if (AppState.scoreboardOdds && AppState.scoreboardOdds.key === key) return AppState.scoreboardOdds.data;
     try {
         const data = await fetchEspnJson(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`);
         AppState.scoreboardOdds = { key, data };
+        setDebugContext('odds', data);
         return data;
     } catch {
         AppState.scoreboardOdds = { key, data: null };
@@ -551,11 +675,33 @@ export async function fetchRosterForPeriod(scoringPeriodId) {
     return fetchRosterPeriod(sport, leagueId, year, scoringPeriodId);
 }
 
+// myteam.js's own local copy (the field this reads is on apiData.status, not a request) - duplicated rather than imported for the reason findOwnedTeamId moved out of myteam.js entirely: myteam.js already imports from api.js, so the reverse import would be a real cycle. Exported now too: players.js needs the SAME fact to build the `rest` window ([todayPeriod.. finalScoringPeriod]), and players.js already imports from api.js one-way with no cycle risk - myteam.js's duplication above is a different, older case and stays as it was.
+export function finalScoringPeriodOf(apiData) {
+    const st = (apiData || {}).status || {};
+    return st.finalScoringPeriod || st.latestScoringPeriod || null;
+}
+
+// Fills the panel's roster kind for the LOADED league, on demand - the ensureDraftDetailCapture pattern, for the same reason. My Team's PRIMARY roster path (rostersFromPayload, myteam.js) reads straight off the league payload with no separate request, so nothing ever fetches a stand-alone mRoster response unless a season has already finished; a Download All run against a league nobody had opened My Team on - or a live season whose payload happened to carry no current-period roster for any team - produced a zip with team.json but no roster.json, because the one function that calls setDebugContext('roster',...) is fetchRosterPeriod, and nothing had asked it to run. Only when the kind is still empty (myteam.js's own capture, added alongside this fix, may already have filled it from the embedded path) and only for a league that is actually loaded.
+export async function ensureRosterCapture() {
+    if (hasDebugContext('roster') || !AppState.apiData) return;
+    const period = finalScoringPeriodOf(AppState.apiData);
+    if (!period) return;
+    setDebugLoading('roster', true);
+    try {
+        await fetchRosterForPeriod(period);
+    } finally {
+        // fetchRosterPeriod's success path clears this by writing the context; the finally covers the failure path, so a league whose mRoster view 404s does not strand a loading line.
+        setDebugLoading('roster', false);
+    }
+}
+
 // One scoring period's roster SNAPSHOT: every team's full roster with the lineupSlotId each player sat in on that exact day. mRoster with an explicit scoringPeriodId returns the historical lineup for a completed season (owner probe: periods 49 vs 50 differ by exactly the lineup edits applied on 50). Distilled to the shape the timeline consumes - [{ id, entries: [{ p, slot }] }] - so the pure module never sees ESPN's full playerPoolEntry payload. Defensive per golden rule 8: any missing field just drops that entry rather than throwing. The raw field names (teams[].id, roster.entries[].playerId,.lineupSlotId) are ESPN's standard mRoster shape; best-effort like the draft/transaction fetches, and a mismatch yields empty snapshots and the fallback ladder.
 async function fetchRosterPeriod(sport, leagueId, year, scoringPeriodId) {
     try {
         const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/${sport}/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&scoringPeriodId=${scoringPeriodId}`;
         const data = await fetchEspnJson(url);
+        // Captured RAW, before the distillation below throws away every field the timeline does not need. The distilled shape is the answer to one question; the schema panel exists for the questions not asked yet, and mRoster is the view the owner has no capture of.
+        setDebugContext('roster', data);
         return (data && data.teams || []).map(t => ({
             id: t.id,
             entries: ((t.roster && t.roster.entries) || [])
@@ -563,20 +709,21 @@ async function fetchRosterPeriod(sport, leagueId, year, scoringPeriodId) {
                 .filter(e => e.p != null && e.slot != null)
         }));
     } catch (e) {
-        // Throttles escape to the queue gate; a swallowed one would read as a day with no lineups and quietly demote the race's started-accuracy.
-        if (e && e.throttled) throw e;
+        // Throttles escape to the queue gate; a swallowed one would read as a day with no lineups and quietly demote the race's started-accuracy. A refusal escapes for the breaker's sake, same as the transaction worker's.
+        if (isRefusal(e)) throw e;
         return [];
     }
 }
 
-// Harvest the whole season's daily roster snapshots, one request per scoring period, into { days: { period: [{ id, entries }] } }. Same shape and cost as harvestTransactions - one request per period, concurrency-capped so a ~196-request season reads as normal browsing - and cached for the session by the caller (players.js). This is what upgrades the race from rostered-accurate to STARTED-accurate. The snapshot says not just who owned a player but whether he was in a starting slot that day, which is exactly the distinction ESPN's own standings count.
+// Harvest the whole season's daily roster snapshots, one request per scoring period, into { days: { period: [{ id, entries }] } }. Same shape and cost as harvestTransactions - one request per period, concurrency-capped so a ~196-request season reads as normal browsing - and cached for the session by the caller (players.js). This is what upgrades the race from rostered-accurate to STARTED-accurate. The snapshot says not just who owned a player but whether they were in a starting slot that day, which is exactly the distinction ESPN's own standings count.
 export async function harvestRosters(sport, leagueId, year, firstScoringPeriod, finalScoringPeriod) {
     const periods = [];
     for (let p = firstScoringPeriod; p <= finalScoringPeriod; p++) periods.push(p);
 
     // Foreground lane, same reasoning as harvestTransactions.
     const slices = await runWithConcurrencyLimit(periods, WEEKLY_MAX_CONCURRENT_CHUNKS,
-        (period) => fetchRosterPeriod(sport, leagueId, year, period), FOREGROUND_PACING);
+        (period) => fetchRosterPeriod(sport, leagueId, year, period), FOREGROUND_PACING,
+        { stopAfter: REFUSALS_BEFORE_STOP });
 
     const days = {};
     periods.forEach((period, i) => {
@@ -642,7 +789,9 @@ export async function fetchSeasonPool(sport, leagueId, year) {
             filterStatsForSplitTypeIds: { value: [0] }
         }
     };
-    return fetchEspnJson(url, filter);
+    const data = await fetchEspnJson(url, filter);
+    setDebugContext('history-pool', data);
+    return data;
 }
 
 const poolCache = new Map();
@@ -669,12 +818,15 @@ export async function loadHistoryPools(sport, leagueId, years, onProgress) {
     return pools;
 }
 
-// EVERY FRANCHISE THAT HELD A PLAYER, per season. The careers table's franchise column used to read the pool's onTeamId, which is the roster at the moment of the fetch - so a player who was dropped before it attributed to nobody, and the owner's drafted-and-held case showed only the season he happened to still be rostered in. THE COST, measured across the fixture set: the transaction log is one request per scoring period (ESPN scopes mTransactions2 to the current period unless asked otherwise, and batching through X-Fantasy-Filter returns zero rows - both established in the probes). That is 187 to 196 requests per season, so a five-season league is close to a thousand. Three things keep it honest: 1. It is LAZY, behind the careers pane, which is already the one part of this tab that pays for anything. Nobody who never opens careers fetches a single transaction. 2. The live season reuses the log the Roto Race already harvested when it is in hand, which is the ~192 requests most often already spent. 3. It is cached per season for the session, like the pools beside it. A season whose log cannot be read falls back to onTeamId rather than blanking the column, which is golden rule 8: the old answer was incomplete, not wrong, so an unreadable year degrades to it.
+// EVERY FRANCHISE THAT HELD A PLAYER, per season. The careers table's franchise column used to read the pool's onTeamId, which is the roster at the moment of the fetch - so a player who was dropped before it attributed to nobody, and the owner's drafted-and-held case showed only the season they happened to still be rostered in. THE COST, measured across the fixture set: the transaction log is one request per scoring period (ESPN scopes mTransactions2 to the current period unless asked otherwise, and batching through X-Fantasy-Filter returns zero rows - both established in the probes). That is 187 to 196 requests per season, so a five-season league is close to a thousand. Three things keep it honest: 1. It is LAZY, behind the careers pane, which is already the one part of this tab that pays for anything. Nobody who never opens careers fetches a single transaction. 2. The live season reuses the log the Roto Race already harvested when it is in hand, which is the ~192 requests most often already spent. 3. It is cached per season for the session, like the pools beside it. A season whose log cannot be read falls back to onTeamId rather than blanking the column, which is golden rule 8: the old answer was incomplete, not wrong, so an unreadable year degrades to it.
 const ownershipCache = new Map();
+
+// THE PICKS, CACHED APART FROM THE OWNERSHIP MAP. A deferred season is deliberately never written to ownershipCache - a draft-only map must not read back as that season's final answer - and the cost of that correct decision was a SECOND draft request every time a chip made the season pending again. Measured on the six-season fixture: one chip cost 196 requests rather than 195, four cost 784 rather than 780, and the season's bucket read draft:2. Two caches rather than one because they answer different questions: this one is "what did this season's draft say", which is finished history the moment the draft ends, and ownershipCache is "is this season's attribution final", which a deferred season's is not. Splitting them lets the second stay strict while the first stops paying twice. ONLY A NON-EMPTY RESULT IS CACHED. fetchDraftDetail returns [] for a season with no draft AND for a season whose request failed, and it cannot tell the caller which - so caching [] would freeze one bad minute into "this league never drafted" for the rest of the session, which is the poisoning ensurePlayerDataLoaded already guards against. A genuinely draftless season therefore re-asks once per chip, exactly what it costs today, and no season is ever worse off.
+const historyDraftPicksCache = new Map();
 
 // ONE SHARED LIMITER ACROSS SEASONS. The old shape walked seasons in a for..of with an await, so each season's 190 requests drained to zero before the next one's first request went out - and the gap at the end of every season is dead time no cap requires. WHAT THIS DOES NOT DO, said plainly because the entry hoped for it: three seasons cannot approach the wall-clock of one. The cap is 6 TOTAL and the request count is unchanged, so the floor is still (seasons x periods) / 6 waves. What sharing the limiter buys is the drain gap between seasons and nothing more. The change that makes the pane usable is the draft-first render below, which puts a full table on screen after one request per season instead of after all of them. Tasks are queued season by season rather than round-robin, deliberately: the limiter then finishes the seasons IN ORDER, so per-season progressive fill still lands one season at a time instead of every season completing together at the very end.
 export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYear, options = {}) {
-    const { onDrafts, onSeason, onProgress, liveSeason, fullLogYears } = options;
+    const { onDrafts, onSeason, onProgress, onRefused, liveSeason, liveSeasonPending, fullLogYears } = options;
     const wanted = [...new Set(years || [])].filter(Boolean).sort((a, b) => a - b);
 
     const owners = {};
@@ -703,14 +855,29 @@ export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYea
 
     // THE ON-DEMAND SPLIT. Drafts fetch for every pending season - one request each, and what makes the table render at all - but the ~194-per-season transaction WALK runs only for the years the caller named in fullLogYears (all of them when it is absent, which is the pre- behaviour). A deferred season keeps draft-only attribution and is NEVER written to the ownership cache, so a later call naming it starts clean instead of reading a draft-only map back as final. Measured cost this splits: 1,179 requests on the six-season fixture's one click, ~194 of them per season actually walked.
     const walkSet = fullLogYears ? new Set(fullLogYears) : null;
-    const walkYears = walkSet ? pending.filter(y => walkSet.has(y)) : [...pending];
-    const deferredYears = pending.filter(y => !walkYears.includes(y));
+    let walkYears = walkSet ? pending.filter(y => walkSet.has(y)) : [...pending];
+
+    // JOIN THE HARVEST ALREADY RUNNING. liveSeason above is the log in hand; this is the log ON ITS WAY. The Roto Race starts a ~196-request walk of the live season on every roto open, and a reader who reached this pane before it finished used to start a SECOND walk of the same periods - measured at 392 requests against the 196 the same click cost a slower reader. The season is dropped from the walk list and its slot waits on the race's own promise instead. It stays in `pending`, so PHASE 1 still fetches its draft and the pane still paints its draft-only tier at the same moment it does today; only the walk is skipped. Refinement arrives through the same onSeason callback a self-walked season uses, so the view needs no new state and cannot tell the two apart.
+    const joinYear = liveSeasonPending && walkYears.includes(liveSeasonPending.year)
+        ? liveSeasonPending.year : null;
+    if (joinYear !== null) walkYears = walkYears.filter(y => y !== joinYear);
+    const deferredYears = pending.filter(y => !walkYears.includes(y) && y !== joinYear);
 
     // PHASE 1: the drafts, one request per season, all of them through the shared limiter. This is the cheap half and it attributes every player who was drafted and never moved - which in a quiet league is most of them.
     const picksByYear = {};
-    const draftResults = await runWithConcurrencyLimit(pending, WEEKLY_MAX_CONCURRENT_CHUNKS,
+    const draftKey = (year) => `${sport}:${leagueId}:${year}`;
+    pending.forEach(year => {
+        const cached = historyDraftPicksCache.get(draftKey(year));
+        if (cached) picksByYear[year] = cached;
+    });
+    const needDraft = pending.filter(year => !picksByYear[year]);
+    const draftResults = await runWithConcurrencyLimit(needDraft, WEEKLY_MAX_CONCURRENT_CHUNKS,
         (year) => fetchDraftDetail(sport, leagueId, year));
-    pending.forEach((year, i) => { picksByYear[year] = draftResults[i] || []; });
+    needDraft.forEach((year, i) => {
+        const picks = draftResults[i] || [];
+        picksByYear[year] = picks;
+        if (picks.length) historyDraftPicksCache.set(draftKey(year), picks);
+    });
 
     // THE DRAFT MAPS GO STRAIGHT INTO `owners`. built them in a separate object and handed that to onDrafts, which left `owners` holding only cached and finished seasons - so the first season's log to land published a map with every OTHER pending season MISSING, and buildCareers fell those columns back to the pool's onTeamId. That is the season-end snapshot item 5 measured wrong for most of a pool, so the table regressed to the exact bug fixed, mid-refinement, while the note above it still said the franchises came from the draft. One map, seeded here and overwritten season by season in finish(), makes the intermediate states impossible to get wrong rather than merely correct today. It needs two-plus uncached seasons to show at all, which is how it survived the single-season pass.
     pending.forEach(year => {
@@ -718,25 +885,30 @@ export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYea
         if (picks.length) owners[year] = ownerTeamIdsByPlayer(buildRosterTimeline({ picks }));
     });
     // The table can render now, on draft-based attribution, while the log is still coming. The walking list rides along so the caller can say how many seasons are still refining without guessing - a cached season never appears in it - and the deferred list beside it, so the view can OFFER those seasons instead of waiting on logs that were never requested.
-    if (onDrafts) onDrafts(owners, [...walkYears], [...deferredYears]);
+    const refiningYears = joinYear === null ? [...walkYears] : [...walkYears, joinYear];
+    if (onDrafts) onDrafts(owners, refiningYears, [...deferredYears]);
 
-    // PHASE 2: every (season, period) pair as ONE task list through the SAME limiter.
-    const tasks = [];
-    walkYears.forEach(year => {
+    // PHASE 2: every (season, period) pair as ONE task list through the SAME limiter. No period bounds means nothing to walk. That season keeps its draft-only attribution, which is the golden rule 8 answer rather than a blank column.
+    const periodTasks = (year) => {
         const status = ((payloadsByYear && payloadsByYear[year]) || {}).status || {};
         const first = status.firstScoringPeriod;
         const final = status.finalScoringPeriod;
-        // No period bounds means nothing to walk. That season keeps its draft-only attribution, which is the golden rule 8 answer rather than a blank column.
-        if (!Number.isFinite(first) || !Number.isFinite(final)) return;
-        for (let period = first; period <= final; period++) tasks.push({ year, period });
-    });
+        if (!Number.isFinite(first) || !Number.isFinite(final)) return [];
+        const out = [];
+        for (let period = first; period <= final; period++) out.push({ year, period });
+        return out;
+    };
+    const tasks = [];
+    walkYears.forEach(year => { tasks.push(...periodTasks(year)); });
 
     const remaining = new Map();
     const txByYear = {};
     walkYears.forEach(year => { txByYear[year] = []; });
+    if (joinYear !== null) txByYear[joinYear] = [];
     tasks.forEach(t => remaining.set(t.year, (remaining.get(t.year) || 0) + 1));
 
-    const finish = (year) => {
+    // `cache: false` publishes the attribution without declaring it final. A season that stopped short has a PARTIAL log, and writing that to ownershipCache would make the chip's retry a no-op - the second call would resolve from the cache and issue nothing, which is exactly the bug the deferred path already avoids by never caching a draft-only season. Found by staging the retry rather than by reading: the chip was there, the click did nothing, and the request count came back identical with and without it.
+    const finish = (year, { cache = true } = {}) => {
         const key = `${sport}:${leagueId}:${year}`;
         const picks = picksByYear[year] || [];
         // De-duplicated by id because ESPN can echo a multi-period transaction into more than one period slice - the same rule harvestTransactions applied when it owned this.
@@ -746,7 +918,7 @@ export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYea
         const map = (picks.length || transactions.length)
             ? ownerTeamIdsByPlayer(buildRosterTimeline({ picks, transactions }))
             : null;
-        ownershipCache.set(key, map);
+        if (cache) ownershipCache.set(key, map);
         // null only when the season had neither picks nor transactions - and a season with no picks was never seeded above, so the fallback contract is unchanged: nothing to overwrite, and the year stays absent so buildCareers uses onTeamId for it.
         if (map) owners[year] = map;
         if (onSeason) onSeason(year, owners);
@@ -756,7 +928,9 @@ export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYea
     walkYears.filter(year => !remaining.has(year)).forEach(finish);
 
     let done = 0;
-    await runWithConcurrencyLimit(tasks, WEEKLY_MAX_CONCURRENT_CHUNKS, async (task) => {
+    // A refusal is host-wide, not season-specific, so tripping stops the WHOLE task list rather than one season's share of it - the seasons behind the wall would meet the same wall.
+    let refused = false;
+    const walkAll = runWithConcurrencyLimit(tasks, WEEKLY_MAX_CONCURRENT_CHUNKS, async (task) => {
         const slice = await fetchTransactionPeriod(sport, leagueId, task.year, task.period);
         if (slice && slice.length) txByYear[task.year].push(...slice);
         done += 1;
@@ -764,10 +938,31 @@ export async function loadHistoryOwnership(sport, leagueId, years, payloadsByYea
         const left = (remaining.get(task.year) || 0) - 1;
         remaining.set(task.year, left);
         if (left === 0) finish(task.year);
-    }, FOREGROUND_PACING);
+    }, FOREGROUND_PACING, { stopAfter: REFUSALS_BEFORE_STOP, onTrip: () => { refused = true; } });
 
-    // A queue that gave up on throttled periods leaves those seasons' counters short, and a season that never reaches zero would never fire finish - a spinner that spins forever. Finish them here with whatever arrived: partial attribution from a throttled harvest is the same degradation as an unreadable period, and the pane completes late rather than never.
-    remaining.forEach((left, year) => { if (left > 0) finish(year); });
+    // The joined season, running BESIDE the walk rather than before it, so the other seasons are not held behind somebody else's harvest. A rejection is not an error here - the race's harvest failing says nothing about whether this pane can read the log - so the season falls back to the walk it would have done anyway, one season's worth of requests and no worse than before the join existed.
+    const joinWork = joinYear === null ? Promise.resolve() : liveSeasonPending.promise.then(
+        (res) => {
+            if (res && res.picks && res.picks.length) picksByYear[joinYear] = res.picks;
+            txByYear[joinYear] = (res && res.transactions) || [];
+            finish(joinYear);
+        },
+        async () => {
+            const own = periodTasks(joinYear);
+            await runWithConcurrencyLimit(own, WEEKLY_MAX_CONCURRENT_CHUNKS, async (task) => {
+                const slice = await fetchTransactionPeriod(sport, leagueId, task.year, task.period);
+                if (slice && slice.length) txByYear[task.year].push(...slice);
+            }, FOREGROUND_PACING, { stopAfter: REFUSALS_BEFORE_STOP, onTrip: () => { refused = true; } });
+            finish(joinYear);
+        }
+    );
+
+    await Promise.all([walkAll, joinWork]);
+
+    // A queue that gave up on throttled periods leaves those seasons' counters short, and a season that never reaches zero would never fire finish - a spinner that spins forever. Finish them here with whatever arrived: partial attribution from a throttled harvest is the same degradation as an unreadable period, and the pane completes late rather than never. A season the walk never finished. Without a trip this is the throttle-gate giving up on a few periods and the season completing late; with one it is a season that stopped short, and the pane is told which so it can say so rather than presenting draft-only columns as final.
+    const short = [];
+    remaining.forEach((left, year) => { if (left > 0) { short.push(year); finish(year, { cache: !refused }); } });
+    if (refused && onRefused) onRefused(short);
 
     return owners;
 }

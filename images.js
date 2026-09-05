@@ -2,17 +2,28 @@
 
 import { escapeHtml, countImageRequest } from './utils.js';
 
-// VALIDATED against real player ids taken from captured payloads, by loading each URL and confirming it decodes (600x436 in both sports): flb 39832 Shohei Ohtani, 4917694 Elly De La Cruz fhl 4063433 Alex DeBrincat, 3041969 Nathan MacKinnon A deliberately invalid id (99999999) fires the image's error event rather than serving a placeholder, which is what makes the fallback tile below reachable and worth having. The fantasy playerId IS the athlete id in this path; nothing needs translating.
+// VALIDATED against real player ids taken from captured payloads, by loading each URL and confirming it decodes (600x436 in both sports): flb 39832 Shohei Ohtani, 4917694 Elly De La Cruz fhl 4063433 Alex DeBrincat, 3041969 Nathan MacKinnon ffl 4429795 Jahmyr Gibbs, 3117251 Christian McCaffrey, 3918298 Josh Allen (re-validated the same way, ids taken from the captured football pool; all three decode at the same 600x436, and the host is the one the other two sports already use, so this adds no permission and no privacy surface - see the boundary note at the top of this file) A deliberately invalid id (99999999) fires the image's error event rather than serving a placeholder, which is what makes the fallback tile below reachable and worth having. The fantasy playerId IS the athlete id in this path; nothing needs translating.
 const HEADSHOT_BASE = {
     flb: 'https://a.espncdn.com/i/headshots/mlb/players/full/',
-    fhl: 'https://a.espncdn.com/i/headshots/nhl/players/full/'
+    fhl: 'https://a.espncdn.com/i/headshots/nhl/players/full/',
+    ffl: 'https://a.espncdn.com/i/headshots/nfl/players/full/'
 };
 
-// Null for an unsupported sport or a missing id, so callers render the fallback tile instead of requesting a URL that cannot resolve.
+// Null for an unsupported sport, a missing id, or an id that cannot BE an athlete, so callers render the fallback tile instead of requesting a URL that cannot resolve. A NEGATIVE ID IS NOT A PERSON. Football's team defences are pool entries like anyone else, but they are entities rather than athletes and ESPN gives them negative ids - measured on the real pool: all 32 D/ST carry one, all 1,059 humans carry a positive id, and the split agrees exactly with defaultPositionId 16. Without this guard a defence would request.../-16007.png, take a 404, and land on the initials tile anyway - the same picture, one wasted request and one wrong claim (that a photo was expected) per defence per render. The tile is the RIGHT answer for a team, not a consolation, so it is chosen deliberately rather than arrived at by failure.
 export function headshotUrl(sport, playerId) {
     const base = HEADSHOT_BASE[sport];
-    if (!base || playerId == null) return null;
+    if (!base || playerId == null || playerId < 0) return null;
     return `${base}${playerId}.png`;
+}
+
+// VALIDATED against real abbreviations, both this app's own PRO_TEAM_ABBREVS (buildProTeamAbbrevs, probables.js - the fantasy-side field, NOT ESPN's asset-path convention) and well-known ones, by loading each URL and confirming it decodes (500x500): flb "lad" AND "LAD" (Dodgers, case-insensitive), "Ath" (Athletics - the mixed-case fantasy abbrev works UNCHANGED, no lowercasing or translation needed), "Wsh" (Nationals) fhl "nj" (Devils, this app's own two-letter fantasy abbrev for New Jersey) ffl "kc" (Chiefs) - the URL PATTERN only; no captured proTeamSchedules_wl response for football exists in JSON_debug to cross-check this app's own buildProTeamAbbrevs output against, so football is confirmed for the CDN path, not for this app's field A deliberately wrong abbreviation ("zzz") returns an empty response rather than a decoded image, confirmed the same way headshotUrl's own invalid-id case was - the real failure path this needs, since an unmapped or misspelled abbreviation is not a hypothetical. this app's own proAbbrev value is passed straight through, unmodified - no case change, no per-sport lookup table. Same host as headshotUrl (a.espncdn.com), so this adds no new permission and no new privacy surface (see the boundary note at the top of this file).
+const LOGO_SPORT_PATH = { flb: 'mlb', fhl: 'nhl', ffl: 'nfl' };
+
+// Null for an unsupported sport or a missing/blank abbreviation, so callers render nothing (the backlog's own "no logo, exactly today's layout" rule) rather than requesting a URL that cannot resolve. Unlike headshotUrl there is no fallback TILE - a team logo that is missing says nothing was ever expected there, where a missing headshot still owes the reader an initials tile because a person WAS expected.
+export function proTeamLogoUrl(sport, abbrev) {
+    const path = LOGO_SPORT_PATH[sport];
+    if (!path || !abbrev) return null;
+    return `https://a.espncdn.com/i/teamlogos/${path}/500/${abbrev}.png`;
 }
 
 // Up to two initials from a name, the fallback tile's whole content.
@@ -27,6 +38,28 @@ export function initialsFor(name) {
 export function buildPlayerAvatarHtml(sport, playerId, name) {
     const url = headshotUrl(sport, playerId);
     const tile = `<span class="avatar-initials">${escapeHtml(initialsFor(name))}</span>`;
+    if (!url) return `<span class="player-avatar">${tile}</span>`;
+    return `<span class="player-avatar">${tile}<img class="avatar-img" loading="lazy" alt="" src="${escapeHtml(url)}"></span>`;
+}
+
+// The pro-team logo, beside a player's name. No tile underneath - an empty string when the abbreviation is missing or unmapped, so a row with no club to show draws exactly as it did before this feature, per the backlog's own "no logo, exactly today's layout" rule (unlike a headshot, no PERSON was ever expected here for the tile to stand in for). The <img> still carries avatar-img, the same class wirePlayerAvatars already wires everywhere else - its own error handler removes a failed image outright (closest('.player-avatar') finds none here and skips the tile-reveal step, which this markup has no tile for anyway) and its own load handler still counts the real request either way.
+export function buildProTeamLogoHtml(sport, abbrev) {
+    const url = proTeamLogoUrl(sport, abbrev);
+    if (!url) return '';
+    return `<span class="pro-team-logo"><img class="avatar-img" loading="lazy" alt="" src="${escapeHtml(url)}"></span>`;
+}
+
+// The rail's FANTASY team crest. Reuses isAllowedLogoUrl (the same ESPN-family-hosts-only gate docs/DATA-SOURCES.md section 10 rules for League History's own flag badge) rather than a second host check - a league manager's logo field is exactly as untrusted here as it is there, and "not loaded means no request is made" is the whole point either way. ALWAYS renders a tile now. `label` prints VERBATIM in the tile, not initialsFor(label) - the caller already resolved it to the league's own short form (`team.abbrev || team.name`), and re-deriving initials from an already-short code ("MDST") would throw most of it away for a single letter.
+export function buildTeamCrestHtml(label, logoUrl) {
+    const tile = `<span class="avatar-initials">${escapeHtml(label || '')}</span>`;
+    if (!isAllowedLogoUrl(logoUrl)) return `<span class="player-avatar">${tile}</span>`;
+    return `<span class="player-avatar">${tile}<img class="avatar-img" loading="lazy" alt="" src="${escapeHtml(logoUrl)}"></span>`;
+}
+
+// The rail's club crest: a pro-team logo over an initials tile, buildPlayerAvatarHtml's two-layer trick reused for a club instead of a person -.player-avatar/.avatar-initials/.avatar-img, so wirePlayerAvatars' existing error/load handling (and its has-image tile-hide rule) apply with no second copy. The tile prints the club's own abbreviation rather than initials-from-a-name, since a club already IS its abbreviation - there is no name to initial.
+export function buildProTeamCrestHtml(sport, abbrev) {
+    const tile = `<span class="avatar-initials">${escapeHtml(abbrev || '')}</span>`;
+    const url = proTeamLogoUrl(sport, abbrev);
     if (!url) return `<span class="player-avatar">${tile}</span>`;
     return `<span class="player-avatar">${tile}<img class="avatar-img" loading="lazy" alt="" src="${escapeHtml(url)}"></span>`;
 }

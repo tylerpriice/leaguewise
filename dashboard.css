@@ -9,6 +9,8 @@
     --surface-3: #f1f3f5;
     --surface-accent: #eef6ff;
     --surface-accent-strong: #d7e6ff;
+    /* S15: six hover rules (a leaderboard row's compare trigger, a timeframe/breakout chip, a My Team row, a League History h2h row) named --surface-hover and it was never defined anywhere, so every one of those hovers was a silent no-op. Aliased to --surface-2 rather than given its own value in every theme block: a custom property's var() reference resolves at the ELEMENT using it, against whatever that element's own cascade gives --surface-2 - so one declaration here tracks --surface-2's boxscore/dark overrides automatically and needs no second copy anywhere those blocks already restate --surface-2 for their own theme. */
+    --surface-hover: var(--surface-2);
 
     /* Borders */
     --border: #e5e7eb;
@@ -333,7 +335,8 @@
 
 /* HEADLINE FIGURES, the slab's whole territory: the drill-down's rank chips at 14px and the live band's matchup score at 15px. Two surfaces, both of them a number somebody reads from across the room rather than scans in a column. Modern's --font-headline is `inherit`, so this costs it nothing, exactly as the numeral rule already did. */
 .rank-chip-value,
-.h2h-head-score {
+.h2h-head-score,
+.lb-rank-figure {
     font-family: var(--font-headline);
     font-variant-numeric: tabular-nums;
 }
@@ -350,6 +353,11 @@
 
 :root[data-style="boxscore"] .bar-row.is-champion .bar-title,
 :root[data-style="boxscore"] .bar-row.is-champion .bar-value {
+    color: var(--gold);
+}
+
+/* The leaderboard's #1 rank figure, same reasoning as the champion band above: gold is a Boxscore-only figure colour, so Modern's #1 stays plain body colour like every other rank rather than reaching for a token that mode never defined. */
+:root[data-style="boxscore"] .lb-rank-gold {
     color: var(--gold);
 }
 
@@ -447,9 +455,46 @@ h2 {
     gap: 12px;
 }
 
+/* The badge and the matchup indicator as one visual group, so.brand-lockup's own space-between still reads as wordmark-left / everything-else-right. */
+.brand-header-right {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex: 0 0 auto;
+}
+
 .brand-scorecard {
     flex: 0 0 auto;
     position: relative;
+}
+
+/* THE LEAGUE-TYPE BADGE. A quiet chip, not a claim competing with the matchup indicator beside it for the eye - --surface-3/--text-subtle are the same recessed, unemphatic pairing.mt-band-head and the bar-track use elsewhere, never the accent colour week-indicator gets. */
+.league-type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-subtle);
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 7px;
+    white-space: nowrap;
+}
+
+/* Mobile: the badge's own longest label ("Weekly H2H · Most Categories") plus the wordmark and the matchup indicator do not fit one line at 375px - found staging on the real capture, not named in its own spec..brand-header-right drops to its own full-width line under the wordmark rather than shrinking the badge's type past legible or truncating a label the whole point is to read. */
+@media (max-width: 700px) {
+    .brand-lockup {
+        flex-wrap: wrap;
+        row-gap: 6px;
+    }
+    /* Its own line under the wordmark was not enough on its own - the badge's longest label and the matchup indicator together still ran past 375px on that one line, clipped rather than wrapped (found the same capture: the badge's own left edge was cut, not merely scrolled to). flex-wrap here lets the two stack, badge above indicator, rather than fight for one row. */
+    .brand-header-right {
+        flex-basis: 100%;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        row-gap: 4px;
+    }
 }
 
 /* Carried over from the inline styles the old row used, so the indicator looks and behaves exactly as it did - only its position changed. */
@@ -458,6 +503,12 @@ h2 {
     font-weight: bold;
     font-size: 12px;
     cursor: help;
+}
+
+/* Preseason: the label stays in its place and goes quiet, matching.timeframe-chip.disabled's own treatment of a control that is real but cannot be acted on yet. */
+#week-indicator.week-indicator-quiet {
+    color: var(--text-subtle);
+    font-weight: normal;
 }
 
 .brand-link {
@@ -804,6 +855,19 @@ button:hover {
     border-bottom: 3px solid var(--accent);
 }
 
+/* disabled (set alongside it, controls.js) is what removes the pointer and the hover color-shift, */
+.tab-button-dim {
+    opacity: 0.5;
+}
+
+.tab-button:disabled {
+    cursor: not-allowed;
+}
+
+.tab-button:disabled:hover {
+    color: var(--text-subtle);
+}
+
 .scoreboard-hover {
     position: relative;
     display: inline-block;
@@ -849,6 +913,11 @@ button:hover {
     /* The two columns absorb ALL the space the heatmap band doesn't need - so when the heatmap fits at its natural size, the leftover goes here (bigger Season Trends / Rankings), not to empty padding under the heatmap. min-height:0 lets the columns give way to a tall heatmap without the page ever scrolling. */
     flex: 1 1 0;
     min-height: 0;
+}
+
+/* The pager's own page-dot indicator - hidden here, at desktop width, where.layout is the fixed two-column row and there is no page to indicate. Shown inside the mobile media query below. */
+.tm-pager-dots {
+    display: none;
 }
 
 /* Full-width Category Heatmap anchored below the two columns - always visible at every timeframe (see renderHeatmapBand in graphs.js). flex 0-1-auto: sized to the heatmap's own content height (never grows into the columns' space), shrinking + scrolling internally only when a big league would exceed the max cap. */
@@ -1170,15 +1239,6 @@ button:hover {
     align-self: center;
 }
 
-/* At half width the full name has nowhere to go, so the row shows the league's own abbreviation (both ship in the markup - see buildBarTitleHtml) with the full name still on the hover. */
-.std-2col .bar-title-full {
-    display: none;
-}
-
-.std-2col .bar-title-abbr {
-    display: inline;
-}
-
 /* No width here. sizeBarTitles measures the abbreviation that this mode actually shows and drives --bar-title-w. A hardcoded width outranked that var (0,2,0 beats 0,1,0) and left the title 58px wide while the track offset by the measured 34px, overlapping them by 24px. */
 .std-2col .bar-title {
     font-size: 11px;
@@ -1237,29 +1297,154 @@ button:hover {
     padding: 0 3px;
 }
 
-/* The section body is the positioning context for the pie overlay. The BARS always occupy it, in both states, which is what fixes the section's height. Flipping to a pie then costs zero geometry because the pie is drawn over exactly the area the bars already had (owner ruling, ). */
+/* R6/S52: no longer a positioning context for a pie overlay - the donut (rankings-donut.js) is a real alternate body now, laid out in normal flow beside the bars rather than absolutely positioned over them. */
 .std-body {
-    position: relative;
     flex: 0 0 auto;
 }
 
-/* Showing the pie. The bars stay in the layout but go invisible (visibility, NOT display, so they keep reserving their height and stop taking pointer events), and the pie covers that same box. */
-.std-section.is-pie .std-bars {
-    visibility: hidden;
-}
-
-/* Capped by sizeSectionPies when the bars would overflow; the hidden bars are clipped rather than allowed to make a single circle scroll. */
-.std-section.is-pie .std-body {
-    overflow: hidden;
-}
-
-.std-pie {
-    position: absolute;
-    inset: 0;
+/* R6/S52 (frame J2): the Team Rankings pie view, redrawn as a labelled donut plus a table or legend (rankings-donut.js). The ring and its side panel sit side by side, wrapping only if the section is genuinely too narrow for both (the mobile column, not the 470px desktop box the mockup measured this against). */
+.rkd {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.rkd-svg {
+    flex-shrink: 0;
+}
+
+/* R6/S52b: every slice carries its own full name as a native SVG <title> now (the abbreviation on the ring is not always the whole story) - cursor:help is the same "there is more here on hover" signal.mt-rank-none[data-tooltip] already gives its own native-title figures. */
+.rkd-slice {
+    stroke: var(--surface-2);
+    stroke-width: 2;
+    cursor: help;
+}
+
+.rkd-slice-label {
+    font-size: 9px;
+    font-weight: 700;
+    fill: #141618;
+    pointer-events: none;
+}
+
+.rkd-center-name {
+    font-size: 15px;
+    font-weight: 700;
+    fill: var(--accent);
+}
+
+.rkd-center-sub {
+    font-size: 9px;
+    fill: var(--text-subtle);
+}
+
+.rkd-side {
+    flex: 1;
+    min-width: 0;
+}
+
+.rkd-side-two {
+    display: flex;
+    gap: 12px;
+}
+
+.rkd-side-two .rkd-table {
+    flex: 1;
+    min-width: 0;
+}
+
+/* table-layout:fixed - a name column sized by its own longest content (the default auto layout) is exactly what pushed this box past its own 470px width (measured: an 11-team league's own longest name forced the box to 949px). Fixed layout hands every column an equal share instead, letting.rkd-cell-name's own overflow:hidden/text-overflow:ellipsis actually engage rather than never being asked to trim anything. */
+.rkd-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 11.5px;
+}
+
+.rkd-table th {
+    text-align: left;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 700;
+}
+
+.rkd-cell {
+    padding: 4px 4px;
+    border-bottom: 1px solid var(--surface-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.rkd-cell-r {
+    text-align: right;
+}
+
+/* R6/S52b: this cell's own text is the abbreviation now, its `title` attribute the full name (the ellipsis rule above stays - a very long ABBREVIATION is still possible on a caller with no real short form, per the contract's own fallback). cursor:help matches the ring's own slices. */
+.rkd-cell-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--text-body);
     overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
+}
+
+th.rkd-cell-name {
+    display: table-cell;
+}
+
+.rkd-swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.rkd-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 2px;
+    background: var(--surface-3);
+}
+
+.rkd-dot-w { background: var(--success); }
+.rkd-dot-l { background: var(--danger); }
+.rkd-dot-t { background: var(--warning); }
+
+.rkd-legend {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 4px 10px;
+    align-items: center;
+    font-size: 11.5px;
+}
+
+.rkd-legend-name {
+    color: var(--text-body);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.rkd-legend-figure {
+    color: var(--text-subtle);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Compact position indicators. Deliberately just "n / m" and "a-b of c" - the arrows are self evident, and an explanatory sentence is exactly what this box is not allowed to grow. Reserved width + tabular figures so the indicator does not move as the numbers change. "1 / 21" is narrower than "12 / 21", and being centre-anchored that shifted its own left edge 6px on every other press. 8ch covers the widest form a real league produces. */
@@ -1289,16 +1474,12 @@ button:hover {
     min-height: 0;
 }
 
-/* Both labels ship in every row and this picks one (see buildBarTitleHtml). At full width the team's real name; at half width its league abbreviation, which SAYS something where an ellipsized long name just trails off. The full name stays on the row's title tooltip either way. */
+/* Both labels ship in every row and this picks one (see buildBarTitleHtml). RULED: Team Metrics shows the league's own ABBREVIATION everywhere, with the full name on the row's title tooltip. It used to show full names at full width and only fall back to the abbreviation at half width, which clipped four of twenty-two rows on the owner's league - "Extra Innings Empire" wants 149px against a 140px cap - and an ellipsized long name says less than a real short one. The full-name span stays in the markup: it is what sizeBarTitles would measure if the ruling ever flips back, and carrying both still costs no rebuild. */
+.bar-title-full {
+    display: none;
+}
+
 .bar-title-abbr {
-    display: none;
-}
-
-.cat-2col .bar-title-full {
-    display: none;
-}
-
-.cat-2col .bar-title-abbr {
     display: inline;
 }
 
@@ -1842,20 +2023,40 @@ button:hover {
     flex: 1 1 auto;
 }
 
-/* One equal column per day of the matchup. A long playoff matchup makes them narrow rather than making the band scroll sideways, which is the same yield the standings rows make. flex:1 is what makes the calendar USE the band. Without it the grid was content-sized and left the rest of the pitching group empty, however tall the window was. */
+/* R9/S57: the grid plus its two step chevrons, one row. flex:1 is what makes the calendar USE the band - without it the row was content-sized and left the rest of the pitching group empty, however tall the window was. */
+.mt-cal-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* SEVEN FIXED TRACKS, always - not one column per day the matchup happens to have. A two-week playoff round used to squeeze fourteen columns into this same band, each scrolling inside itself to stay legible (grid-auto-columns divided the row by however many days existed); R9 pages the matchup to at most seven days at a time in the JS (renderSchedule's own pageStart/ pageEnd) and this fixes the CARD size to match - a three-day matchup's own three cards read at the same width a seven-day page's would, never stretched to fill the row alone. */
 .mt-cal-grid {
     display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 1fr;
+    grid-template-columns: repeat(7, 1fr);
     gap: 3px;
     /* The grid is the point of this view, so it grows and shrinks only to its own floor. With free shrink an open breakdown squeezed the day columns to 19px and the calendar stopped being readable. It no longer has to share with one at all (see.mt-cal-reading), so the floor is now only defending against a short window. */
     flex: 1 1 auto;
     min-height: 84px;
 }
 
-/* Reading a start trades the grid for the arithmetic, inside the same reserved height. The two together left the breakdown 34px to show 230px of content. */
-.mt-cal-reading .mt-cal-grid,
-.mt-cal-reading .mt-cal-total {
+.mt-cal-page-prev,
+.mt-cal-page-next {
+    flex: 0 0 auto;
+    align-self: center;
+}
+
+/* Unlike the team switcher's own chrome-arrow pair (which wraps and so never needs this), the matchup's days are a real bounded range - stepping past either end is not "the next one," there is no next one, so the control disables there rather than wrapping to the opposite edge. */
+.mt-cal-page-prev:disabled,
+.mt-cal-page-next:disabled {
+    color: var(--text-faint);
+    cursor: default;
+}
+
+/* Reading a start trades the grid (and its chevrons) for the arithmetic, inside the same reserved height. The two together left the breakdown 34px to show 230px of content. */
+.mt-cal-reading .mt-cal-row {
     display: none;
 }
 
@@ -2005,10 +2206,18 @@ button:hover {
 
 .mt-cal-noread { border-left-color: var(--border); }
 
-.mt-cal-total {
-    font-size: 10px;
+/* The two-start badge (schedule-insight contract, shortlist item 2). A pill rather than a colour, since starting twice is a fact about the matchup's shape, not a judgement about the start itself - the difficulty tint already owns colour on this card. */
+.mt-cal-2start {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 4px;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1.5;
+    border-radius: 3px;
     color: var(--text-subtle);
-    padding: 4px 2px 0;
+    border: 1px solid var(--border);
+    vertical-align: middle;
 }
 
 .mt-cal-hint {
@@ -2521,7 +2730,8 @@ button:hover {
 }
 
 .dominance-heatmap th.dh-team-head {
-    width: 126px;
+    /* Measured per league by sizeHeatmapTeamColumn. The fallback is the old fixed width, which is what shows for the one frame before the pass runs. */
+    width: var(--dh-team-w, 126px);
 }
 
 /* Lock the line box so the bold sorted column can't change ROW HEIGHT either. font-weight 800 picks a face whose metrics are taller than the regular one, and a table row is as tall as its tallest cell - so bolding a single column grew EVERY row by 3px (24 -> 27), the header with it, and the band pushed into the trends/rankings row above. An explicit line-height makes the box height depend on the declared value instead of whatever metrics the chosen face reports. The values are the pre-emphasis heights, so nothing looks different - it just stops moving. */
@@ -2597,7 +2807,7 @@ button:hover {
     font-size: 12px;
     color: var(--text-body);
     white-space: nowrap;
-    max-width: 120px;
+    max-width: var(--dh-team-w, 120px);
     overflow: hidden;
     text-overflow: ellipsis;
     padding-right: 6px;
@@ -2611,18 +2821,24 @@ button:hover {
     border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
-/* Value cells carry a light pastel rank shade (percentileColor) in both themes, so their text stays a fixed dark - same treatment as the player stat chips. THE PERCENTILE TINT. Above the 50th percentile the cell mixes toward --success, below it toward --danger, and at 50 it is the plain card. --pct is set inline per cell as a NUMBER (see percentileVar in utils.js); the colour is decided here, which is the only place that can see which mode is on. It used to be an rgb() string computed in JS, interpolating white -> pastel green and pastel red -> white, with the near-black text colour below pinned to survive it. That had no dark half: in dark mode the heatmap was a slab of near-white cells with dark text sitting on a navy page, inverting the page's own structure inside its own borders. 38% IS THE CEILING, at the extremes only. The old ramp topped out around a 35% tint and the comment on it was right about why - a saturated cell cannot carry legible text at either end of the scale. Mixing from --surface rather than from white is what gives it a dark half for free: the same expression paints a cream cell on the flannel page and a deep navy one on the road-uniform page. Both mixes are always present and only one is ever non-zero, which is what max(0%,...) buys - it saves a second rule and a:where() to pick between them. */
+/* Value cells carry a light pastel rank shade (percentileColor) in both themes, so their text stays a fixed dark - same treatment as the player stat chips. THE PERCENTILE TINT. Above the 50th percentile the cell mixes toward --success, below it toward --danger, and at 50 it is the plain card. --pct is set inline per cell as a NUMBER (see percentileVar in utils.js); the colour is decided here, which is the only place that can see which mode is on. It used to be an rgb() string computed in JS, interpolating white -> pastel green and pastel red -> white, with the near-black text colour below pinned to survive it. That had no dark half: in dark mode the heatmap was a slab of near-white cells with dark text sitting on a navy page, inverting the page's own structure inside its own borders. 38% IS THE CEILING, at the extremes only. The old ramp topped out around a 35% tint and the comment on it was right about why - a saturated cell cannot carry legible text at either end of the scale. Mixing from --surface rather than from white is what gives it a dark half for free: the same expression paints a cream cell on the flannel page and a deep navy one on the road-uniform page. Both mixes are always present and only one is ever non-zero, which is what max(0%,...) buys - it saves a second rule and a:where() to pick between them. THE TINT ITSELF, declared ONCE for every surface that carries it. It was written out twice - the heatmap cell and the drill-down's stat chip - and the draft board's category cells would have made a third copy of an expression whose whole point is that all three are the same statement. Each selector keeps its own specificity, so nothing about which rule wins has changed. */
+.dominance-heatmap td.dh-cell,
+.stat-chip,
+.dr-cat,
+.lb-cell {
+    background: color-mix(in srgb,
+        var(--success) calc(max(0%, (var(--pct, 50) - 50) * 0.76%)),
+        color-mix(in srgb,
+            var(--danger) calc(max(0%, (50 - var(--pct, 50)) * 0.76%)),
+            var(--surface)));
+}
+
 .dominance-heatmap td.dh-cell {
     text-align: center;
     padding: 5px 5px;
     border-radius: 4px;
     font-variant-numeric: tabular-nums;
     color: var(--text-body);
-    background: color-mix(in srgb,
-        var(--success) calc(max(0%, (var(--pct, 50) - 50) * 0.76%)),
-        color-mix(in srgb,
-            var(--danger) calc(max(0%, (50 - var(--pct, 50)) * 0.76%)),
-            var(--surface)));
     cursor: help;
     white-space: nowrap;
 }
@@ -2973,6 +3189,16 @@ button:hover {
     opacity: 1;
 }
 
+/* Greyed with the reason - the projected face swaps the graded card into Season Trends' own slot, so Trend Lines would toggle lines on a chart that is not there. Same treatment the timeframe chips already give a choice that currently changes nothing;:has() reads the disabled state directly rather than a class the render loop would have to keep in sync, matching the:not(:checked) rule right above it. */
+.filter-flex label:has(input:disabled) {
+    opacity: 0.38;
+    cursor: default;
+}
+
+.filter-flex label:has(input:disabled):hover {
+    opacity: 0.38;
+}
+
 .chip-swatch {
     display: inline-block;
     width: 18px;
@@ -3217,6 +3443,69 @@ button:hover {
     flex-shrink: 0;
 }
 
+/* Empty (no pro schedule this session, see renderPlayerLeaderboard) takes no row - a lone 10px gap either side of nothing would be a visible dent in the toolbar. Matches.timeframe-seg:empty's own rule for the identical reason. */
+.lens-toggle-slot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    /* S16(a): the window control sits at ITS ROW'S right end, the mockup's own.wincap treatment - the last child in a flex row pushes itself there with no other control needing to know about it. R3/S49 moved every other toggle into this same row (the old second row, built for exactly the width deficit S16b once measured here, is gone now that the two checkboxes are compact buttons rather than checkbox-plus-label controls) - this rule needed no change at all, since it was never about WHICH row, only about being last in whichever one it is in. */
+    margin-left: auto;
+}
+
+/* R3/S49: "compact toggles at the toolbar's right end" (the ruling's own words) - one pill button per control (.toolbar-toggle-btn below), the on/off state a class rather than a checkbox, the same idiom this app's other toggle rows already use (.pd-pool-chip.on). The full sentence a reader needs (the games-played threshold, the advanced category count) lives in the button's own data-hint (utils.js's document-delegated tooltip) rather than as permanent on-screen text - that is what makes these compact where the old checkbox-plus-label controls were not: S16b measured the old pair (with the group toggle and two selects) at 1216.5px of fixed width against 1158px available, a 58.5px deficit before the search box or the window control took a single pixel, which is why they needed a row of their own at all. */
+.toolbar-toggle-slot {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.toolbar-toggle-btn {
+    width: auto;
+    height: auto;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.toolbar-toggle-btn:hover {
+    background: var(--surface-3);
+}
+
+.toolbar-toggle-btn.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+}
+
+.lens-toggle-slot:empty {
+    display: none;
+}
+
+/* O27/S30: the one lens left in this slot, a checkbox rather than a segmented control - same look as.advanced-stats-toggle label/input above, since it is the exact same shape of control (one option, on or off), just living in a different toolbar row. */
+.lb-empty-nights-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.lb-empty-nights-toggle input {
+    flex: none;
+    width: auto;
+    cursor: pointer;
+}
+
 .advanced-stats-toggle label {
     display: flex;
     align-items: center;
@@ -3243,7 +3532,7 @@ button:hover {
     color: var(--accent-contrast);
 }
 
-/* padding-top:0 (overriding.graph-viewport's uniform 12px) is deliberate. The sticky <thead> below needs top:0 to mean the ACTUAL top of this scrolling box. A CSS gotcha - padding on the scrolling ancestor itself doesn't scroll away the way a margin on its child does, so a sticky child stuck against a padded container's padding-box leaves a permanent gap between it and the visible top edge once scrolled, instead of ever sitting flush..player-table's own margin-top below restores the same 12px visual inset at rest, but because it's margin on the (scrollable) child rather than padding on the (scrolling) container, it fully scrolls away like normal content, and the header sticks flush with no gap. */
+/* padding-top:0 (overriding.graph-viewport's uniform 12px) is deliberate. The sticky <thead> below needs top:0 to mean the ACTUAL top of this scrolling box. A CSS gotcha - padding on the scrolling ancestor itself doesn't scroll away the way a margin on its child does, so a sticky child stuck against a padded container's padding-box leaves a permanent gap between it and the visible top edge once scrolled, instead of ever sitting flush. The leaderboard's own margin-top below restores the same 12px visual inset at rest, but because it's margin on the (scrollable) child rather than padding on the (scrolling) container, it fully scrolls away like normal content, and the header sticks flush with no gap. */
 .player-leaderboard-viewport {
     overflow: auto;
     align-items: stretch;
@@ -3353,117 +3642,665 @@ button:hover {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
 }
-
-.player-table {
-    /* border-collapse + a sticky thead is a known rendering bug (Chrome/Firefox both affected) - the collapsed border between header and body rows detaches and visibly "follows" the first body row while scrolling instead of staying put on the header. border-collapse: separate with 0 spacing avoids it; the header's own bottom line comes from a box-shadow below instead of border-bottom, since box-shadow doesn't have this same sticky bug. */
-    border-collapse: separate;
-    border-spacing: 0;
-    width: 100%;
-    /* Column geometry is taken off the content entirely. The Player column used to be auto-sized, so the widest NAME in the current pool set its width - and every pool-changing control (Minimum Games Played, search, availability, position, sort) changes which names are present. Measured: toggling min games on the hockey pool grew Player by 5px and slid Team and every stat column after it by 5/4/3/3/2/1px, which is exactly the reported "all categories starting at the teams category slide over". With table-layout: fixed the text columns take the explicit widths set below and the stat columns split what's left, so no pool change can move anything horizontally. */
-    table-layout: fixed;
-    font-size: 12px;
-    white-space: nowrap;
-    /* Restores the 12px top inset.player-leaderboard-viewport's own padding-top gave up (see its comment) - as margin on this scrollable child, it scrolls away normally instead of leaving a permanent gap above the sticky header. */
-    margin-top: 12px;
+/* The 7-day delta rides beside the percentage rather than its own column - reuses the same --success/--danger the Rank column's trend arrows use (trend-up/trend-down), so a rise or fall in rostered share reads with the one color language the tab already teaches. */
+.rostered-change {
+    font-size: 11px;
+    font-weight: 600;
 }
 
-.player-table thead th {
+.rostered-up {
+    color: var(--success);
+}
+
+.rostered-down {
+    color: var(--danger);
+}
+/* THE LEADERBOARD ROW REBUILD. Flex rather than a fixed-layout table, which is what this replaced, because "any category count fits, no dead bands" needs the stat cells to split whatever width is left AFTER the fixed columns claim theirs - a fixed-layout table would need every column's width known up front, which the category count is not. Column widths are custom properties so the header row and every data row size identically without restating the number in five places - --lb-identity-w only, since --lb-rank-w/--lb-ptsg-w/ --lb-rostered-w fall back to their literals below and nothing here needs to override them yet. min-height, not height: a row's tallest possible content is the two-line rostered dial (the ring plus a "this week" change line), and every row - including one with no dial at all, or a dial with no change line - must come out the same height as one that has both, or the leaderboard reflows a different pitch per row depending on which optional pieces happened to render. Measured off the two-line case at this padding/gap (row-height sweep, item 4 verification). */
+.lb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    /* max-content wide with a 100% floor: a row narrower than the viewport fills it (baseball's nine categories), a row wider than it (football's twenty-two at their floors) grows and the viewport's overflow-x carries it - header and body rows share the rule, so they scroll as one and never disagree about where a column sits. */
+    width: max-content;
+    min-width: 100%;
+    /* border-box, not the box model's own default - this also moved the rendered row pitch from 69px to a uniform 56px (min-height now measures the padded box, not content alone). That is the CORRECT density, not a side effect to worry about: it is what the approved mockup's rows actually sat at, and 69px was the accident, from min-height being measured against content alone before this fix ever touched box-sizing. Checked for clipping at the new floor across 200 real rows including the tightest case (the two-line rostered dial) - 7px clearance, not a near miss. Screenshots taken before this fix will show the old, wrong height. */
+    box-sizing: border-box;
+    min-height: 56px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    /* Never set explicitly before this fix - every cell was silently inheriting the page's 16px body default instead of a density this table was designed around, matching.player-table's own 12px. That is a real share of why 22 football categories clipped where 9 baseball ones never did: the same measured-not-guessed.lb-cell min-width fix below assumes THIS font size, not 16px. */
+    font-size: 12px;
+}
+
+.lb-row:not(.lb-head-row) {
+    cursor: pointer;
+}
+
+.lb-row:not(.lb-head-row):hover {
+    background: var(--surface-accent);
+}
+
+/* R1/S49: preseason's row draws no affordance at all for a click that opens nothing - later in the sheet than the two rules above (same specificity,.lb-row-inert always rides alongside.lb-row) so it wins the tie rather than needing !important. */
+.lb-row-inert:not(.lb-head-row) {
+    cursor: default;
+}
+
+.lb-row-inert:not(.lb-head-row):hover {
+    background: none;
+}
+
+/* 10.5px letter-spaced muted, matching the identity meta line below - one header, one visual language, per the mockup. R4/S49: MEASURED (the owner's report - "when the leaderboard scrolls, the header row no longer follows"): items 4-5 (ea2c0fc) rebuilt the leaderboard from a real <table> to this div-based row shape and carried over the OLD table's sticky-thead comment almost verbatim (.player-leaderboard-viewport's own padding-top:0 note, just above, still describes it) - but never re-declared position:sticky on the new header row itself, since.lb-head-row is not a <thead> and nothing here ever named it as the thing that needed the rule restated. Not the S41 column (it renders or not off the same lens data everywhere, sticky or otherwise) and not S45 R3's header gate (that only ever widens/narrows which columns exist, never how the row behaves on scroll) - the header never carried the property at all, on any column set, since the rewrite..lb-table (the header and rows' own shared wrapper, players.js) is a bare, unstyled div with no overflow/transform of its own, so sticky reaches through it to.player-leaderboard- viewport - the scrolling ancestor already built for exactly this (see its own comment) - with no markup change needed, only this declaration. background matches the viewport's own surface-2 (.graph-viewport's rule) so the row reads solid against whatever scrolls under it. */
+.lb-head-row {
     position: sticky;
     top: 0;
+    z-index: 1;
     background: var(--surface-2);
-    color: var(--text-body);
-    text-align: left;
-    padding: 6px 10px;
-    box-shadow: inset 0 -2px 0 var(--border);
-    z-index: 2;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    border-bottom: 1px solid var(--border-strong);
+    cursor: default;
 }
 
-.player-table th.sortable {
+.lb-head-row .sortable {
     cursor: pointer;
     user-select: none;
 }
 
-.player-table th.sortable:hover {
+.lb-head-row .sortable:hover {
     color: var(--accent);
 }
 
-.player-table td {
-    padding: 5px 10px;
-    border-bottom: 1px solid var(--border);
+/* 287px, MEASURED (the Schwellenbach precedent, the own note above): 210px was already tight before the pro-team logo (27bbff9) landed inside.lb-name-line ahead of the name, and the logo made it visible - "Pete Crow-Armstrong" (124.0px at 600 12px Arial,.lb-name's own font) only missed by ~3px, which read as a rounding fluke until the real pool was measured. The widest FULL NAME across every real Download All pool on disk (JSON_debug/full-mlb, full-nhl, full-nhl-2 player-pool.json, 6,368 players) is "Christian Encarnacion-Strand" at 169.4px - wider than 210px minus the logo ever had room for even before the crest, so this was a latent bug the crest only exposed, not a pure regression. A first pass at 259px (170 + logo 20 + its 5px gap + avatar 28 + 2 more 8px gaps + the compare trigger's 20px) still truncated that exact player, because he draws with an FA chip (.lb-fa-chip) after his name - the pool's DEFAULT state (an unfiltered Download All shows every free agent, which is most of a real pool) not an edge case, and he is not also injured (injuryStatus ACTIVE, no icon) so the chip alone is the addition. "FA" at 700 10px Arial plus the chip's own 1px/5px padding measures 22.8px, plus the name-line's 5px gap before it: 259 + 23 (ceil) + 5 = 287px. An injured, unrostered player with this exact name would still ellipsize (an injury icon on top of the FA chip was not observed on the real pool's widest name and is not chased here) - the fence is "the longest real name, undecorated except the FA state its own pool actually shows it in," not every badge combination at once. */
+.lb-identity,
+.lb-head-identity {
+    flex: 0 0 var(--lb-identity-w, 287px);
+    width: var(--lb-identity-w, 287px);
+    min-width: 0;
 }
 
-/* Explicit widths for every column whose content isn't a short number - under table-layout: fixed these come from the header row, and the unsized stat columns share the remainder equally. Sized from the widest real content measured across both sports and both group tabs (longest names ~24 chars, "Blue Line Bandits", a 4-digit FOW, "#1 of 942" plus a medal and a trend arrow), so the stat columns still clear their widest values in the densest layout (hockey skaters, 10 stat columns). The two text columns are the give in the layout. sizeLeaderboardColumns shrinks them toward --cat-name-min / --cat-team-min when the categories are already at their floor and the row still does not fit, so a narrow window tightens the names it can ellipsis before the table resorts to scrolling sideways. The values here are the widths at full size. */
-.player-table th[data-sort="name"] {
-    width: var(--pl-name-w, var(--pl-name-base));
+.lb-identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-.player-table th[data-sort="teamName"] {
-    width: var(--pl-team-w, var(--pl-team-base));
+/* 26-30px per the mockup, up from.player-avatar's 22px default - overridden by scope the same way.mt-roster.mt-table.player-avatar sizes its own context rather than adding a size variant class. */
+.lb-avatar-slot .player-avatar {
+    width: 28px;
+    height: 28px;
+    margin-right: 0;
 }
 
-/* Where the space beyond N x CAP goes. Without it the stat columns absorbed every spare pixel of a wide window, which is the "far too big" the owner reported: nine categories on a 1280px table came out at 130px a column for figures that need barely a third of that. Same pattern as My Team's.mt-fill. */
-.player-table th.player-col-fill,
-.player-table td.player-col-fill {
-    width: auto;
-    padding: 0;
+.lb-identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
-/* Declared as variables so sizeLeaderboardColumns can total them WITHOUT measuring the rendered header row. A fixed-layout table hands any surplus back to its columns, so a measured header is wider than the width it was given - asking it how wide it is answers with the answer already applied, which is the same circularity My Team's probe exists to dodge. */
-.player-table {
-    --pl-name-base: 175px;
-    --pl-team-base: 160px;
-    --pl-pos-w: 75px;
-    --pl-rank-w: 140px;
-    --pl-gp-w: 50px;
-    --pl-ip-w: 65px;
+.lb-name-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
 }
 
-.player-table th[data-sort="positionName"] {
-    width: var(--pl-pos-w);
+/* item 2's row-level compare affordance. Reserved layout space always (opacity, not display), so its arrival on hover never shifts the row's own text; revealed on row hover OR keyboard focus (:focus-visible) so it stays reachable without a mouse, the one place this icon-on-hover pattern (the utility rail's own Legend/Export/Recap) needs the accessible fallback the rail itself already gets for free from being three, not fifty, targets. */
+.lb-compare-trigger {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
-.player-table th[data-sort="rotoScore"],
-.player-table th[data-sort="total"] {
-    width: var(--pl-rank-w);
+.lb-row:hover .lb-compare-trigger,
+.lb-compare-trigger:focus-visible {
+    opacity: 1;
 }
 
-.player-table th[data-sort="gp"] {
-    width: var(--pl-gp-w);
+.lb-compare-trigger:hover {
+    color: var(--accent);
+    background: var(--surface-hover);
 }
 
-.player-table th[data-sort="ip"] {
-    width: var(--pl-ip-w);
-}
-
-/* The columns that can genuinely exceed their fixed width, the two name columns, and Pos for a baseball player eligible almost everywhere ("1B/2B/3B/OF/DH"). Truncate with the full value on hover (the row markup carries a title), the same treatment the bar rows got in - a wrapped name would also make its row taller than its neighbours. Widening Pos instead would just take the space back out of the stat columns for a case this rare. */
-.player-table td.player-col-name,
-.player-table td.player-col-team,
-.player-table td.player-col-pos {
+.lb-name {
+    font-weight: 600;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* Numeric columns split whatever the fixed text columns above leave, which in the densest layout (baseball batters, 9 stat columns) is 45px - and 10px of padding a side left only 25px for a 3-decimal rate like a.149 AVG, which needs 30. Tighter padding buys the room inside the same fixed geometry, instead of taking width back off the name columns. Numbers need far less breathing room than the text columns do. */
-.player-table th.player-col-stat,
-.player-table td.player-col-stat {
-    padding-left: 5px;
-    padding-right: 5px;
-    /* Set by sizeLeaderboardColumns to the clamped pitch minus this padding. The fallback is only what renders for the frame before the measurement lands. */
-    width: var(--pl-stat-w, 58px);
-}
-
-.player-table tbody tr.player-row {
-    cursor: pointer;
-}
-
-.player-table tbody tr.player-row:hover {
-    background: var(--surface-accent);
-}
-
-.player-table td .legend-color {
+/* THE PRO-TEAM LOGO, a fixed 20px box whether or not an image ever fills it - the box itself, not the <img> inside, is what guarantees zero layout shift: reserved before the image starts loading, unaffected by whether it decodes, fails, or was never requested (a null/unmapped abbreviation, images.js's own buildProTeamLogoHtml, renders no span at all, so an unmapped player costs nothing here rather than an empty reserved box). object-fit:contain keeps a non-square crest from being stretched into the square box. vertical-align:middle lines it up inline with the drill-down's own <h3> text, which is not a flex container the way.lb-name-line already is. */
+.pro-team-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
     vertical-align: middle;
-    margin-right: 4px;
 }
+
+/* position:static overrides.avatar-img's own position:absolute/inset:0 - that positioning is the headshot's two-layer trick (the image floats over an initials tile underneath it in a position:relative wrapper). There is no tile here for it to float over, and.pro-team-logo is not position:relative, so the absolute rule would have escaped to the nearest positioned ancestor up the tree instead of filling this 20px box. */
+.pro-team-logo .avatar-img {
+    position: static;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.lb-meta {
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    color: var(--text-subtle);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lb-fa-chip {
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--text-muted);
+}
+
+.lb-rank,
+.lb-head-rank {
+    flex: 0 0 var(--lb-rank-w, 50px);
+    width: var(--lb-rank-w, 50px);
+    text-align: center;
+}
+
+.lb-rank-figure {
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+/* A null rank (the engine's zero-games floor) - same muted treatment.rank-unranked already gives the same fact in the existing table. */
+.lb-rank-unranked {
+    color: var(--text-faint);
+    cursor: help;
+}
+
+/* S41/F1: the Matchup column, same width/flex idiom as.lb-rank beside it - a two-line stack (rank figure, wins/wk beneath it) rather than.lb-rank's single figure, matching the mockup's own.mrank. */
+.lb-mrank,
+.lb-head-mrank {
+    flex: 0 0 var(--lb-mrank-w, 56px);
+    width: var(--lb-mrank-w, 56px);
+    text-align: center;
+}
+
+.lb-mrank {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+.lb-mrank-figure {
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.lb-mrank-sub {
+    font-size: 10px;
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+/* A player matchup-rank.js could not measure - same muted, help-cursor treatment.lb-rank-unranked gives the Overall column's own null case. */
+.lb-mrank-unranked {
+    color: var(--text-faint);
+    cursor: help;
+}
+
+/* S41/F1: the one-line legend below the table, present ONLY on the two states that need a word about the Matchup column (see players.js's own comment on matchupLegendHtml) - present (naming both headers) or absent (the contract's own refusal reason). Matches the mockup's own.legend-row: small, muted, spaced items - never the loud, boxed treatment a warning gets. */
+.lb-mrank-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 8px;
+    padding: 0 10px;
+    font-size: 11.5px;
+    color: var(--text-subtle);
+}
+
+.lb-mrank-legend b {
+    color: var(--text-body);
+}
+
+.lb-mrank-legend-absent {
+    font-style: italic;
+}
+
+.lb-ptsg,
+.lb-head-ptsg {
+    flex: 0 0 var(--lb-ptsg-w, 56px);
+    width: var(--lb-ptsg-w, 56px);
+    text-align: center;
+}
+
+.lb-ptsg {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+}
+
+/* A points league's headline figure (ESPN's appliedTotal) - the slab treatment the rank figure uses, since this is the number the column exists to show once a league carries one. ptsPerGame drops to a muted line underneath rather than disappearing - two facts, one column. */
+.lb-ptsg-total {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+}
+
+.lb-total-figure {
+    font-family: var(--font-headline);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.lb-ptsg-secondary {
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+}
+
+/* The shared time-lens column: playoff, or window/next - one compact column, present only when the active lens has something to show for that row, and only ONE of.lb-playoff/.lb-window ever renders per row (the caller's lens picks which). Same slab-plus- secondary shape.lb-ptsg-total uses for a points league's total: the headline figure is the number this column exists to rank by, the muted line underneath is the supporting detail..lb-playoff and.lb-window share this sizing rule (never both matched on the same row) rather than each carrying its own copy, so the column can never drift width when the lens flips. Fixed width rather than sharing --lb-ptsg-w, since PTS/G and this column can be on screen together (a points league viewing games-left still shows its season total). */
+.lb-playoff,
+.lb-head-playoff,
+.lb-window,
+.lb-head-window {
+    flex: 0 0 74px;
+    width: 74px;
+    text-align: center;
+}
+
+.lb-playoff,
+.lb-window {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    cursor: help;
+}
+
+.lb-playoff-figure {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+}
+
+.lb-playoff-rounds,
+.lb-window-secondary {
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+}
+
+/* the own figure - "3 of 6 left", or the single-game "Upcoming"/"Played" - takes the same body-weight (not slab) treatment the playoff column's projected total does NOT get here, because this figure is a count, not the ranked total the playoff lens shows. */
+.lb-window-figure {
+    font-variant-numeric: tabular-nums;
+}
+
+/* item 2/O11: the off-night/two-game-day suffixes, same size as.lb-window-secondary (a sibling supporting line, never the headline) but its own class - a pitcher's row can carry both this and the starts line at once, and the two must not compete for one rule to restyle. */
+.lb-window-suffix {
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.lb-window-off {
+    color: var(--success);
+}
+
+.lb-window-dbl {
+    color: var(--warning);
+}
+
+/* The third trend state (players.js's own buildMatchupTrendIcons only ever produced up/down) - reuses.trend-icon/.trend-up/.trend-down verbatim rather than a second vocabulary; this is the one addition the playoff lens needed, a quiet colour for "nothing worth calling a direction". */
+.trend-flat {
+    color: var(--text-faint);
+}
+
+/* The standalone time-lens toggle lived here through S29 - its own.lb-timelens-toggle.timeframe-chip rules, a scoped copy of the real toggle bar's chip treatment. O27/S30 moved the window choice into the tab bar's own shared.timeframe-toggle pills (This/Next/Rest are real.timeframe-chip buttons there now, styled by that toggle's existing rules, ~line 6225 - no scoped copy needed), so this block is gone with the control it drew. */
+
+/* THE TEAM/CLUB PICKER RAIL. One bordered strip under the toolbar: fantasy teams as chips carrying their legend colour, pro clubs as a row of crests. Replaces the old.pb-breakout-* chip-strip look; the slot element and its empty-collapses-to-nothing rule are unchanged. */
+.player-breakout-slot {
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+
+.player-breakout-slot:empty {
+    display: none;
+    margin-top: 0;
+}
+
+/* R1/S26b: the owner's own words were "space them out to take up any available space" - the first pass (space-between on.lb-rail alone) put all the slack in ONE gap between two packed groups, which read as air in the middle rather than the row actually spreading. flex:1 on each group below shares the row's width itself between Teams and Clubs;.lb-rail-crests' own space-between (further down) then spreads the individual crests across whatever width its own half of the row got, so the slack lands in EVERY gap, not one. */
+.lb-rail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 2px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.lb-rail-group {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+
+/* S26c: NOT an equal split - flex:1 on both groups gave the crests a half-width box too narrow for them at 1920 (32 crests at 26px need ~832px, half the rail is ~670), so they wrapped into a ragged second row, worse than the single packed line before this whole item started. Teams keeps its own content size; clubs takes every px teams does not need. */
+.lb-rail-group-teams {
+    flex: 0 0 auto;
+}
+
+.lb-rail-group-crests {
+    flex: 1 1 0;
+}
+
+/* Hairline dividers as a gap over the container's own background, the same idiom R8's own wrap fix (S4) uses for the breakout strip's row seam - one declaration, no per-chip border to keep aligned across a wrap. */
+.lb-rail-chips {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+/* R2/S51: "All" alone still draws this way (frame I1's own words, "All stays a chip") - every real team below is a crest now, so the icon rules a chip used to carry (a colour dot, then R1's own logo tile) are gone with them; nothing else ever used this class for anything but text. */
+.lb-rail-chip {
+    display: inline-flex;
+    align-items: center;
+    /* Overrides the app-wide input/select/button reset (width:100%, height:35px, display:block) - every small chip button in this codebase needs this same override (.timeframe-chip's own). */
+    width: auto;
+    height: auto;
+    margin: 0;
+    border: none;
+    padding: 3px 3px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--surface);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.lb-rail-chip:hover {
+    background: var(--surface-hover);
+    color: var(--text-body);
+}
+
+.lb-rail-chip.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: bold;
+}
+
+/* R2/S51 (frame I1): every fantasy team crest sits in this one row, overlapping by 5px (a negative margin on every crest but the first) so a deep league reads as one dense strip rather than the wide, one-per-chip row this replaced - the same space a pro-club crest row already proved works at thirty-plus entries. */
+.lb-rail-fteams {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.lb-rail-fteam {
+    /* Same reset override as.lb-rail-crest below - width:auto/height:auto so the button shrinks to its own 23px crest instead of the app-wide button default. */
+    width: auto;
+    height: auto;
+    margin: 0;
+    margin-left: -5px;
+    border: none;
+    background: transparent;
+    padding: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+    /* Stacking order for the overlap: z-index alone decides which crest paints on top, never DOM order (the caller's own team order, not a z-order) -:hover and.active both raise it, the active one highest so it is never the one left partly covered. */
+    position: relative;
+    z-index: 0;
+}
+
+.lb-rail-fteam:first-child {
+    margin-left: 0;
+}
+
+.lb-rail-fteam:hover {
+    z-index: 1;
+}
+
+.lb-rail-fteam.active {
+    z-index: 2;
+}
+
+/* --fteam-color is set inline per crest (player-rail.js) - the team's own legend colour, the same one its bars use on Team Metrics, so the ring can never disagree with the rest of the app about which colour is whose. Falls back to the app's neutral border for the rare team this session could not resolve a colour for, rather than an invalid CSS value. */
+.lb-rail-fteam .player-avatar {
+    width: 23px;
+    height: 23px;
+    margin-right: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--fteam-color, var(--border));
+}
+
+.lb-rail-fteam .avatar-initials {
+    font-size: 7px;
+}
+
+/* The double ring.lb-rail-crest.active already draws for a pro club, in the team's OWN colour this time rather than the shared accent - a gap, then the colour, so the active crest keeps its exact footprint (same trick, same reason) whether ringed once or twice. */
+.lb-rail-fteam.active .player-avatar {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--fteam-color, var(--accent));
+}
+
+.lb-rail-divider {
+    align-self: stretch;
+    width: 1px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+/* No wrap and no scroll at desktop widths, by ruling (S16(b): 30 MLB/32 NHL/32 NFL crests fit at 23px plus the 3px gap) - but WRAP rather than clip or scroll if a narrower window ever disagrees with that math, the same "wrap, never scroll, never clip" call R8 already made for the old breakout strip. min-width:0 lets the row actually shrink inside the toolbar's flex layout instead of forcing the rail wider than its card. S26b: space-between so the crests themselves spread across whatever width their own group's flex:1 1 0 (.lb-rail-group) gives them, rather than packing to the group's left edge and leaving the group's own remaining width as one dead strip - the owner's own words were "space them out to take up any available space", not "cluster two groups apart". S26c: NOWRAP at desktop widths, restoring S16(b)'s own original rule (30 MLB/32 NHL/32 NFL crests fit at 23px plus the 3px gap) now that.lb-rail-group-crests hands this box every px teams does not need rather than a fixed half - space-between then spreads that one line across the width it got, wide at 1920, its natural spacing at 1280. Wrap comes back under the mobile query below, where the row is genuinely too narrow for one line regardless. */
+.lb-rail-crests {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 3px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.lb-rail-crest {
+    /* Same reset override as.lb-rail-chip above - width:auto/height:auto so the button shrinks to its own 23px crest instead of the app-wide button default. */
+    width: auto;
+    height: auto;
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* The double ring the mockup draws (a gap, then the accent) - a plain border would eat into the crest's own 1px of space and misalign it against its neighbours; two box-shadows sit outside the circle instead, so every crest keeps the exact same footprint whether ringed or not. */
+.lb-rail-crest.active {
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+    border-radius: 50%;
+}
+
+.lb-rail-crest .player-avatar {
+    width: 23px;
+    height: 23px;
+    margin-right: 0;
+}
+
+.lb-rail-crest .avatar-initials {
+    font-size: 7px;
+}
+
+/* MOBILE (golden rule 2's own breakpoint): the rail is a picker, not a table - two full-width rows (Teams, then Clubs) read better on a narrow screen than one row of chips wrapping mid-word against the caption. The divider means nothing once the groups are stacked. */
+@media (max-width: 700px) {
+    .lb-rail {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .lb-rail-divider {
+        display: none;
+    }
+
+    /* S26c:.lb-rail-group-crests' own flex:1 1 0 (desktop's "clubs takes the remaining width" rule) means "grow to fill the column's height" once.lb-rail switches to flex-direction:column here - reset to auto so each group is sized to its own content, stacked, the same as every other row in this mobile column. */
+    .lb-rail-group,
+    .lb-rail-group-teams,
+    .lb-rail-group-crests {
+        flex: 0 0 auto;
+    }
+
+    /* Wrap comes back here - the desktop nowrap rule assumes clubs gets the row's own remaining width (S26c), which at this width is the whole (narrow) column, genuinely too little for 30+ crests on one line regardless of how much of it clubs gets. Fantasy crests get the same treatment - the overlap is a space-saver for one line, not a promise to hold at every width, and a deep league's crests wrapping mid-overlap still beats them running off the edge of a narrow column. */
+    .lb-rail-crests,
+    .lb-rail-fteams {
+        flex-wrap: wrap;
+    }
+
+    /* Found in the mobile pass over (no ticket):.lb-rail-chips is a hairline-divider container (background: var(--border), meant to peek through the 1px gaps between chips) -.lb-rail's own align-items:stretch above stretches it to the rail's full mobile width, but the chips inside never grow to fill that width, so the container's own background showed as a visible dead strip past the last chip. align-self:flex-start keeps it sized to its content, the same as every other row in this stack. */
+    .lb-rail-chips {
+        align-self: flex-start;
+    }
+
+    /* The window control (S16(a)) overflowed the viewport at this width - "Rest of season" is longer than the "Playoffs" label this same three-chip seg carried before, and nothing here had ever forced it to wrap. Its own row (flex-basis:100%, the margin-left:auto that parks it at the toolbar's right end on desktop dropped), and the seg itself allowed to wrap (.timeframe-seg's base rule never sets flex-wrap, so nothing else needed overriding). */
+    .lens-toggle-slot {
+        flex-basis: 100%;
+        margin-left: 0;
+    }
+}
+
+.lb-cells,
+.lb-head-cells {
+    display: flex;
+    flex: 1 1 auto;
+    /* min-width stays at its flex default (auto, content-sized) ON PURPOSE. With min-width: 0 this box shrank to whatever the identity, rank and rostered columns left over, and its children - each holding a 58px floor - overflowed it invisibly (overflow is visible here): on a 22-category football row the cells painted straight across the Rostered column, dials over figures and "ROSTERED" over the FG headers, while every clip and truncation count read zero because nothing was clipped, only superimposed. Content-sized, the cells box carries its children's floors up to the row, the row grows past the viewport, and the viewport scrolls - the behaviour the old table had and the one the min-width floor was written to rely on. */
+    gap: 4px;
+}
+
+/* min-width floors both the data cell and its header label AT THE SAME VALUE, so a wide-league column never drifts out of alignment with the header sitting above it - splitting the two (a smaller floor for data, a larger one for the header) would let the header row's cells overflow at a different point than the data rows' own equal-width division and misalign every column after the first mismatch, which is worse than the truncation this fix replaces. 58px, measured (not guessed) against the real football capture at this row's own fonts: the widest DATA figure any cell carries is a plain 4-digit yardage total (26.7px at.lb-cell's 12px Arial); the widest HEADER LABEL - the actual binding constraint - is the D/ST tab's "YA100-199"/"YA200-299"/"YA350-399" (55.5px at.lb-head-cell's 10.5px uppercase letter-spaced Arial). 58px leaves a few px of headroom over that measured worst case for cross-browser font-metric variance (Firefox is the shipping browser; this was measured in a Chromium pane) without reserving more than the real worst label needs. Categories still beyond what fits scroll horizontally inside.player-leaderboard-viewport, exactly as the old fixed-layout table did - this is a floor under shrinking, not a promise every category fits the visible width. S23/box-parity fix: padding lives HERE, shared, not only on.lb-cell below - content-box sizing (no box-sizing rule touches either class) means padding ADDS to min-width rather than eating into it, so a data cell with the header's own 58px min-width plus this 4px 2px padding measured 62px while a header cell with no padding stayed at 58px. Flexed side by side across N columns that is a 4px drift PER COLUMN, header sitting steadily left of its own data - invisible until a league's cell count made it big enough to read as "FG40-49 over Allen's FUML" rather than as a few stray px nobody noticed. Same padding on both keeps both boxes 62px, preserving the 58px CONTENT floor the comment below still measures against (switching to border-box instead would have shrunk that content area under the documented 55.5px worst-case label). */
+.lb-cell,
+.lb-head-cell {
+    flex: 1 1 0;
+    min-width: 58px;
+    padding: 4px 2px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Background comes from the shared tint rule (.dh-cell,.stat-chip,.dr-cat,.lb-cell above) off the --pct this element's own inline style sets - nothing here repeats that mix, EXCEPT.lb-cell-untinted below, which overrides it outright. */
+.lb-cell {
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+    cursor: help;
+}
+
+/* A cell with no percentile opinion never earns the shared tint rule's own fallback - --pct unset resolves through var(--pct, 50) to a PLAIN var(--surface) box, a real solid colour, not the blend-into-the-row "no opinion" look the fallback was meant to read as. That barely shows on an occasional untinted cell, but a row that is mostly untinted (a QB against rushing/receiving categories) turns into a wall of identical solid boxes competing with the real, tinted ones for the eye - the ink lands on absence instead of on information. (0,2,0) beats the shared rule's (0,1,0) on specificity, so this always wins regardless of source order. */
+.lb-cell.lb-cell-untinted {
+    background: transparent;
+}
+
+/* The specific case of "no figure at all" (an off-role category - a QB has no rushing yards to report) rather than merely "no percentile for a real number" - the same faint-dash-on-nothing treatment.dr-cat-none/.rank-unranked already give the same fact elsewhere in the app. Always paired with.lb-cell-untinted (an off-role cell never carries a percentile), kept as a second class rather than folded in because the muted colour is specifically about the DASH, not about every untinted cell - a real number with no percentile opinion stays legible body text. */
+.lb-cell-dash {
+    color: var(--text-faint);
+}
+
+.lb-rostered,
+.lb-head-rostered {
+    flex: 0 0 var(--lb-rostered-w, 78px);
+    width: var(--lb-rostered-w, 78px);
+    text-align: center;
+}
+
+.lb-rostered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    cursor: help;
+}
+
+.lb-dial-ring {
+    position: relative;
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+}
+
+/* Rotated so the fill starts at 12 o'clock rather than 3, the usual progress-ring trick - the dasharray itself (leaderboard-row.js) only ever needs to know how far around, never where from. */
+.lb-dial-svg {
+    transform: rotate(-90deg);
+}
+
+.lb-dial-track {
+    fill: none;
+    stroke: var(--border-strong);
+    stroke-width: 3;
+    opacity: 0.5;
+}
+
+.lb-dial-fill {
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.lb-dial-green .lb-dial-fill { stroke: var(--success); }
+.lb-dial-amber .lb-dial-fill { stroke: var(--warning); }
+
+/* The percent sits ON the ring with no fill behind it - a boxed label here was the owner's own first cut at this dial, flagged and dropped, and it stays a ring with bare text on purpose. */
+.lb-dial-pct {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+}
+
+.lb-dial-change {
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.lb-dial-green .lb-dial-change { color: var(--success); }
+.lb-dial-amber .lb-dial-change { color: var(--warning); }
 
 .player-detail-header {
     display: flex;
@@ -3575,11 +4412,6 @@ button:hover {
     min-width: 66px;
     cursor: help;
     color: var(--text-body);
-    background: color-mix(in srgb,
-        var(--success) calc(max(0%, (var(--pct, 50) - 50) * 0.76%)),
-        color-mix(in srgb,
-            var(--danger) calc(max(0%, (50 - var(--pct, 50)) * 0.76%)),
-            var(--surface)));
 }
 
 /* The three lines inside a chip took hardcoded greys and a near-black, pinned when the chip's background was a JS-computed pastel that was the same in both modes. Now that the tint is mixed from --surface they follow the ink like every other label in the app. */
@@ -3646,6 +4478,15 @@ button:hover {
     color: var(--accent-contrast);
 }
 
+/* The two-way note beside the rank chips. It sits on its own line rather than inside a chip: it is a sentence about what the chips MEAN, not another pool to click. Muted, because it qualifies the number rather than competing with it. */
+.rank-chip-note {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--text-subtle);
+    line-height: 1.4;
+    margin-top: 2px;
+}
+
 .rank-chip-label {
     font-weight: 700;
     color: var(--text-body);
@@ -3700,6 +4541,31 @@ button:hover {
     font-weight: 700;
     color: var(--accent);
     background: var(--surface-accent);
+}
+
+/* TOUCH FORM OF THE RANK EXPLAINER.:hover has no sustained state on a tap, so the dropdown above (a delayed hover-and-wait on desktop) was completely unreachable on a phone. A quick tap on.rank-chip already does something real (switches which pool the page explains), so tap could not become "open the dropdown" without breaking that - the same distinction the desktop hover DELAY already draws between a quick click and a genuine lingering look. setupLongPressDisclosures (utils.js) adds a touch-and-hold that mirrors the hover delay instead, toggling this class rather than reaching for:hover..stat-chip has no click of its own, so its long press is free of that conflict, but gets the identical gesture for one shared rule a user only has to learn once. */
+.rank-chip.touch-open .rank-chip-dropdown,
+.stat-chip.touch-open .rank-chip-dropdown {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.15s ease, visibility 0s;
+}
+
+/* 44px TOUCH TARGETS, without moving desktop layout. Each control keeps its own visual size and padding - a pseudo-element extends the TAPPABLE area to at least 44px on its short axis without a single existing width/height/padding value changing, so nothing here can push a neighbour or reflow a row that was already measured and tuned at its current size. position:relative only establishes where the pseudo-element centres itself; it carries no offset of its own and moves nothing. Scoped to (pointer: coarse) - a mouse already has a precise pointer and does not want a bigger invisible box to work around. */
+@media (pointer: coarse) {
+    .tab-button, .timeframe-chip, .rankings-tab, .mt-view-tab, .chrome-arrow, .rank-chip, .stat-chip, .tm-pager-dot {
+        position: relative;
+    }
+    .tab-button::after, .timeframe-chip::after, .rankings-tab::after, .mt-view-tab::after,
+    .chrome-arrow::after, .rank-chip::after, .stat-chip::after, .tm-pager-dot::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: max(100%, 44px);
+        height: max(100%, 44px);
+    }
 }
 
 .rank-breakdown {
@@ -3777,6 +4643,88 @@ button:hover {
     line-height: 1.5;
 }
 
+/* S41/F1: the third chip - read-only (no click, no dropdown), so no hover cursor and no.rank-chip-selected treatment apply to it; the accent colour it takes is --success rather than the ordinary --accent every other chip uses, matching the mockup's own.chip.new (a distinct "here's something new" tone, not the page's usual accent). */
+.rank-chip-matchup {
+    cursor: default;
+    border-color: var(--success);
+}
+
+.rank-chip-matchup .rank-chip-value {
+    color: var(--success);
+}
+
+.rank-chip-sub {
+    color: var(--text-subtle);
+    font-size: 11px;
+}
+
+/* S41/G2: the "How the rank is calculated" bar - a flex row so the switch and the always- visible totals sit beside the title rather than under it, matching the mockup's own.bar-row (visible even with the panel closed, which is the point: the numbers don't wait for a click). */
+.rank-breakdown-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.rank-breakdown-bar-title {
+    flex: none;
+}
+
+.rank-breakdown-switch {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.rank-breakdown-switch-opt {
+    border: none;
+    background: var(--surface);
+    color: var(--text-subtle);
+    font-size: 11px;
+    padding: 3px 9px;
+    cursor: pointer;
+    /* "Overall 67.4" wrapped to two lines inside its own pill at 1280x800 while "Matchup #5" (shorter) never did - a plain button has no nowrap by default, so the longer label was free to break at its internal space. Both pills are one glance-able unit, never two lines. */
+    white-space: nowrap;
+}
+
+.rank-breakdown-switch-opt + .rank-breakdown-switch-opt {
+    border-left: 1px solid var(--border);
+}
+
+.rank-breakdown-switch-opt.on {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-weight: 700;
+}
+
+.rank-breakdown-bar-tot {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-subtle);
+    font-weight: 400;
+}
+
+.rank-breakdown-bar-tot strong {
+    color: var(--accent);
+}
+
+.rank-breakdown-bar-tot-m {
+    color: var(--success) !important;
+}
+
+.rank-breakdown-side.hidden {
+    display: none;
+}
+
+.rank-breakdown-table-matchup td.pos {
+    color: var(--success);
+}
+
+.rank-breakdown-table-matchup td.neg {
+    color: var(--danger);
+}
+
 /* Stands where the rank chips would be, so the header answers the question their absence asks instead of leaving a gap. Sized and spaced like the chip row it replaces. */
 .player-rank-unranked {
     margin: 8px 0 0;
@@ -3785,6 +4733,58 @@ button:hover {
     border-radius: 6px;
     font-size: 12px;
     color: var(--text-muted);
+}
+
+/* Trending pickups. Garnish on a real number, not a verdict, so it reads as the same muted dashed note the unranked explainer above uses rather than reaching for a color or an icon. */
+.player-rostered-chip {
+    margin: 8px 0 0;
+    padding: 6px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Projection-vs-actual pacing. R9/S46 (superseding R8): ONE compact strip of chips, never taller than it needs to be - the old headline sentence, the drawn track and the per-category bars are gone, along with the duplication they caused (the headline always spoke for one category, which then repeated itself as that category's own row). Same dashed-note frame the other player-detail asides use. */
+.player-projection-pacing {
+    margin: 8px 0 0;
+    padding: 6px 10px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.pacing-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.pacing-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pacing-chip-label {
+    font-weight: 700;
+    color: var(--text-body);
+    font-size: 11px;
+}
+
+.pacing-chip-figs {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.pacing-chip-figs strong {
+    color: var(--accent);
 }
 
 .rank-th-label {
@@ -3959,6 +4959,60 @@ button:hover {
 .ms-total-eq { font-size: 16px; }
 .ms-total-figure { font-size: 26px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
 .ms-total-note { flex-basis: 100%; }
+
+/* THE SEASONS BAND. Retro rank per historical season, in a.lh-block the same way History's own bands are - the block head picks up the Boxscore masthead treatment for free from the existing.lh-block-head rule, so this needed no style rule of its own to look native under either style. The percentile bars reuse dm-cov-track's exact visual language (track, midline tick at 50%, coloured fill) narrowed from a full-width coverage bar down to a fixed-width chip, because a season row can carry a dozen categories side by side rather than one. Colour is a plain three-state read - accent/success/danger - not the deep/thin/cliff three-state the Draft tab's scarcity bars use, so it needs no Boxscore override the way dr-sc-fill.dr-sc-deep does: accent resolves to gold under Boxscore, success stays green and danger stays red, three legible states either way. */
+.sb-band { margin-top: 10px; flex-shrink: 0; }
+
+.sb-rows { display: flex; flex-direction: column; gap: 4px; }
+
+.sb-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--text-body);
+    border-bottom: 1px solid var(--border);
+}
+
+.sb-row:last-child { border-bottom: none; }
+
+.sb-year { flex: 0 0 36px; font-weight: 700; }
+
+.sb-rank { flex: 0 0 auto; white-space: nowrap; }
+
+.sb-rank-figure { font-weight: 700; }
+
+/* The "played but not ranked" case (rank engine excluded him below its minimum-playing-time gate) - a dash, not an invented rank, with the reason on hover the same way dr-noproj/ dr-cat-none explain a missing draft projection. */
+.sb-rank-none { color: var(--text-faint); cursor: help; }
+
+.sb-games { flex: 0 0 auto; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+.sb-bars {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 3px;
+}
+
+.sb-bar-track {
+    position: relative;
+    width: 18px;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background:
+        linear-gradient(to right, transparent calc(50% - 1px), var(--border) calc(50% - 1px),
+            var(--border) calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--surface-3);
+}
+
+.sb-bar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
+.sb-bar-fill.sb-bar-fill-good { background: var(--success); }
+.sb-bar-fill.sb-bar-fill-bad { background: var(--danger); }
+
 /* --- Export / Recap (see export.js and recap.js) --- */
 
 /* Sits at the right end of the tab bar, after the timeframe pills (which already carry margin-left:auto) - visually separated from the pills by a hairline divider so "pick a timeframe" and "take data out" read as different kinds of controls. */
@@ -4229,16 +5283,59 @@ button:hover {
         overflow-y: auto;
     }
 
+    /* phase M2 item 5: the SWIPEABLE PAGER, replacing the vertical stack M1 shipped. Season Trends and the Rankings box (its own Team/Category tabs untouched inside it) become two full-width snap children of a horizontal scroller - CSS scroll-snap, not hand-rolled touch JS, for native momentum and zero new listeners beyond the one that drives.tm-pager-dots (main.js). gap:0 so each child is exactly one screen wide with nothing peeking in from the next page - the pager's own edge IS the page boundary. */
     .layout {
-        flex-direction: column;
+        flex-direction: row;
+        flex-wrap: nowrap;
         flex: 0 0 auto;
         min-height: 0;
+        gap: 0;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
     }
 
-    .col {
+    .layout::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* The projected face's masthead (#predraft-face, graphs.js decorateProjectedFace) is the first case where this host sits BESIDE.layout rather than replacing it (the pre-draft face hides every sibling instead) - so it was never in this reset. Left at its base flex-shrink:1, once #view-team's stacked content outgrew its own capped height the shrink-first item in the row was this one: it collapsed to 0 height while overflow:visible kept painting its content outside that box, so the "PRESEASON - PROJECTED" tag rendered with no layout space of its own and no other box moved to make room. Pinned like every other sibling here. */
+    #predraft-face {
         flex: 0 0 auto;
+    }
+
+    /* Each column is exactly one page: 0 0 100% rather than 0 0 auto, since the pager's own edge-to-edge snap depends on every child being precisely the scroller's width, not its own content width (a column narrower than the viewport would leave the next page's edge visible and snap short of it). min-width:100% is the floor a flex row would otherwise let it shrink below its own basis for. */
+    .col {
+        flex: 0 0 100%;
+        min-width: 100%;
         height: auto;
         width: 100%;
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+    }
+
+    /* The dots themselves - real buttons (44px touch target already covers.tm-pager-dot via the shared coarse-pointer rule, phase M2 item 6), a filled one for the current page. Swipe is never the only way to turn a page: wireMobilePager (main.js) scrolls.layout on a click the same distance a real swipe would cover. */
+    .tm-pager-dots {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0 2px;
+        flex: 0 0 auto;
+    }
+
+    .tm-pager-dot {
+        width: 7px;
+        height: 7px;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: var(--border);
+        cursor: pointer;
+    }
+
+    .tm-pager-dot.active {
+        background: var(--accent);
     }
 
     /* Charts need an explicit floor once their column no longer has a fixed height to take a flex share OF - without one, a flex:1 child of an auto-height column can end up hugging to an unreadably short natural size instead of a sensible chart height. */
@@ -4272,6 +5369,37 @@ button:hover {
     .trends-popout-btn {
         display: none;
     }
+
+    /* The Rankings box's own tab pair ("Team Rankings"/"Category Rankings") and its section title (up to "Projected Roto Points", 21 characters) both truncate to ellipsis at this width - the box's whole column has less room than either desktop assumed, and neither element is unique to preseason (found staging the projected face, but reproduces on an ordinary played league too - ). A smaller size, not shorter words: the tab labels and the title text are read elsewhere at their full length (the hint tooltip explains what "Team Rankings" and "Category Rankings" each mean by name), and a mobile-only abbreviation ("Teams"/"Categories") would be a second vocabulary for the same two things rather than the same words at a size that fits..col-rankings scoped, not every.section-head h4/.rankings-tab - Season Trends and Category Heatmap's own titles already fit; shrinking them too would be an unrelated, unverified change. */
+    .col-rankings .rankings-tab {
+        font-size: 12px;
+    }
+
+    /* THE ADVANCED STATS TOGGLE DROPS TO ITS OWN LINE on the Category Rankings face (found reading a stamped capture, M2 item 5 follow-up). Measured, not guessed: at the 12px tab size above, "Team Rankings" + "Category Rankings" + the hint icon need ~239px on their own, and the toggle needs another ~134px - 373px of content fighting for the row's real 253px, a gap no further font-shrinking closes without the tabs going illegible..header-row's own fixed 30px height and no-wrap are what forced both onto one line in the first place; scoped to.col-rankings only, since Season Trends/Category Heatmap's own header rows have nothing to share their line with and stay exactly as tight as they already are. */
+    .col-rankings .header-row {
+        height: auto;
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
+
+    .col-rankings #cat-advanced-toggle {
+        flex-basis: 100%;
+    }
+
+    /* One px smaller than the tabs, and letter-spacing zeroed: "Projected Roto Points" (21 characters, the longest state this title takes) is still 10px over the column at 12px with Boxscore's own +0.06em masthead tracking (see the masthead rule, ~line 9283) - measured against the real column width, not guessed. 11px alone still overruns by a hair; zeroing the tracking too (a no-op for Modern, which never sets it) clears it with room to spare. Boxscore's own masthead selector (:root[data-style="boxscore"].section-head h4) outweighs a plain.col-rankings.section-head h4 by specificity regardless of source order, so it is matched here explicitly rather than reached for with !important. */
+    :root[data-style="boxscore"] .col-rankings .section-head h4,
+    .col-rankings .section-head h4 {
+        font-size: 11px;
+        letter-spacing: 0;
+    }
+
+    /* THE CHAMPION CROWN, found staging the pager's own Rankings page: a stamped capture showed the league leader's row reading "[crown]..." with the team's own abbreviation gone entirely, not merely shortened. sizeBarTitles (graphs.js) measures only the label SPANS inside.bar-title, deliberately never the crown - it lives on the title's own::before precisely so it cannot widen the measured column and misalign every other row's track (see that rule's own comment). That is the right call at desktop width, where the crown's 16px (12px mark + 4px margin) is a small fraction of a title column with real width to spare. At the mobile pager's ~253px column it is not: a plain 2-3 letter abbreviation already fit its measured box without a crown competing for the same space, and adding one there had nothing left to give..std-2col/.std-tiny/.cat-2col already solve the identical problem for a DESKTOP league dense enough to need it (measured then, not guessed - see that rule's own history). Mobile has the same problem for a different reason (a narrow column rather than a tall roster), so it takes the same proven answer rather than a new one: the crown shrinks, unconditionally, since every league's own standings column is narrow here regardless of team count. */
+    :root[data-style="boxscore"] .bar-row.is-champion .bar-title::before {
+        width: 8px;
+        height: 6px;
+        margin-right: 2px;
+        vertical-align: 0;
+    }
 }
 
 /* ==== My Team ==== The tab is one column of bands, summary then the roster, which takes the rest. No page scroll, so the roster owns the leftover height and scrolls inside itself only as the last resort. */
@@ -4282,6 +5410,8 @@ button:hover {
     min-height: 0;
     gap: 10px;
     padding: 12px;
+    /* The coverage drawer is position:absolute and needs an offset parent - this tab's own container, so it anchors to the tab rather than the page. */
+    position: relative;
 }
 
 /* Band one. Three data groups on one line, so the header stays a header rather than a panel. */
@@ -4373,12 +5503,491 @@ button:hover {
     padding: 1px 5px;
 }
 
-.mt-cat-best { background-color: var(--success-tint); color: var(--success); }
-.mt-cat-worst { background-color: var(--danger-tint); color: var(--danger); }
+/* --success-tint/--danger-tint were never real tokens - nothing in this file ever defined them, so these two backgrounds were silent no-ops in every theme (found items 4-5 verification). Fixed by reusing the tint LANGUAGE the leaderboard/heatmap shared rule already speaks (see.dh-cell/.stat-chip/.dr-cat/.lb-cell above) rather than inventing two new tokens: that rule mixes --success/--danger into --surface, capping at 38% at its own extremes (pct 0 or 100) - "38% IS THE CEILING" is the documented, deliberate ceiling everywhere else this tint is used. Best/worst here has no percentile to grade against (a category is the best or it is not), so it sits at that same extreme, the categorical case of the identical gradient rather than a third ramp. */
+.mt-cat-best { background-color: color-mix(in srgb, var(--success) 38%, var(--surface)); color: var(--success); }
+.mt-cat-worst { background-color: color-mix(in srgb, var(--danger) 38%, var(--surface)); color: var(--danger); }
 .mt-cat-rank { font-weight: normal; opacity: 0.75; }
 .mt-cat-none { font-size: 11px; color: var(--text-faint); }
 
-/* Band two. Takes the leftover height and hands it to the two groups, which scroll inside themselves - the band itself is NOT a scroller. It was one until, and past the last density step that put both groups behind ONE scrollbar together. Scrolling to the bottom of the rotation scrolled the batting table off the top. */
+/* THE "AGAINST" COMPARISON. Beside the switcher: an opponent picker and the same three-state Window control Player Metrics' own lens carries (minus Empty Nights, a free-agent question this table has no row for). */
+.mt-compare-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.mt-compare-controls select {
+    width: auto;
+    height: auto;
+    padding: 3px 8px;
+    font-size: 12px;
+}
+
+/* S22b: lives inside.mt-compare-drawer's own body now, not the flow above the roster - no top border/margin of its own, since the drawer's head (title + Close) is already the divider above it. */
+.tc-band { }
+
+.tc-headline {
+    font-size: 13px;
+    color: var(--text-body);
+}
+
+.tc-headline strong {
+    color: var(--accent);
+}
+
+.tc-asof {
+    font-size: 11px;
+    color: var(--text-subtle);
+    font-weight: 400;
+}
+
+.tc-caveat {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.tc-table {
+    margin-top: 8px;
+}
+
+/* Same ledger grid the 1v1 player comparison uses (.cmp-row), a category flanked by two values with the edge on the spine - one visual language for "compare two things category by category" wherever it shows up. */
+.tc-row {
+    display: grid;
+    grid-template-columns: minmax(0, 88px) minmax(0, 64px) 72px minmax(0, 64px);
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 2px 0;
+    max-width: 360px;
+}
+
+.tc-cat {
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tc-inv {
+    color: var(--text-faint);
+    margin-left: 2px;
+}
+
+.tc-val {
+    color: var(--text-body);
+    white-space: nowrap;
+    font-family: var(--font-numeral);
+}
+
+.tc-val-mine { text-align: right; }
+.tc-val-theirs { text-align: left; }
+
+/* Green when I lead a category, red when they do - the same WINS/BLEEDS language.mt-cat-best/ -worst already speak on this same tab, so a reader never learns a second color meaning for the same fact. */
+.tc-win { font-weight: 700; }
+.tc-val-mine.tc-win { color: var(--success); }
+.tc-val-theirs.tc-win { color: var(--danger); }
+
+.tc-lose { color: var(--text-subtle); }
+.tc-val-none { color: var(--text-faint); cursor: help; }
+
+.tc-edge {
+    display: block;
+    text-align: center;
+    font-size: 11px;
+    font-family: var(--font-numeral);
+    font-weight: 600;
+    white-space: nowrap;
+    border-radius: 3px;
+    padding: 1px 0;
+    background: var(--surface-3);
+}
+
+.tc-edge-mine { color: var(--success); }
+.tc-edge-theirs { color: var(--danger); }
+.tc-edge-tie { color: var(--text-muted); font-weight: 400; }
+.tc-edge-none { color: var(--text-faint); font-weight: 400; }
+
+/* Band two. Takes the leftover height and hands it to the two groups, which scroll inside themselves - the band itself is NOT a scroller. It was one until, and past the last density step that put both groups behind ONE scrollbar together. Scrolling to the bottom of the rotation scrolled the batting table off the top. THE COVERAGE BAND'S SEAT ON MY TEAM. The band draws one row per scored category - fourteen on a real baseball league, and about as tall as the viewport - so left to itself it pushes the roster it is describing entirely below the fold. Capped and scrolled INTERNALLY, the same last step of the ladder every other crowded box here takes, so the roster stays on screen and the band stays whole rather than being cut down to the categories that happen to fit. The two nights bands sit SIDE BY SIDE - skaters and goalies are separate questions asked of the same week, and stacking them would put the goalie answer below the fold of a band the roster is already competing with. They wrap on a narrow window rather than shrinking below readability. */
+.mt-nights {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.mt-nights > * {
+    flex: 1 1 320px;
+    min-width: 0;
+}
+
+/* THE COVERAGE STRIP AND DRAWER. The old.mt-coverage band (max-height:34vh, its own scroll) squashed the roster to a third of the page; the strip below is one line, and layoutRosterBand divides the whole remaining height among the roster tables again, exactly as it did before 3.1 ever added a band here. */
+.cvs-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    margin-bottom: 10px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    font-size: 12px;
+}
+
+.cvs-lab {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    flex-shrink: 0;
+}
+
+/* R4/S28: the strip's own horizon, said once beside "Coverage" rather than repeated on every add clause below - lower-case and quiet, a caption's own aside, not a second heading. */
+.cvs-window {
+    font-size: 10px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.cvs-window::before {
+    content: '\00b7';
+    margin: 0 4px;
+}
+
+/* S54: the days-left figure (DAYS, corrected from this pass's first "games" reading - a games count differs per club), the same quiet caption-aside treatment.cvs-window already gives the horizon - a third fact in the same caption, not a second heading. */
+.cvs-days {
+    font-size: 10px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.cvs-days::before {
+    content: '\00b7';
+    margin: 0 4px;
+}
+
+.cvs-divider {
+    align-self: stretch;
+    width: 1px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+/* THE ONE SEGMENT THAT TRUNCATES (S17(a)'s own rule: the strip is one line at 1280 and truncates before it wraps) - "Cheapest to lose" never shrinks or clips, so a reader always gets that one fact; the chip row is the one that yields, via overflow:hidden on the row itself rather than per-chip ellipsis - a half-cut chip reads as broken in a way a half-cut sentence does not, so STRIP_CHIP_LIMIT (coverage-band.js) is the real truncation and this is only its backstop against a chip wider than the row expects. S54c: the row that actually CLAIMS the strip's free width, not one that only shrinks when its own content overflows - flex:1 1 0 (grow, shrink, a zero basis) makes this the strip's one flexible item, so fitCoverageStripChips' own row.clientWidth reads the real budget available for chips regardless of how many chips happen to be in it, rather than the row's own content size (correct only by coincidence, whenever content already overflowed enough to trigger shrink). */
+.cvs-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+}
+
+.cvs-chips-empty {
+    color: var(--text-muted);
+}
+
+/* [hidden] alone loses to this rule's own display:inline-flex below - same specificity, author beats UA regardless - the exact trap tests/fixtures' own.pd-pool-row[hidden] rule already names. fitCoverageStripChips (myteam.js) sets `hidden` on a real overflow chip; this restates the native rule at equal-or-higher specificity so it actually disappears. */
+.cvs-chip[hidden],
+.cvs-more[hidden] {
+    display: none;
+}
+
+/* One chip: player, FA tag, gain, category - the house pill shape (.mt-cat's own inline-flex/padding/border-radius) rather than a new one, so this reads as the same vocabulary as the profile's own Wins/Bleeds chips above the strip. */
+.cvs-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--text-body);
+    white-space: nowrap;
+}
+
+.cvs-chip-fa {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.cvs-chip-gain {
+    color: var(--success);
+    font-weight: 700;
+}
+
+.cvs-chip-cat {
+    color: var(--text-subtle);
+}
+
+/* R11/Amendment 5's own rule, carried into the chip shape: "no add found" reads as a real answer, not a broken one - muted and italic, distinct from a real chip's name-plus-gain colors. */
+.cvs-chip-none {
+    color: var(--text-subtle);
+    font-style: italic;
+    background: transparent;
+    border: 1px dashed var(--border);
+}
+
+.cvs-more {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-subtle);
+}
+
+.cvs-swap {
+    color: var(--text-body);
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.cvs-open {
+    margin-left: auto;
+    flex-shrink: 0;
+    width: auto;
+    height: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.cvs-open:hover {
+    color: var(--accent-hover);
+}
+
+/* The drawer's offset parent is THIS wrapper, not the whole tab - top:0/bottom:0 on the drawer then land exactly at the roster's own box (right after the strip, whatever the strip's real height turns out to be) with no measured magic number to keep in step with it. */
+.mt-roster-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* [hidden] alone loses to this class's own display:flex below - same specificity, and the class comes later in the cascade, so the native hidden-means-display:none UA rule needs restating here at equal-or-higher specificity (the exact trap tests/fixtures' own.pd-pool-row[hidden] rule already names). Toggled via el.hidden in JS, never style.display. */
+.mt-coverage-drawer[hidden],
+.mt-compare-drawer[hidden] {
+    display: none;
+}
+
+/* THE DRAWER: position:absolute over the roster's right third, from the top of the roster's own box to the tab's own bottom edge (never pushing the roster - the whole point of S17(b), and the same reason S22b moved the "against" table into this exact chrome rather than the flow above the roster). One shared rule so a future third drawer costs one class name, not a second copy of the box model. */
+.mt-coverage-drawer,
+.mt-compare-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 392px;
+    max-width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.25);
+    padding: 12px 14px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    z-index: 5;
+}
+
+.mt-drawer-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-shrink: 0;
+    margin-bottom: 8px;
+}
+
+.mt-drawer-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.mt-drawer-sub {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-subtle);
+    margin-left: 6px;
+}
+
+.mt-drawer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.cvd-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-2);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+
+/* Winning categories are muted, losing ones full-strength - the same "the hole is the headline" ordering the strip and the old band both already made, carried into the drawer's own opacity. */
+.cvd-card-muted {
+    opacity: 0.7;
+}
+
+.cvd-card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.cvd-card-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.cvd-badge {
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 3px;
+    padding: 1px 5px;
+}
+
+.cvd-badge-bad {
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    color: var(--danger);
+}
+
+.cvd-badge-good {
+    background: color-mix(in srgb, var(--success) 18%, transparent);
+    color: var(--success);
+}
+
+/* S54, geometry corrected against frame K1's own generator script (the owner's own source, not this pass's first guess): a 12px track, 6px radius - banked in --accent (this app's own gold), to come in --success (green), the same two tones the frame's own.kc.bar.bk/.tc rules use. */
+.cvd-bar-track {
+    position: relative;
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface-3);
+    display: flex;
+}
+
+.cvd-bar-banked {
+    height: 100%;
+    background: var(--accent);
+}
+
+.cvd-bar-tocome {
+    height: 100%;
+    background: var(--success);
+}
+
+/* left/centre/right (the frame's own words): three figures, space-between spreads exactly three flex children this way without a fourth spacer needed. */
+.cvd-bar-figs {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+}
+
+.cvd-bar-figs-plain {
+    justify-content: flex-start;
+}
+
+.cvd-bar-tocome-fig {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.cvd-bar-season-fig {
+    color: var(--text-body);
+    font-weight: 600;
+}
+
+.cvd-chip-group {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.cvd-chip-lab {
+    flex-shrink: 0;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+}
+
+.cvd-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.cvd-chips-empty {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.cvd-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--text-body);
+}
+
+.cvd-chip-fig {
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+.cvd-chip-add .cvd-chip-fa {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.cvd-chip-add .cvd-chip-gain {
+    color: var(--success);
+    font-weight: 700;
+}
+
+/* MOBILE (golden rule 2's own breakpoint): the strip wraps rather than truncating - a phone screen has no "one line" to protect - and the drawer becomes a full-width panel rather than a 392px sliver, since a third of a 375px screen is not a usable reading column. */
+@media (max-width: 700px) {
+    .cvs-strip {
+        flex-wrap: wrap;
+        overflow: visible;
+    }
+
+    .cvs-chips {
+        flex-wrap: wrap;
+        overflow: visible;
+        flex-basis: 100%;
+    }
+
+    .mt-coverage-drawer,
+    .mt-compare-drawer {
+        left: 0;
+        width: auto;
+    }
+}
+
 .mt-roster {
     display: flex;
     flex-direction: column;
@@ -4680,6 +6289,66 @@ button:hover {
 .mt-roster .mt-table td .injury-icon { font-size: var(--mt-row-font); line-height: inherit; }
 .mt-roster .avatar-initials { font-size: calc(var(--mt-avatar) * 0.45); }
 
+/* Mobile (Firefox for Android - phase M4). A user there saw "BATTERS" over nothing: layoutRosterBand (myteam.js) still computed a fixed-height split for a JS-measured.mt-roster whose own overflow:hidden then clipped everything the arithmetic did not budget room for, on a viewport where the same golden-rule-2 desktop squeeze this block frees Team Metrics from was never freed here. layoutRosterBand skips its own arithmetic below 700px now (its own comment); this is the other half - the same shape #view-team's own mobile block above takes: the tab becomes ONE vertically-scrolling column, every band at its natural height, and a group scrolls internally only if a single one genuinely cannot fit a phone (none should - a natural roster and a 7-day calendar both fit comfortably at 375px tall content). */
+@media (max-width: 700px) {
+    /* overflow-x:hidden is explicit, not the default - CSS quietly turns a lone overflow-y:auto's sibling axis into 'auto' too (the pair-of-axes rule), which measured out as the WHOLE tab scrolling sideways to reach a wide roster table's right-hand columns, dragging the summary and coverage bands along with it. Vertical is this view's own scroll; horizontal, where a roster has more categories than 375px holds, belongs to the table that actually needs it, below. */
+    #view-myteam {
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .myteam-container {
+        flex: 0 0 auto;
+    }
+
+    /* Clears every one of layoutRosterBand's own writes (--mt-row-h, --mt-group-gap, --mt-pitch-h) back to nothing: the band is no longer a JS-measured box to divide, so overflow:hidden (which was doing the actual clipping) and the flex:1 that shrank it to the tab's fixed share both go. */
+    .mt-roster-wrap {
+        flex: 0 0 auto;
+    }
+
+    .mt-roster {
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
+    /* Both groups keep their table's own columns and band-head rows - only the height contract changes, from "your share of a fixed band" to "however tall your own content is". overflow-x stays auto (unlike -y): a league with more scored categories than a phone's width holds still needs its own scroll for the right-hand columns, now scoped to just this group's table rather than dragging the whole tab sideways with it. */
+    .mt-group[data-role="primary"],
+    .mt-group[data-role="secondary"] {
+        flex: 0 0 auto;
+        height: auto;
+        overflow-y: visible;
+        overflow-x: auto;
+    }
+
+    /* THE CALENDAR GRID, found staging the Schedule face at this width rather than named in the brief: seven 1fr columns with no floor (.mt-cal-day's own min-width:0) divided a ~230px group evenly and lost - each column landed under 30px, and.mt-cal-name's own overflow-wrap: break-word had nowhere left to break except between letters, so every start rendered as a single vertical column of characters. A floor, the same fix the roster table already has for the identical shape of problem (more content than 375px holds): each day keeps a legible minimum and the group's own overflow-x (above) scrolls to the rest, rather than every name on the card losing its own shape to fit a width nothing was checking against. 104px, MEASURED, not guessed: a first pass at 70px still broke "Yoshinobu" mid-word, because the column's own chrome (day border,.mt-cal-body padding, the start card's border and padding) eats ~25px of it before any text renders - 70px column, ~45px of actual text room. "Schwellenbach" is the widest UNHYPHENATED word across the real pool (JSON_debug/mlb-full- debug/player-pool.json, 3000 players,.mt-cal-name's own 11px/600 font) at 79.5px, so it needs roughly that plus the chrome. A hyphenated surname ("Encarnacion-Strand", wider still) is excluded from the target - a hyphen is its own natural break point, so wrapping there reads as two names on two lines, not a word torn apart the way "Yoshino/bu" did. */
+    .mt-cal-grid {
+        grid-auto-columns: minmax(104px, 1fr);
+    }
+
+    /* THE FACE TOGGLE, same capture: "CATEGORIES SCHEDULE" sat inline after the "PITCHERS" label (the desktop shape,.mt-group-head's own fixed height), and at 375px that combined text was wider than the group, wrapping the toggle onto a second line the fixed height never grew to hold - so the wrapped line painted over the calendar's own header row below it rather than pushing it down. The same shape the lens toggle already solves by dropping to its own line at this width: the toggle becomes a block (a new line, full width) and the head grows to fit both lines instead of clipping the second one. */
+    .mt-roster .mt-group-head {
+        height: auto;
+        display: flex;
+        flex-wrap: wrap;
+        row-gap: 4px;
+    }
+
+    .mt-view-tabs {
+        display: flex;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    /* A sticky header wants a scrolling ancestor of its own to stick within. Two groups no longer have one each - they share #view-myteam's single scroll region - so two sticky theads would either both pin to the same spot or fight over which one wins, neither of which reads as a header. Static, the same as every other table on the mobile column. */
+    .mt-roster .mt-table th {
+        position: static;
+    }
+
+    /* THE SWITCHER TRUNCATION (folded into M4, owner's own copy ruling)..mt-team lays out its arrows, the name and the "Your team" badge in one unbroken row (no wrap - see the own note on why.mt-profile below it wraps but this row does not), and the name's 260px desktop cap left that row wider than a 375px phone has room for once its own 24px of container padding is subtracted - the last arrow or the badge ran past the viewport edge rather than cleanly ellipsizing, which is the "truncation" a phone user actually saw. A smaller cap, the same fix the Rankings box tabs took at this width - the full name is still available on hover via the span's own title attribute. */
+    .mt-team-name {
+        max-width: 150px;
+    }
+}
 
 
 
@@ -5055,6 +6724,912 @@ button:hover {
     color: var(--text-muted);
     margin-bottom: 8px;
 }
+
+/* THE DRAFT TAB. The face bar and header line share one row; under them a two-column grid puts the pool beside a fixed rail. The tab scrolls NOTHING itself - the pool column owns the only scroll and the rail sits still beside it, so the page scroll stays at zero on desktop the way every other tab keeps it (golden rule 2). ON THE APP'S GRID. The container copied History's 12px inset; the app's own step is 10, which is what.container pads with and what every gap on this tab already uses. One number, so the tab sits in the same rhythm as the three beside it. --dr-control-h is the tab's ONE control height. Search, selects, pills, the quiet buttons and the export all used to pick their own - 24, 26, 35 and auto in four places - which is the kind of thing that reads as roughness without a reader being able to say why. */
+.draft-container {
+    --dr-control-h: 24px;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 10px;
+    padding: 10px;
+    overflow: hidden;
+}
+
+/* THE MASTHEAD. The face's own name, the switcher, one line of context and the league's facts, on one row over a trim rule - replacing a plain word, a floating note band and no section treatment at all. The rule is what tells a reader the header has ended, which is a job the theme does everywhere else and had never done here. ONE HEIGHT, WHICHEVER FACE IS ON. The row carries different things per face - the room adds a Restart and a longer state line - and a header that changes height between faces makes the whole board below it jump on a switch. A fixed height and centred contents means the switch moves nothing but the words. */
+.draft-mast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    height: 34px;
+    box-sizing: border-box;
+    padding-bottom: 4px;
+    border-bottom: 2px solid var(--accent);
+}
+
+.draft-mast-title {
+    flex: 0 0 auto;
+    font-family: var(--font-headline);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-body);
+}
+
+/* The note takes what is left and gives it back to the facts on the right. */
+.draft-mast-count {
+    flex: 0 0 auto;
+    padding: 1px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.draft-mast-note {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.draft-faces {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* THE FACE SWITCHER IS THE APP'S SWITCHER. It carries.mt-view-tab, so the component, its height, its on-state and its base-sheet undo all come from the one place that already defines them - the invented pill with its own colour-mix on-state is gone, and the tab stops being the third tab component in an app that needed one. Only what genuinely differs lives here. */
+.draft-face-soon {
+    cursor: default;
+    color: var(--text-faint);
+}
+
+.draft-face-soon:hover { color: var(--text-faint); }
+
+/* The header line takes the rest of the row and sits against the right edge. */
+.draft-head-line {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 6px;
+    flex: 0 0 auto;
+    font-size: 13px;
+    white-space: nowrap;
+    color: var(--text-muted);
+}
+
+.draft-head-sep {
+    color: var(--text-faint);
+}
+
+/* The one clause on the masthead a reader looks for: whether it is his turn. */
+.draft-head-you {
+    color: var(--text-body);
+    font-weight: 600;
+}
+
+.draft-face-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* minmax(0, 1fr) rather than 1fr: a grid track sized to its content refuses to shrink below the table's natural width, which would push the rail off the edge instead of scrolling the pool. */
+.draft-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 190px;
+    gap: 14px;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.draft-pool {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+}
+
+.dr-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding-bottom: 8px;
+}
+
+/* Same base-sheet undo as the face chips - inputs are locked to width:100% and 35px too. */
+.dr-search {
+    width: 150px;
+    height: var(--dr-control-h);
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text-body);
+}
+
+.dr-pills {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
+}
+
+.dr-pill {
+    width: auto;
+    height: var(--dr-control-h);
+    flex: 0 0 auto;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: normal;
+    cursor: pointer;
+}
+
+.dr-pill:hover {
+    color: var(--text-body);
+}
+
+.dr-pill.active {
+    border-color: var(--border);
+    color: var(--text-body);
+}
+
+.dr-basis {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-faint);
+    white-space: nowrap;
+}
+
+/* The one scroller on the tab. The head stays put inside it. */
+.dr-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+/* SEPARATE, NOT COLLAPSE, and it fixes two faults at once. The tier divider's dashed rule never rendered. Under border-collapse the two borders meeting at that edge are resolved by style rank, and the row above contributes a SOLID hairline - solid outranks dashed, so the gold rule was being eaten every time and the tier read as a bare label. And this table has a sticky thead, and the same trap the old leaderboard table documented: collapsed borders under a sticky header detach and follow the first body row while scrolling, in both Chrome and Firefox. This table had that combination too. Separate with zero spacing is the documented fix for it, and the header's own line moves to a box-shadow for the same reason it did there - a shadow does not have the sticky bug. */
+.dr-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+
+/* THE LEADERBOARD'S TABLE LANGUAGE, not a third one. Same header treatment, same two-pixel rule under it, same row hairline, same padding - a reader who has learned to scan one of this app's tables should not have to learn another. The shadow rather than a border is this table's own requirement; see the note on.dr-table. */
+.dr-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-2);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-body);
+    text-align: center;
+    padding: 6px 5px;
+    box-shadow: inset 0 -2px 0 var(--border);
+}
+
+.dr-table thead th.dr-col-name {
+    text-align: left;
+    padding-left: 10px;
+}
+
+/* EVERY COLUMN FIXED BUT ONE, and the one that flexes is the one that should. Fixing Player too - or leaving the remainder to no column at all - is what put roughly 370 pixels of nothing down the middle of this board, the same defect the leaderboard already carries a note about. The category columns take the remainder and share it equally, which is where the dead band went. */
+.dr-col-star { width: 20px; }
+.dr-col-rank { width: 26px; }
+.dr-col-name { width: 206px; }
+.dr-col-pos { width: 46px; }
+.dr-col-value { width: 44px; }
+.dr-col-adp { width: 72px; }
+
+.dr-table tbody td {
+    padding: 5px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-body);
+}
+
+.dr-table tbody td.dr-name {
+    padding-left: 10px;
+}
+
+.dr-table tbody tr:hover td {
+    background: var(--surface-accent);
+}
+
+.dr-num {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ONE ROW HEIGHT, WHATEVER A PLAYER IS ELIGIBLE FOR. A multi-position code wrapped and made its row taller than its neighbours, which is what the owner's screenshot shows. Measured: the longest the pool renders is "1B/2B/3B/SS/OF" at fourteen characters, and 121 of 3000 players run past five - a column wide enough for the worst case would need about ninety pixels, which is two category columns of the information this board exists to show. So the cell holds one line and hands the full list to the hover, and the common two-position case still fits whole. */
+.dr-pos {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ANY ROW IS DRAFTABLE IN THE ROOM. Quiet until the row is hovered - three thousand buttons should not shout - and always there in the queue, where the reader has already said what he wants. */
+.dm-rowdraft {
+    width: auto;
+    height: auto;
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 0 7px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: none;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: normal;
+    line-height: 16px;
+    cursor: pointer;
+    visibility: hidden;
+}
+
+.dr-table tbody tr:hover .dm-rowdraft,
+.dr-section ~ tr .dm-rowdraft {
+    visibility: visible;
+}
+
+.dm-rowdraft:hover {
+    background: var(--surface-3);
+    color: var(--text-body);
+}
+
+/* THE IDENTITY CELL: who he is, at a glance and in one column. */
+.dr-name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.dr-ident {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dr-ident-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dr-club {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+/* THE PROJECTED FIGURE, tinted by the percentile that produced it - see the shared tint rule. */
+.dr-cat {
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--text-body);
+    cursor: help;
+    white-space: nowrap;
+}
+
+/* Estimated rather than forecast, said on every cell that carries one. */
+.dr-cat-est {
+    border: 1px dotted var(--text-faint);
+}
+
+.dr-cat-none {
+    color: var(--text-faint);
+}
+
+/* THE DISTANCE FROM THE CROWD, beside the crowd's own number. */
+.dr-adp {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.dr-delta {
+    margin-left: 4px;
+    font-size: 11px;
+}
+
+.dr-rank,
+.dr-noproj {
+    color: var(--text-faint);
+}
+
+.dr-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The one figure on the row that is this app's own answer rather than a reading of ESPN's, so it takes the theme's own numeral voice and its accent. */
+.dr-value {
+    text-align: right;
+    font-weight: 700;
+    font-size: 15px;
+    font-family: var(--font-headline);
+}
+
+.dr-noproj {
+    font-size: 11px;
+}
+
+/* A keeper is off the board. Struck through rather than removed, because a manager scanning for a name needs to find him and see that he is gone. */
+.dr-kept {
+    text-decoration: line-through;
+    color: var(--text-faint);
+}
+
+.dr-kept-tag {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    color: var(--text-faint);
+}
+
+/* Below replacement. Quiet rather than alarming - it is a fact about the player, not a warning. */
+.dr-below {
+    color: var(--text-muted);
+    font-weight: normal;
+}
+
+/* THE RIGHT RAIL. Fixed beside the flexing pool and it does not scroll with it - the setup a manager is drafting into should not leave the screen while he scans the board. THE RAIL SCROLLS RATHER THAN CLIPS. Three cards and a button do not fit a short window, and the coverage card was being cut off at the bottom with no way to reach it. Internal scroll is the sanctioned last resort and this is what it is for - the page itself still does not move. */
+.draft-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-self: stretch;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+}
+
+.dr-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.dr-card-body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-body);
+}
+
+/* THE ROSTER, DRAWN AS SEATS. One chip per starting seat in the league's own order, wrapping between chips and never inside one - which is what the middot prose could not promise. */
+.dr-slotgrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin: 3px 0 6px;
+}
+
+/* The bench is a count rather than a seat, so it reads quieter than the seats beside it. */
+.dr-bench-chip {
+    opacity: 0.7;
+}
+
+.dr-setup-head {
+    font-size: 13px;
+    color: var(--text-body);
+}
+
+/* The categories themselves, under their count - the codes are the answer to "which fourteen". */
+.dr-catcodes {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+/* A fact small enough to live inside another card. */
+.dr-quiet {
+    color: var(--text-muted);
+}
+
+/* Position, bar, word. The bar column takes what is left so the words stay in one column down the card and can be read as a list. */
+.dr-sc-grid {
+    display: grid;
+    grid-template-columns: 22px 1fr 36px;
+    align-items: center;
+    gap: 4px 6px;
+}
+
+.dr-sc-pos {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* The same recessed token.bar-track and the head-to-head track use - see the --surface-3 note on.mt-band-head. */
+.dr-sc-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    overflow: hidden;
+}
+
+.dr-sc-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent);
+}
+
+.dr-sc-fill.dr-sc-thin { background: var(--warning); }
+.dr-sc-fill.dr-sc-cliff { background: var(--danger); }
+
+.dr-sc-word {
+    font-size: 11px;
+    color: var(--text-faint);
+    text-align: right;
+}
+
+.dr-sc-word.dr-sc-thin { color: var(--warning); }
+.dr-sc-word.dr-sc-cliff { color: var(--danger); }
+.dr-sc-word.dr-sc-deep { color: var(--text-muted); }
+
+/* THE RAIL'S SHORTCUT, AND IT WHISPERS. It was the base sheet's accent slab - the loudest control in the app, on a tab whose one loud control should be the draft button - and it duplicates the toolbar's own Export. It keeps its label and its job and takes the quiet border every other secondary control on this tab wears. */
+.dr-export {
+    width: 100%;
+    justify-content: center;
+    font-size: 12px;
+}
+
+/* THE QUEUE STAR. A control, so it undoes the base sheet's input/select/button lock like every other one on this tab. Quiet until it is on - an outline star on three thousand rows would be three thousand things asking to be noticed. */
+.dr-star-cell {
+    text-align: center;
+    padding: 0;
+}
+
+.dr-star {
+    width: auto;
+    height: auto;
+    padding: 0 2px;
+    border: none;
+    background: none;
+    font-size: 12px;
+    font-weight: normal;
+    line-height: 1;
+    color: var(--text-faint);
+    cursor: pointer;
+}
+
+.dr-star:hover { background: none; color: var(--text-body); }
+
+.dr-star-on { color: var(--medal-gold); }
+
+/* A SECTION INSIDE THE BODY - the queue above the board. Reads as a label rather than a row: no fill, just the theme's own small-caps head over a hairline. */
+.dr-section > .dr-section-cell {
+    padding: 8px 4px 3px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+/* WHERE A TIER STARTS WHEN ITS RULE CANNOT BE DRAWN. Under a search or a position pill the rows are a slice, so a full-width divider would describe players who are not on screen - the edge marks the change without claiming to span anything. */
+.dr-tier-edge > td:first-child {
+    box-shadow: inset 2px 0 0 var(--warning);
+}
+
+/* THE TIER DIVIDER. A rule and a label, no fill - a filled band would read as a row of its own rather than as the line between two groups of players. */
+.dr-tier > .dr-tier-cell {
+    padding: 7px 4px 2px;
+    border-top: 1px dashed var(--warning);
+    border-bottom: none;
+    font-size: 12px;
+    color: var(--warning);
+    white-space: nowrap;
+}
+
+.dr-falling { color: var(--success); }
+.dr-reach { color: var(--danger); }
+
+/* Nothing to rank. Centred in the space the sheet would have filled, so the tab does not look half-drawn. The app's own empty state carries the centring and the voice; this adds only the room it needs to sit in the middle of a flexed column. */
+.draft-empty {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 24px;
+}
+
+.draft-empty-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.draft-empty-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    max-width: 42ch;
+}
+
+/* THE MOCK DRAFT FACE. The room's three panes running offline: a pick stream across the top, the spotlight and best-available under it, the roster and coverage beside them. Same two-column grid the cheat sheet uses, so the two faces do not feel like two different products. */
+
+/* THE SETUP STRIP, one row and not a wizard - every field is already answered from the league, so the reader is confirming rather than filling anything in. */
+.dm-setup {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    margin-bottom: 2px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.dm-setup-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* Undoing the base sheet's input/select lock, the same way every other control on this tab does. */
+.dm-select,
+.dm-num {
+    width: auto;
+    height: var(--dr-control-h);
+    padding: 1px 6px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text-body);
+}
+
+.dm-num { width: 62px; }
+
+.dm-primary {
+    width: auto;
+    height: var(--dr-control-h);
+    flex: 0 0 auto;
+    padding: 0 14px;
+    font-size: 13px;
+    border-radius: 4px;
+}
+
+/* Every other button on the face is quiet - there is one action per turn and it is the draft. */
+.dm-flat {
+    width: auto;
+    height: var(--dr-control-h);
+    flex: 0 0 auto;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: normal;
+    background: none;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.dm-flat:hover:not([disabled]) {
+    background: none;
+    color: var(--text-body);
+}
+
+.dm-flat[disabled],
+.dm-primary[disabled] {
+    opacity: 0.45;
+    cursor: default;
+}
+
+/* THE PICK STREAM. What just went, what is going, and who is next - the one thing a board cannot tell you, which is why it sits above everything else. */
+.dm-stream {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.dm-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 0 0 auto;
+    min-width: 132px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+.dm-chip-top {
+    font-size: 10px;
+    color: var(--text-faint);
+}
+
+.dm-chip-name {
+    font-size: 12px;
+    color: var(--text-body);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dm-chip-done .dm-chip-name { color: var(--text-muted); }
+
+/* THE CLOCK CHIP: the only one with a border you notice, and the only one with a fill. The fill is the theme's own on-state, not a mix invented here - see the Boxscore block. */
+.dm-chip-now {
+    border: 2px solid var(--accent);
+    padding: 4px 8px;
+    background: var(--surface-3);
+}
+
+/* The position code beside a picked player - what came off the board matters as much as who. */
+.dm-chip-pos {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* One chip for the whole stretch between the clock and your turn. */
+.dm-chip-horizon {
+    min-width: 84px;
+}
+
+/* Teams still to come are outlined rather than drawn - they have not happened. */
+.dm-chip-next {
+    border-style: dashed;
+}
+
+.dm-chip-next .dm-chip-name { color: var(--text-muted); }
+
+/* THE SPOTLIGHT, COMPRESSED TO A BANNER. It was a card with a label, a heading, a bulleted list and a button row - five stacked bands for one recommendation. Three lines now: who and the facts, why in one run, and what to do about it. A hairline in the theme's accent rather than a filled card, because the banner should read as part of the board it sits over, not as a panel in front of it. */
+.dm-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 0 0 auto;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+}
+
+.dm-banner-done {
+    padding: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.dm-banner-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Which pick this is about, said once, in the theme's small caps. */
+.dm-banner-at {
+    font-family: var(--font-headline);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.dm-banner-why {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.dm-banner-act {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+/* The board's own figure, in the voice the board uses for it. */
+.dm-spot-value {
+    font-family: var(--font-headline);
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+}
+
+/* AN ALTERNATIVE IS ONE CLICK FROM BEING THE SPOTLIGHT AND TWO FROM BEING DRAFTED. Never one - a pick nobody meant to make is the one thing a draft room must not allow. */
+.dm-alt-label {
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.dm-alt {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: auto;
+    height: var(--dr-control-h);
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    color: var(--text-body);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: normal;
+    cursor: pointer;
+}
+
+.dm-alt:hover { background: var(--surface-3); }
+
+.dm-alt-pos { font-size: 11px; color: var(--text-muted); }
+.dm-alt-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+.dm-alt-word { font-size: 11px; }
+
+.dm-spot-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.dm-spot-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-body);
+}
+
+.dm-spot-pos {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.dm-spot-meta {
+    font-size: 12px;
+    color: var(--text-faint);
+}
+
+.dm-reasons {
+    margin: 6px 0 8px;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-body);
+}
+
+.dm-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dm-bots {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+/* BEST AVAILABLE reuses the sheet's table wholesale - same columns, same fit strip, same tier language - with one column of its own. */
+.dm-col-survive { width: 108px; }
+
+.dm-survive {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.dm-likely { color: var(--success); }
+.dm-coin { color: var(--warning); }
+.dm-gone { color: var(--danger); }
+
+.dm-scroll { flex: 1 1 auto; }
+
+/* THE ROSTER, one row per seat the league starts, in the league's own order. */
+.dm-slot {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.dm-slot-code {
+    flex: 0 0 30px;
+    color: var(--text-muted);
+}
+
+.dm-slot-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* What the seat cost, right where the eye ends the row. */
+.dm-slot-pick {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+}
+
+.dm-open { color: var(--text-faint); }
+
+.dm-benched .dm-slot-code { color: var(--text-faint); }
+
+.dm-bench-rule {
+    height: 1px;
+    margin: 5px 0;
+    background: var(--border);
+}
+
+/* CATEGORY COVERAGE, recomputed on every pick: where this roster stands against the other teams in each scored category as they fill up. */
+.dm-cov-grid {
+    display: grid;
+    grid-template-columns: 34px 1fr 44px;
+    align-items: center;
+    gap: 3px 6px;
+}
+
+/* Beaten of compared, which is the count a reader can act on. */
+.dm-cov-of {
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+    text-align: right;
+}
+
+.dm-cov-cat {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* THE MIDLINE TICK is what makes a bar readable as ahead-or-behind rather than as a length. Drawn as a gradient stop on the track so it costs no element and cannot drift out of place. */
+.dm-cov-track {
+    position: relative;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background:
+        linear-gradient(to right, transparent calc(50% - 1px), var(--border) calc(50% - 1px),
+            var(--border) calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--surface-3);
+}
+
+.dm-cov-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent);
+}
+
+.dm-cov-fill.dm-cov-good { background: var(--success); }
+.dm-cov-fill.dm-cov-bad { background: var(--danger); }
 
 /* THE DAY LENS. The day strip that stood here is gone: the chart paints its own points with the verdicts (gold/green/red/grey, the medal and status tokens, so both styles already own them) and a clicked matchup point zooms the chart into that matchup's days. The only chrome it needs is the crumb back out, which sits in the heading and so has to be inline for the same reason.cmp-legend-remove is. */
 .trend-zoom-back {
@@ -6173,6 +8748,74 @@ button:hover {
     pointer-events: none;
 }
 
+/* THE DRAFT TAB, IN BOXSCORE'S OWN VOICE. The audit's first finding was that this theme never reached the tab at all - two rules for a whole feature. The masthead takes the brass trim every other section head in this theme wears, and the board's Value takes the gold the scoreboard figures take, because it is the one number on the row this app worked out rather than read. */
+:root[data-style="boxscore"] .draft-mast {
+    border-bottom-color: var(--brass);
+}
+
+:root[data-style="boxscore"] .draft-mast-title {
+    color: var(--gold);
+}
+
+:root[data-style="boxscore"] .dr-value {
+    color: var(--gold);
+}
+
+/* THE FACE SWITCHER'S ON-STATE, in the theme that had none. The audit's first finding was that Boxscore never reached this tab, and the face chips wore an accent colour-mix that belongs to no palette here. The live face takes the theme's own three - a deep field, a brass edge and gold ink - which is the same pairing the scoreboard panel and the clock chip use. */
+:root[data-style="boxscore"] .draft-face.active {
+    background: var(--deep);
+    border-color: var(--brass);
+    color: var(--gold);
+}
+
+/* THE ROOM IN BOXSCORE. The clock chip takes the theme's own on-state - a deep field under a brass edge, the same pairing the tab rule and the score panel use - rather than a colour mixed here. The banner and its "your pick at" take the gold, because the banner is the one thing on the face asking to be acted on. THE CLOCK CHIP TAKES THE SCORE PANEL'S EXACT TRIO - gold on deep behind a brass edge - and it has to take the INK with the fill. Setting only the background left the chip's text on --text-body, which is dark in light mode: a dark fill under dark text, and "on the clock" was invisible on the one chip that matters. --deep is the same colour in both modes, so the ink cannot follow the page's; it has to follow the panel's. Caught in a screenshot, not by a computed style. */
+:root[data-style="boxscore"] .dm-chip-now {
+    border-color: var(--brass);
+    background: var(--deep);
+}
+
+:root[data-style="boxscore"] .dm-chip-now .dm-chip-name {
+    color: var(--gold);
+}
+
+:root[data-style="boxscore"] .dm-chip-now .dm-chip-top {
+    color: color-mix(in srgb, var(--gold) 72%, var(--deep));
+}
+
+:root[data-style="boxscore"] .dm-chip-name .dm-chip-pos,
+:root[data-style="boxscore"] .dm-chip-done .dm-chip-name {
+    color: var(--gold);
+}
+
+:root[data-style="boxscore"] .dm-banner {
+    border-color: var(--brass);
+}
+
+:root[data-style="boxscore"] .dm-banner-at,
+:root[data-style="boxscore"] .dm-spot-value {
+    color: var(--gold);
+}
+
+:root[data-style="boxscore"] .draft-head-you {
+    color: var(--gold);
+    font-weight: 600;
+}
+
+/* THE DEEP BAR, in the one theme where the ruled colour does not survive. "Deep" paints with --accent and "thin" with --warning, which is a clear pair in Modern - blue against amber. Under Boxscore the accent IS gold: measured, --accent resolves to #f0c04a and --warning to #e0a44a in dark, sixteen and twenty-eight points apart, which is one colour on an eight-pixel bar. Deep takes the success green here instead, so the three states stay three states. */
+:root[data-style="boxscore"] .dr-sc-fill.dr-sc-deep {
+    background: var(--success);
+}
+
+/* THE TIER RULE, in the theme that owns dashed gold rules. Boxscore draws every divider this way, so the cheat sheet's tiers join the language rather than introducing a second one. */
+:root[data-style="boxscore"] .dr-tier > .dr-tier-cell {
+    border-top-color: var(--medal-gold);
+    color: var(--medal-gold);
+}
+
+:root[data-style="boxscore"] .dr-tier-edge > td:first-child {
+    box-shadow: inset 2px 0 0 var(--medal-gold);
+}
+
 /* SCOREBOARD FIGURES. The live band's matchup score is the one number on the page a scoreboard would have owned, so it gets the panel: framed, deep, gold serif digits. The dash between the two figures stays quiet - it is punctuation, not a score. */
 :root[data-style="boxscore"] .h2h-head-score {
     font-family: var(--font-numeral);
@@ -6278,4 +8921,1252 @@ button:hover {
     align-items: center;
     justify-content: center;
     font-size: 14px;
+}
+
+/* THE LOADING STATE. One shared component wherever the app is waiting on something, replacing a different sentence per surface with one consistent mark. Colours only through custom properties (golden rule 3) - nothing here is a hardcoded hex. Sized and laid out the same way.empty-state is (the two most often stand in for each other in the same container across a render), so swapping between them never moves the box. A ROW, icon beside the word - the same shape a single line of status text ("Checking cookies...") already had, so this drops into that strip unchanged, and centred it reads just as well filling a whole empty panel (the Roto Race placeholder). A column would have fit the panel case only. */
+.loading-state {
+    color: var(--text-subtle);
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.loading-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    position: relative;
+    flex: 0 0 auto;
+}
+
+/* THE DEFAULT MARK: before any league has loaded, data-sport is not set yet (setSportAttribute, data.js), so this is what the auth-check state draws - a plain pulse, not a guess at a sport nobody has picked. Every themed shape below overrides this one once data-sport is known. */
+.loading-icon {
+    border-radius: 50%;
+    background: var(--accent);
+    animation: loading-pulse 1.4s ease-in-out infinite;
+}
+
+/* BASEBALL (flb): a stitched ball, turning slowly - the seam is the one thing that reads as "baseball" at 16px, so it is the whole shape rather than the ball's own circle carrying it. */
+:root[data-sport="flb"] .loading-icon {
+    border-radius: 50%;
+    background: var(--surface-3);
+    border: 1.5px solid var(--border);
+    animation: loading-spin 1.3s linear infinite;
+}
+:root[data-sport="flb"] .loading-icon::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: 50%;
+    border-left: 1.5px solid var(--accent);
+    border-right: 1.5px solid var(--accent);
+    border-top: none;
+    border-bottom: none;
+    transform: rotate(45deg);
+}
+
+/* HOCKEY (fhl): a puck, sliding rather than spinning - a puck's motion on ice is what reads as hockey, not its own rotation. Travels a few pixels either side of centre and back. */
+:root[data-sport="fhl"] .loading-icon {
+    /* Resets the default mark's own circle explicitly - without this the accent-coloured dot (border-radius/background from the base.loading-icon rule) kept showing behind the puck, since neither property was ever overridden here, only the animation. Found staging all four states side by side: fhl was a blue circle wearing a white pill, not a puck at all. */
+    background: none;
+    border-radius: 0;
+    animation: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+:root[data-sport="fhl"] .loading-icon::before {
+    content: '';
+    width: 14px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--text-body);
+    animation: loading-slide 1.1s ease-in-out infinite;
+}
+
+/* FOOTBALL (ffl): a ball end over end - the lace is what tells it apart from a plain oval, the same reasoning the baseball's own seam follows. */
+:root[data-sport="ffl"] .loading-icon {
+    /* Resets the default mark's own circle explicitly, the same fix the hockey puck needed just above - the base rule's border-radius/background were still painting an accent-coloured circle behind the ball's own oval and lace otherwise. */
+    background: none;
+    border-radius: 0;
+    animation: loading-spin 1.1s linear infinite;
+}
+:root[data-sport="ffl"] .loading-icon::before {
+    content: '';
+    position: absolute;
+    inset: 2px 0;
+    border-radius: 50% / 60%;
+    background: var(--surface-3);
+    border: 1.5px solid var(--border);
+}
+:root[data-sport="ffl"] .loading-icon::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 1.5px;
+    background: var(--accent);
+    transform: translate(-50%, -50%);
+}
+
+.loading-text {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+@keyframes loading-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes loading-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes loading-slide {
+    0%, 100% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+}
+
+/* Motion is the whole point (the ruling behind.lh-spinner asks for something visibly alive, same reasoning here) - reduced-motion gets a slower, gentler version rather than a frozen one. A loading mark that has stopped reads as a hung request, worse than the movement it was avoiding. */
+@media (prefers-reduced-motion: reduce) {
+    .loading-icon,
+    .loading-icon::before,
+    .loading-icon::after {
+        animation-duration: 3.5s;
+    }
+}
+
+/* THE LINEUP GROUND. Tokens only, same discipline as the leaderboard family above - the ground's own fills are mixed from --success/--warning into --surface at the same low alpha the shared percentile tint uses, rather than hardcoded grass/dirt hex, so the ice/grass/turf tone re-themes with everything else instead of sitting on the page as a fixed-colour island. */
+.lg-ground-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.lg-ground {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* ---- Hockey ---- */
+.lg-rink-ice {
+    fill: color-mix(in srgb, var(--accent) 6%, var(--surface));
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+}
+
+.lg-rink-blue {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+}
+
+.lg-rink-red {
+    stroke: var(--danger);
+    stroke-width: 1.5;
+}
+
+.lg-rink-goal {
+    stroke: var(--text-subtle);
+    stroke-width: 1;
+}
+
+.lg-rink-circle {
+    fill: none;
+    stroke: var(--border-strong);
+    stroke-width: 1;
+    opacity: 0.7;
+}
+
+.lg-rink-dot {
+    fill: var(--border-strong);
+}
+
+.lg-rink-crease {
+    fill: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    stroke: var(--accent);
+    stroke-width: 1;
+    opacity: 0.8;
+}
+
+/* ---- Baseball ---- */
+.lg-park-outfield {
+    fill: color-mix(in srgb, var(--success) 12%, var(--surface));
+}
+
+.lg-park-dirt {
+    fill: color-mix(in srgb, var(--warning) 16%, var(--surface));
+}
+
+.lg-park-diamond {
+    fill: color-mix(in srgb, var(--success) 20%, var(--surface));
+    stroke: var(--border-strong);
+    stroke-width: 1;
+}
+
+.lg-park-foul {
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+}
+
+.lg-park-mound {
+    fill: color-mix(in srgb, var(--warning) 24%, var(--surface));
+    stroke: var(--border-strong);
+    stroke-width: 1;
+}
+
+.lg-park-base,
+.lg-park-home {
+    fill: var(--surface);
+    stroke: var(--border-strong);
+    stroke-width: 1;
+}
+
+/* ---- Football ---- */
+.lg-field-turf {
+    fill: color-mix(in srgb, var(--success) 10%, var(--surface));
+    stroke: var(--border-strong);
+    stroke-width: 1.5;
+}
+
+.lg-field-scrimmage {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    stroke-dasharray: 5 4;
+}
+
+/* ---- The seat, shared across every sport - the leaderboard's own slab/chip language (font-headline for the code, a plain bordered box) rather than a second visual vocabulary for the same app. ---- */
+.lg-seat-box {
+    fill: var(--surface);
+    stroke: var(--border-strong);
+    stroke-width: 1;
+}
+
+.lg-seat-dashed .lg-seat-box {
+    fill: color-mix(in srgb, var(--text-faint) 8%, var(--surface));
+    stroke-dasharray: 3 2;
+}
+
+.lg-seat-code {
+    font-family: var(--font-headline);
+    font-size: 9px;
+    font-weight: 700;
+    fill: var(--text-body);
+}
+
+.lg-seat-sub {
+    font-size: 6px;
+    fill: var(--text-subtle);
+}
+
+.lg-seat-sub-muted {
+    fill: var(--text-faint);
+}
+
+/* ---- Bench/IR strip, the same small muted chip language leaderboard-row.js's FA chip uses. ---- */
+.lg-bench-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.lg-bench-chip {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--text-muted);
+}
+
+/* R6/S39/S39b: the mock ground's own three seat states, over the same.lg-seat-box/.lg-seat-code primitives every other seat already draws, plus two of its OWN text lines (.lg-mseat-line2/3 - a filled seat's surname then its figure, a targeted seat's "pick a" then the noun) rather than reusing.lg-seat-sub's single line. Every mock seat is clickable (seat it, or re-target it), which the ordinary ground's seats never are. */
+.lg-mseat {
+    cursor: pointer;
+}
+
+.lg-mseat-line2,
+.lg-mseat-line3 {
+    font-size: 6px;
+    fill: var(--text-subtle);
+}
+
+.lg-mseat-filled .lg-seat-box {
+    fill: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    stroke: var(--accent);
+    stroke-width: 1.5;
+}
+
+.lg-mseat-filled .lg-mseat-line2 {
+    fill: var(--text-body);
+    font-weight: 700;
+}
+
+.lg-mseat-filled .lg-mseat-line3 {
+    fill: var(--accent);
+    font-weight: 700;
+}
+
+.lg-mseat-target .lg-seat-box {
+    fill: var(--surface-2);
+    stroke: var(--gold);
+    stroke-width: 1.5;
+}
+
+.lg-mseat-target .lg-mseat-line2,
+.lg-mseat-target .lg-mseat-line3 {
+    fill: var(--accent);
+    font-weight: 700;
+}
+
+.lg-mseat-empty .lg-seat-box {
+    fill: color-mix(in srgb, var(--text-faint) 8%, var(--surface));
+    stroke-dasharray: 3 2;
+}
+
+.lg-mseat-empty .lg-mseat-line2 {
+    fill: var(--text-faint);
+}
+
+/* The targeted seat's own outer glow - a second, larger rect rather than an SVG filter, so it costs nothing to compute and themes exactly like every other stroke here. */
+.lg-mseat-ring {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    opacity: 0.55;
+}
+
+/* The x, a seat's OWN second click target - offset from the seat's own click area only by being a distinct element data-seat-remove reaches instead of data-seat-index, never by real geometry (the box is too small to spare a dead zone), so the caller's own click handler tells the two apart by which attribute the event landed on. S39c: a bare glyph read as nothing against a small, busy box - the circle IS the button now, the glyph rides on top of it, the same close-button shape a real one always has rather than a character alone. */
+.lg-mseat-remove circle {
+    fill: var(--surface);
+    stroke: var(--border-strong);
+    stroke-width: 1;
+}
+
+.lg-mseat-remove text {
+    font-size: 6px;
+    fill: var(--text-body);
+}
+
+.lg-mseat-remove:hover circle {
+    fill: var(--danger);
+    stroke: var(--danger);
+}
+
+.lg-mseat-remove:hover text {
+    fill: var(--accent-contrast);
+}
+
+/* R1/S47: the fill counter moved into the ground card's own header row (graphs.js's.pd-ground-status, beside "Clear all") - see that rule below. */
+
+/* R1/S47 (v2 contract, frame H): the bench, now a row of REAL seat outlines under the field - "the same style dimmed, accepting a player the same way" (the ruling's own words). Plain HTML, not SVG (the bench sits outside the pitch), but same idiom as the SVG seats: filled/target/empty states, a remove control, a tooltip. Dashed border and muted text are the "dimmed" half; the filled/target states borrow the SVG seats' own solid-border treatment so a reader recognizes the same seat language in both rows. R1/S47d: no wrap - the frame draws one row of eight, and measured live the IR seat was wrapping to a line of its own under seven BE seats. Each seat now shares the row's own leftover width equally (flex:1 1 0 below) instead of holding a fixed 76px regardless of how narrow the card is, so eight always fit the one line the frame calls for; 76px stays as a CEILING (the frame's own size) rather than the seat's only size. */
+.lg-bench-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.lg-bench-row-label {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-subtle);
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+
+.lg-bseat {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 76px;
+    min-height: 34px;
+    border: 2px dashed var(--border-strong);
+    border-radius: 6px;
+    padding: 3px 5px;
+    box-sizing: border-box;
+    font-size: 10px;
+    color: var(--text-subtle);
+    cursor: pointer;
+}
+
+.lg-bseat-label {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.lg-bseat-body {
+    margin-top: 1px;
+    line-height: 1.2;
+}
+
+.lg-bseat-filled {
+    border: 2px solid var(--border-strong);
+    border-style: solid;
+    background: var(--surface);
+    color: var(--text-body);
+}
+
+.lg-bseat-filled .lg-bseat-figure {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.lg-bseat-target {
+    border-color: var(--accent);
+    background: var(--surface-2);
+    box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
+.lg-bseat-target .lg-bseat-label {
+    color: var(--accent);
+}
+
+/* The injury seat (IL/IR) - state.js's own nonStartingLabels convention (BE is always the plain bench; anything else in the non-starting pair is this one) reads as a muted warning tone, the same "real but lower-priority" register the app's other danger-adjacent chrome uses. */
+.lg-bseat-ir {
+    border-color: var(--danger);
+    color: var(--danger);
+    opacity: 0.75;
+}
+
+.lg-bseat-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--text-subtle);
+    font-size: 10px;
+    line-height: 14px;
+    cursor: pointer;
+}
+
+.lg-bseat-remove:hover {
+    background: var(--danger);
+    color: var(--accent-contrast);
+}
+
+/* Gold trim (Boxscore only), the same reasoning as the leaderboard's #1 rank figure: Modern's root never defines --gold, so this stays scoped rather than reusing the leaderboard's own class. The ground's outer boundary and every seat's own box pick up the trim - "gold-trim/slot chrome". */
+:root[data-style="boxscore"] .lg-rink-ice,
+:root[data-style="boxscore"] .lg-park-diamond,
+:root[data-style="boxscore"] .lg-field-turf {
+    stroke: var(--gold);
+}
+
+:root[data-style="boxscore"] .lg-seat-box {
+    stroke: color-mix(in srgb, var(--gold) 55%, var(--border-strong));
+}
+
+/* THE SEAT CODE IS INK, NOT A FIGURE, so it takes --accent rather than --gold. The distinction is this file's own (see the Boxscore token block): bright gold is a FIGURE colour for use on the black band, and as text on light paper it measures about 1.8:1. Measured here before the fix: #f4d06f on the near-white seat box came out 1.5:1 - the seat labels were effectively invisible in Boxscore LIGHT while reading correctly in dark, which is why four-state capture exists. --accent is the same gold pulled to #8a6a08 in light (4.94:1) and left bright at #f0c04a in dark, so the seat reads in both and the Boxscore identity survives. */
+:root[data-style="boxscore"] .lg-seat-code {
+    color: var(--accent);
+    fill: var(--accent);
+}
+
+
+/* THE PRE-DRAFT FACE Team Metrics before a draft. It replaces.layout rather than sitting beside it, so the no-page-scroll rule still applies here: the face owns the same box the boxes did, and its cards size to content rather than to a chart that does not exist yet. */
+.predraft-face {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    /* THE FACE TAKES THE VIEW, not just the top of it. Golden rule 2's second half is that the tab is full, and a face ending two thirds of the way down fails it at a smaller scale than an empty column does - it is the same fault, further out. */
+    flex: 1 1 auto;
+}
+
+/* item 11: decorateProjectedFace (graphs.js) reuses this same element as a masthead SITTING ABOVE.layout, never replacing it the way the true pre-draft face does - so it must not compete with.layout for the tab's leftover height the way flex:1 1 auto (above) exists for. Measured before this landed:.predraft-face claimed 148px to hold one 18px-tall.pd-mast line, a 130px blank band before.layout's own row began - both it and.layout carry flex:1, so the two grow- competed for space regardless of either one's actual content. Content-sized instead. */
+.predraft-face.pd-mast-only {
+    flex: 0 0 auto;
+}
+
+.pd-mast {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* The tag says WHICH preseason state this is - there are two, and the projected face wears a different word in the same slot. */
+.pd-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--accent-soft, var(--surface-2));
+    color: var(--accent);
+}
+
+.pd-mast-note {
+    font-size: 12px;
+    color: var(--text-subtle);
+}
+
+/* S6: the leaderboard's own preseason tag. My Team's copy of.pd-mast sits in a flex column with its own gap (myteam-container), which already spaces it from what follows - the leaderboard viewport has no such gap, so this one rule gives the mast its own breathing room without adding one to every other.pd-mast consumer. */
+.player-leaderboard-viewport > .pd-mast {
+    margin-bottom: 10px;
+}
+
+/* Two columns where there is room, one where there is not. The ground is the taller card and takes the wider column, which is what the mockup does. R1/S47d: a flex ROW of two flex COLUMNS, not a grid - a grid's row tracks are shared across both columns, which is what let the ground's own height dictate how much space stood empty under the (much shorter) Draft card before. Each.pd-col stacks and sizes itself with no row to answer to but its own content. */
+.pd-grid {
+    display: flex;
+    gap: 12px;
+    align-items: stretch;
+    min-height: 0;
+    flex: 1 1 auto;
+}
+
+.pd-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.pd-col-left {
+    flex: 1 1 240px;
+}
+
+.pd-col-right {
+    flex: 1.6 1 320px;
+}
+
+@media (max-width: 1000px) {
+    .pd-grid {
+        flex-direction: column;
+    }
+}
+
+.pd-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    min-width: 0;
+}
+
+.pd-card-label {
+    margin-bottom: 8px;
+}
+
+/* R6/S39: only present when a card's label row shares space with something else - the Projections hint ("click a seat, then a row") or the mock ground's "Clear all". The label chip itself drops its own margin here since the ROW carries it instead. */
+.pd-card-label-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.pd-card-label-row .pd-card-label {
+    margin-bottom: 0;
+}
+
+.pd-card-hint {
+    font-size: 11px;
+    color: var(--text-subtle);
+}
+
+/* S39b: the app-wide button reset (input/select/button { display:block; width:100%; height:35px }) was stretching this one to fill the whole flex row, which is what pushed the label into a wrap - overridden back to a plain inline text link, the shape it actually is. */
+.pd-ground-clear {
+    display: inline;
+    width: auto;
+    height: auto;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.pd-ground-clear:hover {
+    text-decoration: underline;
+}
+
+/* R1/S47: the fill counter and "Clear all" as one right-side group in the ground card's header row (frame H's own combined line) - wrapped together so.pd-card-label-row's own space-between still only ever spaces TWO children, the label and this group, regardless of how many pieces the group itself carries. */
+.pd-ground-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.pd-ground-counter {
+    font-size: 11px;
+    color: var(--text-subtle);
+    white-space: nowrap;
+}
+
+.pd-countdown {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+.pd-when {
+    font-size: 13px;
+    color: var(--text-body);
+    margin-top: 2px;
+}
+
+.pd-quiet {
+    font-size: 12px;
+    color: var(--text-subtle);
+    margin-top: 6px;
+}
+
+/* item 2: never had a rule of its own, so every.pd-line fell through to the UA default (16px) beside.pd-quiet's 12px and the card label's own 12px - a mismatch nothing here had named until the last-season and graded cards were read for R1/R2. 13px matches.pd-when, the other "figure line" in this same face. */
+.pd-line {
+    font-size: 13px;
+    color: var(--text-body);
+}
+
+/* The ground draws its own viewBox, and is CAPPED rather than left to fill the column: at a column's full width the diamond came out 522px tall and pushed Team Metrics into a page scroll, which it never does on desktop (golden rule 2). Capping the height and letting the width follow keeps the aspect ratio and shrinks the whole diagram, seats included. */
+.pd-ground {
+    display: flex;
+    justify-content: center;
+    /* A DEFINITE height, not a max. Capping with max-height alone and leaving width:auto let the SVG fall back to its intrinsic size and render as a thumbnail; giving the box a real height and the drawing height:100% lets its own aspect ratio decide the width. */
+    height: 34vh;
+    min-height: 180px;
+}
+
+.pd-ground svg {
+    height: 100%;
+    width: auto;
+    max-width: 100%;
+    display: block;
+}
+
+/* S39b: the mock ground drawn LARGER than the read-only one - "the pre-draft field has the room" (the owner's own words, a third of its column even before this). The SVG's own viewBox and every seat's (x, y) are unchanged (see lineup-ground.js's own note on why growing the box itself was rejected) - a taller container is a bigger on-screen render of the exact same, already-proven geometry, which is what makes text that was "near-illegible at 1280" legible without re-tuning any sport's spacing. Wins over the plain.pd-ground rule above by appearing later in the sheet;.pd-card-fill.pd-ground (below) already fills its own column via flex regardless of either. */
+.pd-ground-mock {
+    height: 46vh;
+    min-height: 260px;
+}
+
+/* R1/S47e: the ground SHARES its column with a sibling card here (Last season/Your mock team) -.pd-card-fill (below) is the other case, where it owns the column alone and its own flex:1 1 0 is correct. A fixed vh height answers only "how tall is the viewport", never "how much of the column is actually left once the sibling card takes what a real standings table needs" - measured live: an 11-team history overran the card under it by 14px once S47d's flex columns gave the two cards a different split than the grid used to. flex:1 1 auto on the WHOLE chain (the same relay.pd-card-fill's own comment already worked out) lets the ground SHRINK under flex pressure, past its own vh preference, down to the same floor (180/260px) either cap already carried - "the mock field shrinks to what the column leaves" is the owner's own words for exactly this. Excludes.pd-card-fill: that case already owns a different (flex:1 1 0, grow allowed) rule, and:has() and a plain class carry close enough specificity that leaving both selectors matching the same element would make the cascade's tie-break (source order) the thing actually deciding, not either rule's own intent. R1/S47f: the PRIORITY was backwards - shrink:1 on both this card and its sibling split the deficit close to evenly, which is what left an 11-row standings table scrolling with only 121px to show for it while the ground sat at its own full 368px. The owner's ruling is an ORDER, not a split: the ground gives way FIRST, all the way to its own floor (260px, the ground's own min-height, untouched here), and only once THAT is exhausted does the table give up any of its own height. A shrink-factor of 999 against the sibling's plain 1 (`.pd-card-tall`'s own rule, unchanged) is what expresses an order with the same proportional-shrink algorithm flexbox actually runs: at this ratio the ground absorbs the entire deficit up to its own clamp, and only the remainder - if the column is too short for either card's floor - reaches the sibling, which still shrinks a little rather than reopening a page scroll in that edge case. */
+.pd-col-right > .pd-card:has(.pd-ground):not(.pd-card-fill) {
+    flex: 0 999 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.pd-col-right > .pd-card:has(.pd-ground):not(.pd-card-fill) .pd-card-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* flex-basis carries the preferred size here, NOT height (flex-basis wins over height on the main axis whenever it is anything but auto) - the earlier attempt left this at flex-basis:auto with height:auto, which is content-based sizing with no content of its own to size FROM (the SVG's height:100% needs a definite parent height to resolve against, the exact trap the fill case's own comment already names), so it collapsed toward the floor instead of its natural size. 34vh is the plain ground's own value (unreachable here in practice - the mock rule below always wins for this face - kept so the selector's own default matches.pd-ground's un-scoped rule). */
+.pd-col-right > .pd-card:has(.pd-ground):not(.pd-card-fill) .pd-ground {
+    flex: 1 1 34vh;
+}
+
+.pd-col-right > .pd-card:has(.pd-ground):not(.pd-card-fill) .pd-ground.pd-ground-mock {
+    flex-basis: 46vh;
+}
+
+.pd-col-right > .pd-card:has(.pd-ground):not(.pd-card-fill) .pd-ground .lg-ground-wrap {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.pd-col-right > .pd-card:has(.pd-ground):not(.pd-card-fill) .pd-ground .lg-ground {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+}
+
+/* ITEM 1, the plain branch (a last-season card present, so.pd-card-fill's own flex-fill chain below never applies): buildLineupGroundHtml wraps the SVG in.lg-ground-wrap alongside the bench chips, and that wrapper had no width of its own here - a flex row's shrink-to-fit item with a percentage-width child (the SVG's base.lg-ground rule, width:100%) counts that child as zero width for its own sizing, so.lg-ground-wrap shrank to whatever the bench chips alone needed and the SVG rendered clamped to that, football's 1.83 aspect losing the most height of any sport's diamond/rink/field. Giving the wrapper an explicit width breaks the cycle; giving the SVG width:100%/height:auto instead of.pd-ground svg's height:100%/width:auto (same specificity fight.pd-card-fill's own chain below already settles the same way) makes it follow that width, and max-height:100% is the floor.pd-ground svg's height:100% used to be - without it a shorter card could let the drawing outgrow the wrapper's own column and push the bench chips below it out of view. */
+.pd-ground .lg-ground-wrap {
+    width: 100%;
+    min-width: 0;
+}
+
+.pd-ground .lg-ground {
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+}
+
+
+/* The ranked-pool card's list. A grid rather than a table so the rank, name, club/position and value align down the card without four fixed widths - the same reason the leaderboard rebuild left tables behind. A ROW THAT DOES NOT FIT IS NOT DRAWN. `hidden` sets display:none through the UA stylesheet, and the class below overrides it - so trimming the list with el.hidden left every row rendering and the box scrolling, which is the padding this trimming exists to remove wearing a scrollbar. */
+.pd-pool-row[hidden] {
+    display: none;
+}
+
+/* R1/S47d: minmax(0, 1fr), not a bare 1fr - a bare 1fr track's own minimum width defaults to auto (its content's min-content), so a long unbreakable name could still force the ROW wider than the card even though.pd-pool-name's own overflow:hidden/ellipsis looks like it should prevent that; the ellipsis rule trims what's drawn, never what the track asks the grid for. Measured live: a 398px row inside a 394px card, a horizontal scrollbar for 4 stray pixels. */
+.pd-pool-row {
+    display: grid;
+    grid-template-columns: 2ch minmax(0, 1fr) auto 4.5ch;
+    gap: 8px;
+    align-items: baseline;
+    padding: 3px 0;
+    font-size: 13px;
+}
+
+.pd-pool-rank {
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.pd-pool-name {
+    color: var(--text-body);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pd-pool-meta {
+    color: var(--text-subtle);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* The gold figure the mockup calls for - the same weight the rank slab carries on the leaderboard, because it is the same kind of claim: this is the number the ordering is by. */
+.pd-pool-value {
+    color: var(--accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+/* R6/S39: the Projections row's own mock states - a seated player greys ("seated · QB"), a candidate eligible for the currently targeted seat points at it ("-> WR seat"). Both are a suffix INSIDE.pd-pool-name (the row's own ellipsis/nowrap already governs the whole line), not a fifth grid column, so a long name and its suffix are one truncating unit rather than two columns fighting the row's fixed template. */
+.pd-pool-row {
+    cursor: default;
+}
+
+.pd-pool-row[draggable="true"] {
+    cursor: grab;
+}
+
+.pd-pool-row-seated {
+    opacity: 0.45;
+}
+
+.pd-pool-mock-note {
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--text-subtle);
+}
+
+.pd-pool-mock-arrow {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* R1/S47 (frame H): "Your mock team"'s per-position figures collapsed into ONE compact line (superseding R6's bar-per-position rows,.pd-mock-rows/.pd-mock-row* above) - "the by- position rows become one line of figures so the card stays short". Wraps rather than scrolling or clipping, since a deep roster sport (baseball's nine-plus positions) can outgrow one row at the card's own width. */
+.pd-mock-figures-line {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    font-size: 11px;
+    color: var(--text-subtle);
+}
+
+.pd-mock-figure b {
+    color: var(--text-body);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+}
+
+.pd-mock-figure-empty {
+    color: var(--warning) !important;
+}
+
+/* The graded card's own headline figure: the same colour and tabular figures as.pd-pool-value,.pd-countdown's own size, but never its text-align:right - that rule exists for.pd-pool-value's grid column (rankedPoolRegionHtml), and combining the two classes on a block-level headline right-aligned it against a left-aligned label above, which read as two disconnected pieces rather than one figure. */
+.pd-figure-lg {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The last-season card's row of cells: up to five, each a gold figure over a small label, in place of the old single joined line nobody could unpick into champion/finish/record. Centered vertically inside the card's own.pd-card-tall stretch (the pool card's own class, reused so this card fills its grid row too) - the pool's list wants top alignment so it can scroll internally, but this card's few short cells should sit in the middle of whatever height the row gives it rather than clinging to the top over empty space. Scoped by:has() rather than a second modifier class, since a card's own content already says which behaviour it wants. S3d: justify-content alone did nothing, because.pd-card-tall.pd-card-body's base rule (shared with the pool card) never gives the body a height of its own - flex-direction:column with no flex-basis sizes it to its CONTENT, so it sat exactly as tall as the three cells and centering an already-content-sized box does nothing. The pool card never needed a flex-grow rule because sizePoolRows measures and fills the card by adding/removing rows in JS, not by CSS growth - this card has no such measurement, so it needs the growth CSS gives for free. flex:1 1 0 here, scoped to:has(.pd-figures) so the pool's own body rule is untouched, is what actually gives this body the stretched card's full height to center inside. */
+.pd-card-tall .pd-card-body:has(.pd-figures) {
+    flex: 1 1 0;
+    min-height: 0;
+    justify-content: center;
+}
+
+/* R1/S31: the standings table fills the rest of the card under the figure cells - the opposite of the figures-alone rule just above, which centers a handful of short cells in whatever height the row gives them. A card that also carries a full team list wants the figures pinned to the top and the list filling down from there, not the whole block re-centered as one unit. Same:has() scoping technique, later in the sheet so it wins the tie. R1/S47f: flex:0 0 auto (content-sized), not the figures-alone rule's flex:1 1 0 - a flex-basis:0 body tells ITS OWN OUTER CARD "I need no height of my own" for that card's natural- size calculation, which is exactly backwards here: this card's whole point in the shared column (S47e) is to state its REAL content height (figures plus every standings row) so the ground - a sibling in the SAME column, not a parent - knows how much room to yield. With the body claiming zero need, the outer card looked equally small regardless of an 11-team table inside it, so the column's own shrink distribution never gave the ground a reason to shrink at all. */
+.pd-card-tall .pd-card-body:has(.pd-standings) {
+    flex: 0 0 auto;
+    min-height: 0;
+    justify-content: flex-start;
+}
+
+/* S31b: MEASURED against the container, not assumed - full-nfl-2026 staged with a real 11-team 2025 history overran the card's own bottom edge by 14px at the original row height/margin (row 22px x 11 + a 12px margin-top over a 310px card). Row padding and this margin are both cut to reclaim ~30px, checked against the same stage after the change (see the commit's own measurement) - comfortable margin, not a bare fit. R1/S47e attempted flex:1 1 0 + overflow-y:auto here (the same mechanism.pd-pool already carries for the Projections list), reasoning it would scroll whatever the column's own arithmetic left short. MEASURED WRONG (S47f): a flex-basis:0 item tells its own ANCESTOR "I need nothing" for that ancestor's own natural-size calculation - which is exactly backwards for a card meant to state its real content height so the GROUND (its sibling in the column, not its parent) knows there is a demand to yield to. With standings claiming zero need, the ground never saw a deficit to shrink for at all, and sat at its full 368px while this card's own flex:1 1 0 grew to fill whatever was left over (121px) and scrolled the other nine tenths of an 11-team table out of sight - S31b's own "fits whole" promise broken a second, opposite way. S47f: flex:none (0 0 auto) - the table's real, unclamped content height IS its flex-basis now, which is what lets.pd-col-right's own distribution see a genuine 300-ish px demand and shrink the ground (S47f's own flex-shrink:999 there) to make room for it, floor and all. overflow-y:auto stays as the LAST resort, not the first: it only ever engages if the column is too short for BOTH the ground's own floor and this card's real content even after the ground has given up everything it can - a page-scroll backstop for an edge case, not the table's everyday behaviour. */
+.pd-standings {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.pd-standings-row {
+    display: grid;
+    grid-template-columns: 2ch 1fr auto auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 2px 0;
+    font-size: 11.5px;
+    border-top: 1px solid var(--border);
+}
+
+.pd-standings-row:first-child {
+    border-top: none;
+}
+
+.pd-standings-row-you {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.pd-standings-place {
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.pd-standings-name {
+    color: var(--text-body);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pd-standings-crown {
+    margin-right: 3px;
+}
+
+.pd-standings-you {
+    font-size: 9px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+}
+
+.pd-standings-figure {
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.pd-figures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 28px;
+    justify-content: center;
+    text-align: center;
+}
+
+.pd-figure-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 64px;
+}
+
+.pd-figures .pd-quiet {
+    margin-top: 4px;
+}
+
+/* S3b: the graded card's category/roto branch - projected category ranks as a chip row, one chip per scored category, off the same `ranked` list the Strongest/Weakest line above already reads. Good/bad splits the ranked list at its own midpoint rather than any fixed rank, so it still means something in a 6-cat as well as a 12-cat league. */
+.pd-cat-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.pd-cat-chip {
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--surface-2);
+    color: var(--text-body);
+}
+
+.pd-cat-chip-good {
+    color: var(--success);
+}
+
+.pd-cat-chip-bad {
+    color: var(--danger);
+}
+
+/* S3b: the graded card's points-league branch - projected points by position, a compact bar list so the four lines the card used to end on over air become the breakdown behind the headline figure instead. Bars scale to the largest group so the list reads at a glance; the value column is a fixed width so figures of different digit counts still line up. */
+.pd-slot-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.pd-slot-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pd-slot-bar-label {
+    width: 44px;
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.pd-slot-bar-track {
+    flex: 1 1 auto;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    overflow: hidden;
+}
+
+.pd-slot-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent);
+}
+
+.pd-slot-bar-value {
+    width: 40px;
+    flex: 0 0 auto;
+    text-align: right;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+}
+
+.pd-pool-notes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.pd-pool-note {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text-subtle);
+}
+
+/* THE CATEGORY COVERAGE BAND. The coverage bar itself is the Draft tab's own.dm-cov-track/.dm-cov-fill/.dm-cov-good/.dm-cov-bad, reused verbatim rather than restated - same underlying fact (a share, tinted by whether it is a hole), same two functions computing it (coverageOf/holesFrom, draft-engine.js). Everything below is new: the row shell and the sentence lines coverage-band.js's own words-and-components rule needed a home for. */
+.cvb-band {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cvb-row {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+}
+
+.cvb-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.cvb-cat-name {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-body);
+}
+
+.cvb-inverse-note {
+    font-size: 10px;
+    color: var(--text-subtle);
+    margin-left: 4px;
+}
+
+/* S28b: one flex item (name / value-wrap,.cvb-head's own space-between) rather than two - appending the remainder sub-figure as a bare sibling of.cvb-value would have made it a THIRD item, which space-between spreads across the row instead of clustering beside the value it belongs to. This wrapper is the row's own flex item; internally it lays out value+sub itself. */
+.cvb-value-wrap {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.cvb-value {
+    font-family: var(--font-headline);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--text-body);
+}
+
+/* The remainder beside the season total it is a piece of (S28b) - muted and smaller, the same "secondary fact" treatment.cvb-inverse-note already gives a note beside the headline. Shared by both the inline row (.cvb-value-wrap) and the drawer's card (.cvd-card-head's own margin-left:auto already clusters it against.cvd-card-value with no wrapper needed there). */
+.cvb-value-sub {
+    font-size: 10.5px;
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* A null value (no figure yet) reads the same muted, unbolded way the leaderboard's own lb-cell-dash treats "no figure" - one visual language for the same fact across both surfaces. */
+.cvb-value-none {
+    font-weight: 400;
+    color: var(--text-faint);
+}
+
+.cvb-band .dm-cov-track {
+    margin: 4px 0;
+}
+
+/* share === null draws an EMPTY track, not a themed one at zero width - a flat surface tone says "nothing measured" where the tinted (good/bad) track would claim a real standing that is not there yet. */
+.cvb-track-none {
+    background: var(--surface-3);
+}
+
+.cvb-drivers,
+.cvb-add {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.cvb-add-none {
+    color: var(--text-faint);
+}
+
+/* The band's own footer, not a row - said once, where every losing row used to repeat the identical sentence. The top border is what says "this is the band's own answer", not one more row's own line. */
+.cvb-swap-footer {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+/* THE NIGHTS BAND. New classes, unlike the coverage band above - the domain (a night's headcount) has no existing bar or tone worth reusing. */
+.nb-band {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+}
+
+.nb-head {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-body);
+    margin-bottom: 4px;
+}
+
+.nb-note {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-bottom: 6px;
+}
+
+.nb-days {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.nb-day {
+    flex: 1 1 0;
+    min-width: 40px;
+    text-align: center;
+    padding: 4px 2px;
+    border-radius: 4px;
+    background: var(--surface-3);
+}
+
+/* A night the given slot count cannot fill - a tone, not a second number on the cell's face (see the view contract's own note on why emptySlots does not get its own line). */
+.nb-day-short {
+    background: color-mix(in srgb, var(--danger) 12%, var(--surface-3));
+}
+
+.nb-day-thinnest {
+    outline: 1px solid var(--danger);
+}
+
+.nb-day-label {
+    font-size: 10px;
+    color: var(--text-subtle);
+}
+
+.nb-day-count {
+    font-family: var(--font-headline);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text-body);
+}
+
+.nb-day-idle {
+    font-size: 9px;
+    color: var(--text-faint);
+}
+
+.nb-headline {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+
+/* A card that cannot live in half a row. The projected category grid carries one column per scored category - fourteen in the measured league - and at half width its figures ran into each other. It spans the grid and scrolls inside its own.dh-wrap, which is the same last resort the played season's heatmap band already takes rather than letting the page scroll. THE LINEUP TAKES THE WHOLE COLUMN when nothing follows it - a first-season league has no last season, so the right column held one capped card and half a screen of nothing. The grid aligns its items to start, so the span alone would not stretch the card; align-self does that, and the ground inside grows with it instead of staying at its own cap. The cap still applies whenever the last-season card IS there, which is the case that needed capping in the first place. The board grows to fill whatever its own column leaves for it, rather than sitting at the top of it - the one card here whose extra height is more of the answer rather than more space around it. R1/S47d: flex:1 on the CARD itself (not just align-self, a grid-only idiom that stretch- fills a shared row track) is what makes it grow along its.pd-col parent's own main axis - a plain.pd-card beside it (Draft, Last season, Your mock team when the ground fills the whole right column) stays content-sized, so this only ever claims space nothing else wants. */
+.pd-card-tall {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* The last step of golden rule 2's ladder, for the case the row count cannot know about: thirteen names fit the viewport this was measured on, and a shorter window would push them out of the card. The LIST scrolls inside itself rather than the page scrolling - the notes and the "Player Metrics ranks the whole pool" line below it stay put, so what scrolls is the part that is a list. */
+.pd-card-tall .pd-card-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* R1/S47c: flex:1 so the list actually FILLS the column and its own overflow-y:auto has something to scroll against - the old measure-then-hide approach (sizePoolRows, graphs.js, removed) never needed this because it sized the list to the box; the box now sizes the list. THE WHOLE CHAIN, not just this link:.pd-card-tall.pd-card-body itself has no flex-grow of its own (the OTHER.pd-card-tall cards - Last season, Your mock team - are figure cells that want their own content height, not a stretched one, so the base rule stays content-sized on purpose) - scoped here with:has(.pd-pool) so only THIS card's body takes the stretched height its sibling cards never asked for. */
+.pd-card-tall .pd-card-body:has(.pd-pool) {
+    flex: 1 1 0;
+}
+
+.pd-card-tall .pd-pool {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    /* Vertical scroll only (the owner's own words on the frame) - belt and suspenders alongside the row template's own minmax(0, 1fr) fix above, so nothing can reopen a horizontal scrollbar by a stray few pixels the way the bare 1fr track did. */
+    overflow-x: hidden;
+}
+
+/* R1/S47c: the position-chip row (frame H) - "All" plus every starting slot's own label, filtering which Projections rows show. Same pill idiom the app's other chip rows already use (.timeframe-chip,.lb-rail-chip), sized for a dense row of short codes rather than full words. */
+.pd-pool-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 6px 0 4px;
+    flex-shrink: 0;
+}
+
+.pd-pool-chip {
+    height: auto;
+    width: auto;
+    padding: 3px 9px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pd-pool-chip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-contrast);
+}
+
+/* The count-and-hint line under the scrolling list (frame H's own "1,036 players - scroll, or pick a position above") - a fact about what's on screen, not advice about reading it (VOICE's own "no tips" rule stays intact: this names a quantity, it does not tell the reader what to do with the figures above it). */
+.pd-pool-footer {
+    flex-shrink: 0;
+    margin-top: 4px;
+    font-size: 10.5px;
+    color: var(--text-subtle);
+}
+
+/* R1/S47d: flex:1 1 0 (not grid-row:span 2, a grid-only idiom) fills the WHOLE right column when the ground is the column's only card - a first-season league has no last-season card to sit under it, so nothing else in.pd-col-right claims the leftover height instead. */
+.pd-card-fill {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* THE WHOLE CHAIN, not just the ends..pd-ground is not a child of the card -.pd-card-body sits between them - so flex:1 on the ground alone did nothing and the SVG fell back to its intrinsic size, the exact thumbnail the cap comment above warns about. Every link has to be a flex column with a definite height for the drawing's height:100% to resolve against anything. */
+.pd-card-fill .pd-card-body {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.pd-card-fill .pd-ground {
+    flex: 1 1 0;
+    /* Overrides the fixed cap above: here the column's own height is the cap. */
+    height: auto;
+    /* Still floored, so a short column cannot squeeze the diamond into an unreadable strip. */
+    min-height: 180px;
+}
+
+/* EVERY LINK, including the one that is easy to miss: buildLineupGroundHtml wraps the drawing in.lg-ground-wrap (the diagram and its bench chips), so the SVG's parent is that wrapper and not.pd-ground. A height set on the ground alone resolved against a wrapper with no height of its own, which is why the diamond first collapsed to a thumbnail and then, sized off one axis, grew wide enough to push the catcher's seat past the card's edge. A diagram that loses a position is worse than a small one. Flex sizing rather than percentages the whole way down: the SVG's own viewBox letterboxes the drawing inside whatever box it is given, so it only needs to be given one. */
+.pd-card-fill .pd-ground .lg-ground-wrap {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+.pd-card-fill .pd-ground .lg-ground {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+    height: auto;
+}
+
+.pd-card-wide {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+
+.pd-card-wide .dh-wrap {
+    overflow-x: auto;
+}
+
+
+/* The graded card occupies the Season Trends SLOT, so it fills it rather than floating at the top of a tall empty column. Golden rule 2 is no page scroll AND boxes that fill the viewport - a card sitting in 400px of white space fails the second half as surely as a scrollbar fails the first. */
+.col-trends .pd-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.col-trends .pd-card-body {
+    flex: 1 1 auto;
+    min-height: 0;
 }

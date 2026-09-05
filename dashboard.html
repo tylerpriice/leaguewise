@@ -20,15 +20,21 @@
                     <circle cx="21" cy="6" r="2.4" fill="var(--accent)"/>
                 </svg><span>ise</span>
             </a>
-            <!-- The matchup indicator rides the header row at the logo's height. It had a row of its own below, which cost a band of vertical space to say six words; up here it uses the space beside a wordmark that was never going to fill the line. Hover behaviour is untouched - the dropdown still hangs off.scoreboard-hover. -->
-            <div class="scoreboard-hover brand-scorecard">
-                <span id="week-indicator">&nbsp;</span>
-                <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
+            <!-- The badge and the matchup indicator share one group on the header row's right side (.brand-lockup's own space-between still reads as wordmark-left, everything-else- right, rather than three independent columns). -->
+            <div class="brand-header-right">
+                <!-- THE LEAGUE-TYPE BADGE. Outside every tab view like the matchup indicator beside it, so it stays visible on both tabs and does not vanish for a roto league the way week-indicator does right after it - roto is exactly the case this badge exists to always name, pairing with the own roto notice. A quiet chip with no hover. Empty and hidden until processCoreData (data.js) has a real scoringType to show - no badge reads better than a placeholder claiming a format before one is known. -->
+                <span id="league-type-badge" class="league-type-badge" style="display:none;"></span>
+                <!-- The matchup indicator rides the header row at the logo's height. It had a row of its own below, which cost a band of vertical space to say six words; up here it uses the space beside a wordmark that was never going to fill the line. Hover behaviour is untouched - the dropdown still hangs off.scoreboard-hover. -->
+                <div class="scoreboard-hover brand-scorecard">
+                    <span id="week-indicator">&nbsp;</span>
+                    <div id="scoreboard-dropdown" class="scoreboard-dropdown"></div>
+                </div>
             </div>
         </h2>
         <!-- The grant button only appears when Firefox has not been given espn.com yet (see checkAuth in api.js). It sits beside the status line so the ask and the reason read as one sentence, and its click handler calls permissions.request directly, since that needs the user gesture. -->
         <div class="auth-row">
-            <div id="auth-status" class="status-red">Checking cookies...</div>
+            <!-- The boot-time loading state - no league has fetched yet, so data-sport is not set and the shared loading component (utils.js buildLoadingHtml) draws its neutral pulse rather than guessing a sport. checkAuth (api.js) overwrites this div's own textContent on either path (success clears it, failure sets a real message), which replaces this markup wholesale rather than fighting it. -->
+            <div id="auth-status" class="status-red"><div class="loading-state"><span class="loading-icon" aria-hidden="true"></span><span class="loading-text">Loading</span></div></div>
             <button type="button" id="grant-access-btn" class="grant-access-btn" style="display:none;">Grant access</button>
         </div>
 
@@ -45,6 +51,7 @@
                     <select id="sport">
                         <option value="fhl">Hockey</option>
                         <option value="flb" selected>Baseball</option>
+                        <option value="ffl">Football</option>
                     </select>
                 </div>
                 <div class="settings-field">
@@ -119,10 +126,13 @@
                 <button class="tab-button" id="tab-btn-player">Player Metrics</button>
                 <button class="tab-button" id="tab-btn-myteam">My Team</button>
                 <button class="tab-button" id="tab-btn-history">League History</button>
+                <button class="tab-button" id="tab-btn-draft">Draft</button>
                 <div id="timeframe-toggle" class="timeframe-toggle"></div>
             </div>
 
             <div id="view-team" class="tab-view">
+                <!-- The PRE-DRAFT face. Empty and hidden until seasonState says the league has not drafted; renderPreDraftFace fills it and hides.layout, the same way the Draft tab builds its whole masthead in JS. -->
+                <div id="predraft-face" class="predraft-face" style="display:none;"></div>
                 <div class="layout">
                     <div class="col col-trends">
                         <div class="header-row">
@@ -152,6 +162,12 @@
                         <div id="left-graph-container" class="graph-viewport"></div>
                         <div id="cat-graph-container" class="graph-viewport" style="display:none;"></div>
                     </div>
+                </div>
+
+                <!-- phase M2 item 5: the pager's own page-dot indicator, mobile only (hidden on desktop by default, dashboard.css). Real buttons, tappable - swipe must not be the only way to turn a page. wireMobilePager (main.js) drives.active off.layout's own scroll position and scrolls.layout on a click; nothing here names the heatmap, which stays a below-pager band rather than a third page (tried both - see the wireMobilePager comment for why). -->
+                <div class="tm-pager-dots" role="tablist" aria-label="Team Metrics panels">
+                    <button type="button" class="tm-pager-dot active" data-page="0" role="tab" aria-selected="true" aria-label="Season Trends"></button>
+                    <button type="button" class="tm-pager-dot" data-page="1" role="tab" aria-selected="false" aria-label="Rankings"></button>
                 </div>
 
                 <div class="heatmap-band">
@@ -236,6 +252,7 @@
             </div>
 
             <div id="view-player" class="tab-view" style="display:none;">
+                <!-- R3/S49: the two checkboxes (and the window control beside them) used to get a whole second row of their own (S16c, below the point this comment now sits at) because the wide checkbox-plus-label shape did not fit row one. Compact toggle buttons (renderMinPlayingTimeToggle/renderAdvancedStatsToggle, players.js) do, so the second row - and the height it cost the table under it - is gone; everything lives in the one toolbar now, in the order the owner asked for ("with the search and the selects"). -->
                 <div id="player-toolbar" class="player-toolbar">
                     <div id="player-group-toggle" class="player-group-toggle"></div>
                     <input type="text" id="player-search" placeholder="Search players...">
@@ -247,9 +264,14 @@
                     <select id="player-position-filter">
                         <option value="ALL">All Positions</option>
                     </select>
-                    <div id="min-playing-time-toggle" class="advanced-stats-toggle"></div>
-                    <div id="advanced-stats-toggle" class="advanced-stats-toggle"></div>
+                    <div id="min-playing-time-toggle" class="toolbar-toggle-slot"></div>
+                    <div id="advanced-stats-toggle" class="toolbar-toggle-slot"></div>
+                    <!-- Empty Nights - filled by renderPlayerLeaderboard (players.js). Offered even before the pro schedule is in this session - checking it is what fetches it, and the column has no figure until then. dashboard.css's own:empty rule collapses the slot (and its own margin-left:auto, unchanged by the move, still pushes it to the row's own right end) when left blank. -->
+                    <div id="lens-toggle-slot" class="lens-toggle-slot"></div>
                 </div>
+
+                <!-- Team breakout tabs, filled by renderBreakoutTabs (players.js). Which set shows follows the availability filter above; empty and collapsed (dashboard.css's own:empty rule) when neither team kind has a tab to offer. -->
+                <div id="player-breakout-slot" class="player-breakout-slot"></div>
 
                 <div id="player-leaderboard-container" class="graph-viewport player-leaderboard-viewport">
                     <div class="player-loading">Open this tab after fetching league data to load players.</div>
@@ -268,6 +290,11 @@
                 <div id="history-container" class="history-container"></div>
             </div>
 
+            <!-- The Draft tab. Chrome, faces and every face body are built by draft-view.js - the tab exists for every league and decides from the pool what it can say. -->
+            <div id="view-draft" class="tab-view" style="display:none;">
+                <div id="draft-container" class="draft-container"></div>
+            </div>
+
         </div>
 
     </div>
@@ -277,6 +304,8 @@
         <!-- One button per captured response. Each ESPN response the app makes is kept under its own name, and this is how you choose which one the panel shows and Download takes. Populated by renderDebugPicker in utils.js, since which kinds hold a payload changes as responses land. -->
         <div id="debug-kinds" class="debug-kinds"></div>
         <button id="debug-download-btn" class="debug-download-btn">⬇ Download as JSON</button>
+        <!-- The whole set in one file, for reporting a problem: the kinds that answer a question are rarely the one the panel happens to be showing when it is asked. Built by downloadAllDebugData in utils.js on the dependency-free writer in zip.js. -->
+        <button id="debug-download-all-btn" class="debug-download-btn">⬇ Download all as ZIP</button>
         <!-- What this page has asked for since it opened, in two groups that are deliberately not added together. Filled by renderRequestTally in utils.js; the counting itself happens at the fetch site, so these are true from page open even if the panel was off. -->
         <div id="debug-tally" class="debug-tally"></div>
         <pre id="debug-output"></pre>

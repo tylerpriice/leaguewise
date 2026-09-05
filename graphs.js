@@ -1,14 +1,25 @@
-import { AppState, AVERAGE_STATS, INVERSE_STATS, ESPN_STAT_MAPS } from './state.js';
-import { getZoomedFillPct, getTimeframeBounds, getNiceMax, getWeekTier, tierColor, splitByTier, escapeHtml, attachDataTooltips, percentileVar, orderStatIdsByRole, splitStatIdsByRole, statValue, layoutHoverTooltip, categoryCycleList, categoryHeaderLabel, axisUnit, parseTimeframe, matchupPoints } from './utils.js';
-import { buildRotoRaceSeries, ensureWeeklyDataForRace, weeklyDataFailed, ensureRosterTransactionData, ensureRosterSnapshotData, activeRotoWindow, computeRotoWindow, rotoCategorySeries, rotoCategoryDailySeries, teamCategorySeries, revalidateStalePoolIfDue } from './players.js';
+import { AppState, AVERAGE_STATS, INVERSE_STATS, ESPN_STAT_MAPS, categoriesMapped, LINEUP_SLOT_LABELS, LINEUP_SLOT_ORDER, NON_STARTING_SLOTS, RATE_COMPONENTS, FLEX_SLOTS, FLEX_SLOT_POSITIONS, nonStartingLabels, lowerIsBetterIds } from './state.js';
+import { seasonState, SEASON_STATE } from './season-state.js';
+import { countdownCard, slotSeatsFor, lastSeasonCard, rankedPoolCard, projectedCategoryRanks, bestValuePick } from './preseason-face.js';
+import {
+    projectedTeamSums, projectedValues, projectedRotoStandings, projectedPointsStandings, placeOf
+} from './projected-basis.js';
+import { positionDepth } from './draft-engine.js';
+import { rotoPointsForCategory } from './rank-engine.js';
+import { buildProTeamAbbrevs } from './probables.js';
+import { loadMostRecentPastSeason, currentProSchedule } from './api.js';
+import { summarizeSeason, franchiseKeyOf } from './history.js';
+import { findOwnedTeamId } from './utils.js';
+import { buildLineupGroundHtml, buildMockLineupGroundHtml } from './lineup-ground.js';
+import { seatsFor as mockSeatsFor, emptyState as mockEmptyState, seat as mockSeat, unseat as mockUnseat, clear as mockClear, canSeat as mockCanSeat, summary as mockSummaryOf } from './mock-lineup.js';
+import { getZoomedFillPct, getTimeframeBounds, getNiceMax, getWeekTier, tierColor, splitByTier, escapeHtml, attachDataTooltips, percentileVar, orderStatIdsByRole, splitStatIdsByRole, statValue, layoutHoverTooltip, categoryCycleList, categoryHeaderLabel, axisUnit, parseTimeframe, matchupPoints, unmappedCategoriesNote, buildLoadingHtml } from './utils.js';
+import { buildBoard, buildRotoRaceSeries, ensureWeeklyDataForRace, weeklyDataFailed, ensureRosterTransactionData, ensureRosterSnapshotData, ensureDraftPicks, draftPicksFor, activeRotoWindow, computeRotoWindow, rotoCategorySeries, rotoCategoryDailySeries, teamCategorySeries, revalidateStalePoolIfDue } from './players.js';
+import { buildRankingsDonutHtml } from './rankings-donut.js';
 
 const TIER_LABELS = { reg: 'Regular Season', playoff: 'Playoffs', consolation: 'Consolation' };
 
-// A section pie is drawn at this size and then scaled to its section's real box by sizeSectionPies. The viewBox is fixed, so the placeholder value only has to be sane, not right.
-const SECTION_PIE_BASE_SIZE = 120;
-// Breathing room between the pie and its section's edges, and the floor below which the pie stops being worth drawing as anything but a token (a very short section on a very short window).
-const SECTION_PIE_PAD = 12;
-const SECTION_PIE_MIN_SIZE = 48;
+// R6/S52: the donut's own pixel size in this box (frame J2's own "the same donut smaller" value) - a real constant now, not a placeholder resized after layout the way the old SECTION_PIE_BASE_SIZE was, because the new view no longer overlays the bars' own box (see buildStandingsSectionHtml's own comment) - it is a real alternate body with its own natural size, so nothing here needs to measure and cap it after the fact.
+const RANKINGS_DONUT_SIZE = 132;
 // Headroom held back from the row budget. Rows, borders and the header's line box all resolve at sub-pixel sizes that round UP into the container's integer scrollHeight, so fitting the box exactly still produces a scrollbar; this is the margin that keeps the total honestly under it.
 const STD_FIT_SLACK = 6;
 const STD_PITCH_TINY = 20;
@@ -98,14 +109,15 @@ function buildComparisonBarRowHtml({ name, abbrev, val, color, minVal, maxVal, l
 const NAME_CROWN = ' \u{1F451}';
 
 function buildBarTitleHtml(name, abbrev) {
-    const short = abbrev || name;
     const crowned = name.endsWith(NAME_CROWN);
     const bare = crowned ? name.slice(0, -NAME_CROWN.length) : name;
     const crownHtml = crowned ? `<span class="bar-title-crown">${NAME_CROWN}</span>` : '';
+    // The abbreviation takes the crown too. It used to be the half-width label only, where losing the champion's mark was a fair trade for fitting; now it is the label Team Metrics shows EVERYWHERE, and a crown that disappeared the moment the ruling landed would be this change quietly deleting something the owner asked for twice. The abbreviation falls back to the BARE name, not the raw one, so a crowned league with no abbreviation set does not print the glyph twice.
+    const short = abbrev || bare;
     // The tooltip keeps the whole name, crown included - it is the string the rest of the app uses, and a tooltip that disagreed with the legend would be a worse bug than the one this fixes.
     return `<span class="bar-title" title="${escapeHtml(name)}"
         ><span class="bar-title-full">${escapeHtml(bare)}${crownHtml}</span
-        ><span class="bar-title-abbr">${escapeHtml(short)}</span></span>`;
+        ><span class="bar-title-abbr">${escapeHtml(short)}${crownHtml}</span></span>`;
 }
 
 // One team's VERTICAL column in a single-matchup ranking. Horizontal rows are as tall as their own text and then stop, so a 4-team league left a third of the Rankings box as grey (88px of 264 at 2 matchups). Columns fill BOTH axes instead - the chart takes the whole available height and the columns divide the whole width. `fillPct` uses the same getZoomedFillPct scale the rows use, so switching orientation never changes what the ranking says, only how it reads. A single-matchup window is one tier by definition, so a column is one solid fill rather than the rows' tier segments.
@@ -204,8 +216,8 @@ let leftColumnRenderId = 0;
 
 export function renderLeftColumn() {
     const isCategory = AppState.rankingsBoxView === 'category';
-    // Roto gets the same two views, built from ESPN's season standings instead of weekly matchups: Team Rankings is the roto-points table, Category Rankings is per-category season value plus the roto points that category awarded.
-    if (AppState.isRotoLeague) {
+    // Roto gets the same two views, built from ESPN's season standings instead of weekly matchups: Team Rankings is the roto-points table, Category Rankings is per-category season value plus the roto points that category awarded. A projected league has no weekly matchups to win, so both views take the ROTO pair whatever the league's own format is: the standings read the projected points and the category view reads the projected values, which are the only figures that exist before a game is played.
+    if (AppState.isRotoLeague || projectedBasisOn) {
         updateRankingsBoxChrome(isCategory);
         if (isCategory) renderRotoCategoryGraph();
         else renderRotoStandings();
@@ -273,19 +285,22 @@ function renderStandings() {
     const buildSection = ({ key, header, valueKey, weekValue, resultAt, isLast }) => {
         const teams = [...leftData].sort((a, b) => b[valueKey] - a[valueKey]);
         const asPie = sectionPieViews.has(key);
-        // Bars are built either way. They set the section's height even when the pie is what shows.
-        const splits = teams.map(tv => splitByTier(tv.team, startWeek, endWeek, w => weekValue(tv.team, w)));
-        const overallMax = Math.max(...splits.map(s => s.total));
-        const barsBody = teams.map((tv, i) => buildStandingsBarRowHtml({
-            teamId: tv.id, name: tv.name, abbrev: tv.team?.abbrev, color: AppState.teamColorMap[tv.id],
-            // Read off the VALUE rather than off position, so a tie at the top bands both rows instead of crowning whichever the sort happened to put first.
-            isLeader: overallMax > 0 && splits[i].total === overallMax,
-            split: splits[i], overallMax,
-            recordByTier: resultAt ? computeRecordByTier(tv.team, startWeek, endWeek, resultAt) : null
-        })).join('');
+        // R6/S52: the bars are only built (and only cost anything) when they are the body actually shown - the donut is a real alternate view now, not an overlay that still needed the bars present-but-hidden underneath it (buildStandingsSectionHtml's own note).
+        let barsBody = '';
+        if (!asPie) {
+            const splits = teams.map(tv => splitByTier(tv.team, startWeek, endWeek, w => weekValue(tv.team, w)));
+            const overallMax = Math.max(...splits.map(s => s.total));
+            barsBody = teams.map((tv, i) => buildStandingsBarRowHtml({
+                teamId: tv.id, name: tv.name, abbrev: tv.team?.abbrev, color: AppState.teamColorMap[tv.id],
+                // Read off the VALUE rather than off position, so a tie at the top bands both rows instead of crowning whichever the sort happened to put first.
+                isLeader: overallMax > 0 && splits[i].total === overallMax,
+                split: splits[i], overallMax,
+                recordByTier: resultAt ? computeRecordByTier(tv.team, startWeek, endWeek, resultAt) : null
+            })).join('');
+        }
         return buildStandingsSectionHtml({
             key, header, isLast, asPie, barsBody,
-            pieBody: asPie ? buildSectionPieHtml(teams, valueKey) : ''
+            pieBody: asPie ? buildSectionDonutHtml(teams, valueKey, { resultAt, startWeek, endWeek }) : ''
         });
     };
 
@@ -306,18 +321,15 @@ function renderStandings() {
     graph.innerHTML = `<div class="std-sections">${sectionsHtml}</div>`;
 
     attachDataTooltips(graph);
-    if (sections.some(sec => sectionPieViews.has(sec.key))) attachPieTooltipLogic();
     wireSectionFlips(graph, renderStandings);
 
-    // Dynamic pie placement. An early, playoff-less season (few rows, no postseason sub-bars) leaves a lot of unused grey space below the bars, while a season with playoffs active barely fits (or doesn't) - so there's no single fixed spot that works well for both. When the bars leave enough leftover room, show both pies inline right below them and hide the dropdown (nothing left to switch between - everything's already visible); otherwise leave them tucked behind the dropdown's "Pie Charts" view so they don't force scrolling. Deferred to the next animation frame - measured synchronously here, this read fine on most renders but came back stale/zero on the very FIRST call of a page load (right as #results flips from display:none to visible - see processCoreData), silently skipping the inline pies entirely until some later renderLeftColumn() call (e.g. clicking a timeframe pill) measured against a layout the browser had already fully settled by then. One frame is enough to guarantee a real layout pass has happened first. renderId guards against a newer renderLeftColumn() call superseding this one before the frame fires (e.g. clicking two timeframe pills in quick succession) - only the LATEST call's measurement gets applied.
+    // Deferred to the next animation frame - measured synchronously here, this read fine on most renders but came back stale/zero on the very FIRST call of a page load (right as #results flips from display:none to visible - see processCoreData), leaving the fit stale until some later renderLeftColumn() call (e.g. clicking a timeframe pill) measured against a layout the browser had already fully settled by then. One frame is enough to guarantee a real layout pass has happened first. renderId guards against a newer renderLeftColumn() call superseding this one before the frame fires (e.g. clicking two timeframe pills in quick succession) - only the LATEST call's measurement gets applied. No-scroll guarantee. If the bars at normal density would overflow the box, step the whole column down to a compact row style (thinner tracks, tighter margins, smaller type - see.bars-compact in dashboard.css). Reset first so a previously-compacted render doesn't stay compact after a resize or timeframe change made room again. Order matters. The fit runs FIRST because it decides which label each row shows - two columns swap full names for abbreviations - and sizing the column before that decision measures names that are about to be replaced, which pinned the width at its 140px cap and left the whole gap this was meant to close. R6/S52: no sizeSectionPies call any more - the donut is a real alternate body sized by its own content (rankings-donut.js), not an overlay this render pass had to cap against the bars' own space afterward.
     const renderId = ++leftColumnRenderId;
     requestAnimationFrame(() => {
         if (renderId !== leftColumnRenderId) return;
 
-        // No-scroll guarantee. If the bars at normal density would overflow the box, step the whole column down to a compact row style (thinner tracks, tighter margins, smaller type - see.bars-compact in dashboard.css). Reset first so a previously-compacted render doesn't stay compact after a resize or timeframe change made room again. Order matters. The fit runs FIRST because it decides which label each row shows - two columns swap full names for abbreviations - and sizing the column before that decision measures names that are about to be replaced, which pinned the width at its 140px cap and left the whole gap this was meant to close. Pies last, since they inherit the fitted box.
         fitStandingsSections(graph);
         sizeBarTitles(graph);
-        sizeSectionPies(graph);
         observeStandingsFit(graph);
     });
 }
@@ -354,7 +366,8 @@ function renderRotoStandings() {
     // Roto has ONE standings section, and it gets the same flip arrow the H2H sections do.
     const asPie = sectionPieViews.has('roto');
     const overallMax = Math.max(0, ...leftData.map(tv => tv.rotoPoints));
-    const barsBody = leftData.map(tv => buildStandingsBarRowHtml({
+    // R6/S52: only built (and only costs anything) when bars are the body actually shown - see buildSection's own note in renderStandings, the same reasoning applies here.
+    const barsBody = asPie ? '' : leftData.map(tv => buildStandingsBarRowHtml({
         teamId: tv.id, name: tv.name, abbrev: tv.team?.abbrev, color: AppState.teamColorMap[tv.id],
         isLeader: overallMax > 0 && tv.rotoPoints === overallMax,
         // Roto has no bracket, so the bar is a single regular-season segment rather than a tier split - there is no postseason for it to shade differently.
@@ -365,12 +378,17 @@ function renderRotoStandings() {
     graph.innerHTML = `
         <div class="std-sections">
             ${buildStandingsSectionHtml({
-                key: 'roto', header: 'Roto Points', isLast: true, asPie, barsBody,
-                pieBody: asPie ? buildSectionPieHtml(leftData, 'rotoPoints') : ''
+                key: 'roto',
+                // The header names the basis. On projections these are not ESPN's standings, and a box labelled "Roto Points" over figures nobody has earned would be a quiet lie.
+                header: projectedBasisOn
+                    ? (AppState.isPointsLeague ? 'Projected Points' : 'Projected Roto Points')
+                    : 'Roto Points',
+                isLast: true, asPie, barsBody,
+                // No startWeek/endWeek - a roto season has no weekly matchup window to count "per matchup" against (see buildSectionDonutHtml's own note).
+                pieBody: asPie ? buildSectionDonutHtml(leftData, 'rotoPoints', { resultAt: null }) : ''
             })}
         </div>`;
     attachDataTooltips(graph);
-    if (asPie) attachPieTooltipLogic();
     wireSectionFlips(graph, renderRotoStandings);
 
     // Same deferred pass the H2H standings run - see renderStandings.
@@ -379,7 +397,6 @@ function renderRotoStandings() {
         if (renderId !== leftColumnRenderId) return;
         fitStandingsSections(graph);
         sizeBarTitles(graph);
-        sizeSectionPies(graph);
         observeStandingsFit(graph);
     });
 }
@@ -463,93 +480,101 @@ function renderRotoCategoryGraph() {
     renderCategoryBlocks(container, blocks);
 }
 
-// One standings SECTION: its header row (title plus the flip arrow) and whichever body it is currently showing. moved the pies here from two places that no longer exist - the Bar/Pie header dropdown that swapped the WHOLE box, and the inline pies that used to be appended under the bars whenever they left enough room. The owner's ruling is that a pie is one section's alternate view, never a thing that appears beneath its bars, and each section flips on its own. The arrow is the Category Rankings chrome (.chrome-arrow), and there is no position indicator because a two-state cycle does not need one - the arrow alone says "there is another view". A pie section takes flex:1 so it FILLS the space it was given, while a bars section stays content-sized exactly as before; that is what lets one section flip without moving the other.
+// One standings SECTION: its header row (title plus the flip arrow) and whichever body it is currently showing. moved the pies here from two places that no longer exist - the Bar/Pie header dropdown that swapped the WHOLE box, and the inline pies that used to be appended under the bars whenever they left enough room. The owner's ruling is that a pie is one section's alternate view, never a thing that appears beneath its bars, and each section flips on its own. The arrow is the Category Rankings chrome (.chrome-arrow), and there is no position indicator because a two-state cycle does not need one - the arrow alone says "there is another view". R6/S52: the pie's own body is a real alternate view now (frame J2's labelled donut plus a table or legend), not an overlay drawn over the bars' own occupied space - so the bars are no longer in the markup at all while a section shows its donut..std-section stays `flex: 0 0 auto` (content-sized) either way - a section's real height now follows whichever body it is actually showing, and fitStandingsSections' own bars-only fit (it already filters to `.std-bars` elements that exist and have children) already leaves an emptied section out of its shared-pitch computation with no changes needed there. That content-sized rule is exactly what S50 measured as the fix: neither section stretches to match the other's height, so one growing or shrinking on flip was never able to reach its sibling section, let alone the Season Trends box across the row.
 function buildStandingsSectionHtml({ key, header, isLast, asPie, barsBody, pieBody }) {
     const seam = isLast
         ? 'border-bottom: none; margin-bottom: 0; padding-bottom: 0;'
         : 'border-bottom: 1px solid var(--border); margin-bottom: 4px; padding-bottom: 4px;';
     const label = asPie ? `Show ${header} as bars` : `Show ${header} as a pie chart`;
-    // The BARS are always in the markup, even when the pie is the one on screen, and the pie is laid over them (see.std-section.is-pie in dashboard.css). That is what makes flipping cost zero geometry: the section's height is always the height its bars need, so the pie is exactly as big as the area the bars occupied and neither this section nor its neighbour moves by a pixel (owner, ). Sizing a pie by its own content instead made the section grow on flip - measured 191px of bars becoming a 276px pie section, shoving everything below it down.
+    const bodyHtml = asPie ? pieBody : `<div class="std-bars">${barsBody}</div>`;
     return `
         <div class="team-block std-section${asPie ? ' is-pie' : ''}" style="${seam}">
             ${buildBlockHeaderHtml(header, `<button type="button" class="chrome-arrow std-flip" data-section="${escapeHtml(key)}"
                     title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${asPie ? '&#8249;' : '&#8250;'}</button>`)}
-            <div class="std-body">
-                <div class="std-bars">${barsBody}</div>
-                ${asPie ? `<div class="std-pie">${pieBody}</div>` : ''}
-            </div>
+            <div class="std-body">${bodyHtml}</div>
         </div>`;
 }
 
-// A section's pie: the SAME numbers its bars show, read straight off the same sorted rows and the same valueKey, so the two views can never disagree about who leads. Rendered at a placeholder size and resized once against the section's real box in sizeSectionPies below - the viewBox is fixed, so setting width/height scales it exactly with no re-render and no iteration.
-function buildSectionPieHtml(teams, valueKey) {
-    const data = teams.map(t => ({
-        id: t.id,
-        name: t.name,
-        val: t[valueKey] || 0,
-        color: AppState.teamColorMap[t.id]
-    }));
-    const pie = createPieChart(data, '', SECTION_PIE_BASE_SIZE);
-    // Every team at zero (an unplayed category, a filtered-down window) - createPieChart draws nothing rather than a fake full circle, so say so instead of leaving the section blank.
-    if (!pie) return buildEmptyStateHtml('No totals to split for this timeframe yet.');
-    return `<div class="std-pie">${pie}</div>`;
+// R6/S52 (frame J2): a section's donut - the SAME numbers its bars show, read straight off the same sorted `teams` and the same `valueKey`, so the two views can never disagree about who leads. `resultAt`, when the caller has one (H2H match wins, a points league's own match record), is what tells this function the section is RECORD-shaped (a record, a win percentage, a last- five, games behind) rather than a plain running total (category wins, points for, roto points - a point gap behind instead of games, no win percentage, no last five to show). GAMES BEHIND is the standings-page formula every reader already knows: half the sum of the leader's extra wins and this team's extra losses. A plain-total section has no wins/losses to take that formula's inputs from, so it reports the simpler, equally standard gap in the total itself - the same figure the mockup's own Category Wins table shows ("Behind: 0.5", not a games-behind fiction for a stat that was never a series of games at all).
+function gamesBehind(teamW, teamL, leaderW, leaderL) {
+    return ((leaderW - teamW) + (teamL - leaderL)) / 2;
 }
 
-// Sizes every pie in the box, once, after layout. Two rules, from the owner's two requirements: 1. FLIPPING MOVES NOTHING. The pie is drawn over the area its own bars occupy, so a section that fits keeps exactly the height it had as bars and its neighbour never shifts. 2. A PIE NEVER NEEDS SCROLLING. A deep league's bars legitimately overflow the box and scroll; the pie is a single circle that has no reason to. So a pie section's reserved height is capped at its share of the visible box, and past that the bars underneath are clipped (they are invisible in this state anyway). On the 20-team fixture that is the difference between a pie drawn 800px down inside a scrolling section and one sitting in the visible band. The two rules only ever disagree when the bars overflow, which is exactly the case where rule 2 should win, since nothing is "moving" that the reader could have seen anyway.
-function sizeSectionPies(graph) {
-    const pieSections = [...graph.querySelectorAll('.std-section.is-pie')];
-    if (pieSections.length === 0) return;
-    // A couple of px per section of slack. The header's line box and the seam borders round in ways that put two exactly-computed caps a hair over the box (4px of overflow with the arithmetic otherwise summing to exactly the box height).
-    const share = Math.floor(graph.clientHeight / pieSections.length) - 3;
+function lastFiveDots(team, startWeek, endWeek, resultAt) {
+    const dots = [];
+    for (let w = startWeek; w <= endWeek; w++) {
+        const val = resultAt(team, w);
+        if (val === undefined) continue;
+        dots.push(val === 1 ? 'w' : val === 0.5 ? 't' : 'l');
+    }
+    return dots.slice(-5);
+}
 
-    pieSections.forEach(section => {
-        const body = section.querySelector('.std-body');
-        const bars = section.querySelector('.std-bars');
-        const holder = section.querySelector('.std-pie');
-        const svg = holder && holder.querySelector('svg');
-        if (!body || !bars || !holder || !svg) return;
+// Matchups played, generically: any week either weekly map has an entry for. Used only for a plain-total section's "per matchup" column - H2H/points sections have `resultAt` and print a real record instead, which needs no matchup count of its own.
+function matchupsPlayed(team, startWeek, endWeek) {
+    let n = 0;
+    for (let w = startWeek; w <= endWeek; w++) {
+        if (team.weeklyMatchWins[w] !== undefined || team.weeklyCatWins[w] !== undefined) n++;
+    }
+    return n;
+}
 
-        // Measure the bars' natural height with any previous cap lifted, so a re-render never compounds the cap on itself.
-        body.style.maxHeight = '';
-        const natural = bars.getBoundingClientRect().height;
-        // Everything in the section that ISN'T the body, its header plus the seam (margin, padding, border) to the next section. Built up from those parts rather than subtracted from the section's own height, because sections are flex-SHRINKABLE - in a deep league the section measures smaller than its content, so the subtraction went negative and handed the cap a huge number (a 326px pie in a 388px box, overflowing by 179px).
-        const headCs = section.querySelector('.section-head');
-        const secCs = getComputedStyle(section);
-        const seam = (parseFloat(secCs.marginBottom) || 0)
-            + (parseFloat(secCs.paddingBottom) || 0)
-            + (parseFloat(secCs.borderBottomWidth) || 0);
-        const overhead = (headCs ? headCs.getBoundingClientRect().height : 0) + seam;
-        const cap = Math.max(SECTION_PIE_MIN_SIZE + SECTION_PIE_PAD, share - overhead);
+// `ctx.startWeek`/`ctx.endWeek` are undefined for roto (renderRotoStandings has no weekly window at all - a roto season is one whole-season points race, not a series of matchups) - the "per matchup" column only ever makes sense with a week range to count matchups played across, so it is dropped entirely in that case rather than reporting a count that was never real.
+function buildSectionDonutHtml(teams, valueKey, ctx) {
+    const total = teams.reduce((sum, t) => sum + Math.max(0, t[valueKey] || 0), 0);
+    if (total <= 0) return buildEmptyStateHtml('No totals to split for this timeframe yet.');
 
-        // Cap ONLY when the bars actually overrun their share. Applying it unconditionally shaved a few px off sections that already fit, because a rect does not include the last bar row's trailing margin - measured on the roto fixture, a 160px section became 154px on flip, with nothing overflowing to justify it. Leaving maxHeight unset in that case is what makes rule 1 exact rather than approximate.
-        body.style.maxHeight = natural > cap ? `${Math.round(cap)}px` : '';
+    const { resultAt, startWeek, endWeek } = ctx;
+    const hasWeeks = startWeek !== undefined && endWeek !== undefined;
+    const leader = teams[0];
+    const leaderRecord = resultAt
+        ? computeRecordByTier(leader.team, startWeek, endWeek, resultAt)
+        : null;
+    const leaderTotals = leaderRecord && {
+        w: leaderRecord.reg.w + leaderRecord.playoff.w + leaderRecord.consolation.w,
+        l: leaderRecord.reg.l + leaderRecord.playoff.l + leaderRecord.consolation.l,
+        t: leaderRecord.reg.t + leaderRecord.playoff.t + leaderRecord.consolation.t,
+    };
 
-        // Measured after the cap decision, so it reflects the box the pie actually got.
-        const holderBox = holder.getBoundingClientRect();
-        const size = Math.max(SECTION_PIE_MIN_SIZE, Math.floor(Math.min(holderBox.width, holderBox.height)) - SECTION_PIE_PAD);
-        svg.style.width = `${size}px`;
-        svg.style.height = `${size}px`;
+    const columns = resultAt
+        ? [{ label: 'Record', align: 'right' }, { label: 'Win %', align: 'right' }, { label: 'Last 5', align: 'left' }, { label: 'Behind', align: 'right' }]
+        : hasWeeks
+            ? [{ label: 'Total', align: 'right' }, { label: 'Per matchup', align: 'right' }, { label: 'Behind', align: 'right' }]
+            : [{ label: 'Total', align: 'right' }, { label: 'Behind', align: 'right' }];
+    const dotsColumnIndex = resultAt ? 2 : -1;
+
+    const rows = teams.map(t => {
+        const color = AppState.teamColorMap[t.id];
+        if (resultAt) {
+            const rec = computeRecordByTier(t.team, startWeek, endWeek, resultAt);
+            const totals = { w: rec.reg.w + rec.playoff.w + rec.consolation.w, l: rec.reg.l + rec.playoff.l + rec.consolation.l, t: rec.reg.t + rec.playoff.t + rec.consolation.t };
+            const games = totals.w + totals.l + totals.t;
+            const winPct = games > 0 ? ((totals.w + totals.t * 0.5) / games).toFixed(3) : '-';
+            const behind = t.id === leader.id ? '-' : gamesBehind(totals.w, totals.l, leaderTotals.w, leaderTotals.l).toFixed(1);
+            return {
+                id: t.id, name: t.name, abbrev: t.team?.abbrev, color, share: (t[valueKey] || 0) / total,
+                cells: [formatRecord(totals), winPct, '', behind],
+                dots: lastFiveDots(t.team, startWeek, endWeek, resultAt),
+            };
+        }
+        const behind = t.id === leader.id ? '0.0' : ((leader[valueKey] || 0) - (t[valueKey] || 0)).toFixed(1);
+        const cells = hasWeeks
+            ? (() => {
+                const played = matchupsPlayed(t.team, startWeek, endWeek);
+                const perMatchup = played > 0 ? ((t[valueKey] || 0) / played).toFixed(1) : '-';
+                return [(t[valueKey] || 0).toFixed(1), perMatchup, behind];
+            })()
+            : [(t[valueKey] || 0).toFixed(1), behind];
+        return { id: t.id, name: t.name, abbrev: t.team?.abbrev, color, share: (t[valueKey] || 0) / total, cells };
     });
 
-    // These caps land AFTER fitStandingsSections already made its own corrective pass, so its arithmetic could not have accounted for them. Trim once more here if the box still overruns (6px with both sections pies in a box the Data Filters bar had just shrunk).
-    for (let guard = 0; guard < 6; guard++) {
-        // Converge to ZERO, not to "close enough". scrollHeight/clientHeight are integers, so a single leftover pixel is a real scrollbar - tolerating 1px here is what left the box showing one after everything else about the fit was correct (owner).
-        const over = graph.scrollHeight - graph.clientHeight;
-        if (over <= 0) break;
-        const trim = Math.ceil(over / pieSections.length);
-        pieSections.forEach(section => {
-            const body = section.querySelector('.std-body');
-            const svg = section.querySelector('.std-pie svg');
-            if (!body) return;
-            const h = Math.max(SECTION_PIE_MIN_SIZE, body.getBoundingClientRect().height - trim);
-            body.style.maxHeight = `${Math.round(h)}px`;
-            if (svg) {
-                const px = Math.max(SECTION_PIE_MIN_SIZE, Math.floor(h) - SECTION_PIE_PAD);
-                svg.style.width = `${px}px`;
-                svg.style.height = `${px}px`;
-            }
-        });
-    }
+    const centerSubtitle = resultAt
+        ? `${formatRecord(leaderTotals)} · leads`
+        : (teams.length > 1 && (leader[valueKey] || 0) > (teams[1][valueKey] || 0)
+            ? `leads by ${((leader[valueKey] || 0) - (teams[1][valueKey] || 0)).toFixed(1)}`
+            : 'leads');
+
+    return buildRankingsDonutHtml({ rows, columns, dotsColumnIndex, centerSubtitle, size: RANKINGS_DONUT_SIZE }, { escapeHtml });
 }
 
 // Fits EVERY standings row into the box, the same ruling settled for category blocks. A team is never hidden behind a scrollbar, and the bar height yields to make that true. Ladder, in order: 1. One column at the rows' natural height (the comfortable case, left completely untouched). 2. Two columns at that height, filling DOWN then across so the ranking still reads top to bottom. 3. Shrink the pitch until every row fits; below STD_PITCH_TINY the row also sheds its value label to the hover and drops to the small type. The pitch is SHARED across the sections so Match Wins and Points For stay visually parallel. This also closes the overlap this box shipped with..std-section is content-sized, so a section can never be squeezed under its own rows. It used to be flex-shrinkable while its rows were not, which let a 514px bars list render inside a 183px section and paint straight over the section below it - measured on a 20-team league, section one's rows ran 357px into section two.
@@ -653,7 +678,6 @@ function observeStandingsFit(graph) {
         if (!graph.querySelector('.std-section')) return;
         fitStandingsSections(graph);
         sizeBarTitles(graph);
-        sizeSectionPies(graph);
     });
     standingsFitObserver.observe(graph);
 }
@@ -715,59 +739,6 @@ function wireSectionFlips(graph, rerender) {
     });
 }
 
-function createPieChart(data, title, size = 80) {
-    const total = data.reduce((sum, d) => sum + d.val, 0);
-    if (total === 0) return '';
-
-    let svg = `<svg viewBox="-100 -100 200 200" style="width: ${size}px; height: ${size}px; overflow: visible;">`;
-    let currentAngle = -Math.PI / 2;
-
-    data.forEach(d => {
-        if (d.val <= 0) return;
-        const sliceAngle = (d.val / total) * 2 * Math.PI;
-
-        const endAngle = currentAngle + sliceAngle;
-        const largeArcFlag = sliceAngle > Math.PI ? 1 : 0;
-
-        const x1 = Math.cos(currentAngle) * 100;
-        const y1 = Math.sin(currentAngle) * 100;
-        const x2 = Math.cos(endAngle) * 100;
-        const y2 = Math.sin(endAngle) * 100;
-
-        let pathData;
-        if (sliceAngle >= 2 * Math.PI - 0.0001) {
-            pathData = `M 0 -100 A 100 100 0 1 1 0 100 A 100 100 0 1 1 0 -100 Z`;
-        } else {
-            pathData = `M 0 0 L ${x1} ${y1} A 100 100 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
-        }
-
-        const pct = ((d.val / total) * 100).toFixed(1);
-        const tooltip = `${d.name}: ${d.val.toFixed(1)} (${pct}%)`;
-
-        svg += `<path d="${pathData}" fill="${d.color}" class="pie-slice" data-tooltip="${escapeHtml(tooltip)}" stroke-width="2" style="stroke:var(--surface-2); cursor:help; transition: opacity 0.2s;" />`;
-        currentAngle = endAngle;
-    });
-    svg += `</svg>`;
-
-    return `
-        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; flex: 1;">
-            <div style="font-weight:bold; font-size:12px; color:var(--text-muted); margin-bottom:6px;">${title}</div>
-            ${svg}
-        </div>
-    `;
-}
-
-// Pie slices get their own hover-dim effect on top of the tooltip positioning that attachDataTooltips already provides (every caller of this function calls attachDataTooltips against the same container first - each slice carries its own [data-tooltip] attribute, set in createPieChart) - this only adds the opacity change, it doesn't duplicate the positioning logic attachDataTooltips already handles.
-function attachPieTooltipLogic() {
-    const container = document.getElementById('left-graph-container');
-    if (!container) return;
-
-    container.querySelectorAll('.pie-slice').forEach(slice => {
-        slice.addEventListener('mouseenter', () => { slice.style.opacity = '0.7'; });
-        slice.addEventListener('mouseleave', () => { slice.style.opacity = '1'; });
-    });
-}
-
 // Season Trends (column 2) and Category Rankings (column 3) are now separate, always-visible panels rather than one dropdown-switched view - render both every time. The trend-line metric toggles and the category picker both live in the shared, always-available Filters box at the bottom of the tab. The left "col-trends" column is now Season Trends only. Category Rankings moved into the Rankings box on the right (renderLeftColumn's category view), so this no longer touches cat-graph-container. At a single-matchup timeframe (category leagues only - see renderScoreboardBox), this column's role swaps. A season trend line needs 2+ weeks of data, so the live Matchup Scoreboard becomes the hero content instead, and the box's own header goes contextual (updateTrendsBoxChrome) so it doesn't keep reading "Season Trends" over content that has nothing to do with a trend. Points leagues are unaffected - their weeklyMatchWins IS a real single-matchup stat (raw points scored), so they keep the existing single-week bars fallback inside renderTrendGraph. The Trend Lines toggles drive the Season Trends chart's two series, whose vocabulary differs by league type. A category league toggles Cat Wins / Match Wins, a points league Points / Match Wins. The markup ships the category labels as its static default (mirror rule); this swaps the toggle-cat label to "Points" for a points league (toggle-match is "Match Wins" either way). Only the text node after the swatch is touched, so the checkbox and its swatch stay put.
 function updateTrendToggleLabels() {
     const catLabel = document.getElementById('toggle-cat')?.parentElement;
@@ -819,6 +790,11 @@ function updateTrendsBoxChrome(isScoreboard) {
 export function renderHeatmapBand() {
     const container = document.getElementById('heatmap-graph-container');
     if (!container) return;
+    // The heatmap IS the categories. With none of this sport's ids validated there is nothing honest to shade, so it says so rather than colouring cells by ids nobody has checked.
+    if (!categoriesMapped(AppState.loadedSport)) {
+        container.innerHTML = buildEmptyStateHtml(unmappedCategoriesNote(AppState.loadedSport));
+        return;
+    }
     // Roto reaches the same renderer. Its season totals feed the same shading, so the row cap, column sorting and pop-out all work on it with no roto-specific handling. The row cap is an inline-band concern only. While the band is docked in the pop-out overlay it has room for a whole league, so it renders every row there.
     renderDominanceHeatmap(container, { capRows: !isHeatmapPoppedOut() });
 }
@@ -836,8 +812,8 @@ function scoredCategoriesInRange(startWeek, endWeek) {
     const statMap = ESPN_STAT_MAPS[sport] || {};
     const avgSet = AVERAGE_STATS[sport] || new Set();
     const invSet = INVERSE_STATS[sport] || new Set();
-    // Roto has no weekly spine to look through - a category "has data" if any team carries a season total for it (valuesByStat, landed in seasonCats by processCoreData).
-    const hasData = id => AppState.isRotoLeague
+    // Roto has no weekly spine to look through - a category "has data" if any team carries a season total for it (valuesByStat, landed in seasonCats by processCoreData). On the PROJECTED basis a category has data if any team carries a projected figure for it - the same test roto uses, and for the same reason: there is no weekly spine to look through. Without this the band asked the weekly one, found nothing, and drew "No category data for this timeframe yet" under a face whose whole point is the figures beside it.
+    const hasData = id => (projectedBasisOn || AppState.isRotoLeague)
         ? AppState.teamStats.some(t => t.seasonCats[id] !== undefined)
         : AppState.teamStats.some(t => {
             for (let w = startWeek; w <= endWeek; w++) if (t.weeklyCats[w] && t.weeklyCats[w][id] !== undefined) return true;
@@ -854,6 +830,8 @@ function scoredCategoriesInRange(startWeek, endWeek) {
 
 // A team's value in one category over a week range - summed for counting stats, averaged over the weeks actually played for rate stats (AVG, ERA,...). Matches renderCategoryGraph's own aggregation. undefined when the team has no data for it anywhere in the range.
 function aggregateTeamCategory(team, catId, isAvg, startWeek, endWeek) {
+    // PROJECTED BASIS: seasonCats already holds the projected figure and there are no weeks to aggregate, so every timeframe reads the same number. Placed above the roto branch because it is true of EVERY format - an H2H league in preseason has no weeklyCats either, which is what left the heatmap blank when the face tried to draw its own table beside it.
+    if (projectedBasisOn) return team.seasonCats?.[catId];
     if (AppState.isRotoLeague) {
         // Full Season. The payload's season valuesByStat is the same number ESPN ranks on (seasonCats), and there are no weeks to aggregate. A "last N weeks" pill instead re-derives the category over ONLY that window's started-day components - rate stats from summed components, not averaged daily rates - so the heatmap and the windowed standings read the SAME sums. The startWeek/endWeek passed in are matchup-based and irrelevant here; roto windows are the race's week buckets, resolved by activeRotoWindow. computeRotoWindow is memoized, so this per-cell lookup is O(1). A team with no data in the window has no entry, so the cell renders blank.
         const sport = AppState.loadedSport;
@@ -877,7 +855,7 @@ export function teamCategoryProfile(teamId) {
     const ranked = cats.map(cat => {
         const vals = AppState.teamStats
             .map(t => ({ id: t.id, v: aggregateTeamCategory(t, cat.id, cat.isAvg, start, end) }))
-            .filter(x => x.v !== undefined);
+            .filter(x => x.v !== undefined && x.v !== null);
         const mine = vals.find(x => x.id === teamId);
         if (!mine) return null;
         // Competition ranking, inverse-aware. Better values rank first, ties share a rank.
@@ -892,11 +870,12 @@ export function teamCategoryProfile(teamId) {
     return { all: ranked, best, worst };
 }
 
-// Display value for a category cell - rate/average stats (AVG, ERA, WHIP,...) keep decimals, counting stats show as whole numbers. Matches renderCategoryGraph's own formatVal convention. An infinite rate is a real answer, not a glitch. A team with earned runs and no innings yet has an infinite ERA, and ESPN says so by sending the string "Infinity". numericStat turns that into a real number on the way in, and this renders it as the symbol rather than the word. The guard also means a value that is somehow still not a number prints a dash instead of throwing halfway through a render, which is what took the whole timeframe update down with it.
-function formatCatValue(v) {
+// Display value for a category cell - rate/average stats (AVG, ERA, WHIP,...) keep decimals, counting stats show as whole numbers. Matches renderCategoryGraph's own formatVal convention. An infinite rate is a real answer, not a glitch. A team with earned runs and no innings yet has an infinite ERA, and ESPN says so by sending the string "Infinity". numericStat turns that into a real number on the way in, and this renders it as the symbol rather than the word. The guard also means a value that is somehow still not a number prints a dash instead of throwing halfway through a render, which is what took the whole timeframe update down with it. isAvg is optional (defaults to unknown) so every EXISTING caller keeps its exact old behaviour - a played season's counting stats are always whole numbers already (you cannot finish a real game with 12452.527 passing yards), so `n % 1 !== 0` alone was never wrong for them. It IS wrong for a PROJECTED counting stat: the projection math is fractional, so PYDS prints 12452.527 on the heatmap's own projected face - a rate stat's own precision on a category that has none. Passing isAvg=false forces the round; isAvg=true or omitted keeps the existing 3-decimal-if-fractional rule, which is correct for a rate stat either way.
+function formatCatValue(v, isAvg = null) {
     if (v === undefined || v === null) return '-';
     const n = Number(v);
     if (!Number.isFinite(n)) return Number.isNaN(n) ? '-' : (n > 0 ? '∞' : '-∞');
+    if (isAvg === false) return Math.round(n);
     return (n % 1 !== 0) ? n.toFixed(3) : n;
 }
 
@@ -1393,7 +1372,8 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
         const vByTeam = {};
         teams.forEach(t => {
             const v = aggregateTeamCategory(t, c.id, c.isAvg, start, end);
-            if (v !== undefined) vByTeam[t.id] = v;
+            // null is not a figure either. It reaches here from the projected basis, which carries an unprojectable category with nulls so the COLUMN survives - ranking those would read every one of them as zero, and hand an inverse category its winner.
+            if (v !== undefined && v !== null) vByTeam[t.id] = v;
         });
         valByCat[c.id] = vByTeam;
 
@@ -1436,13 +1416,13 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
             const v = valByCat[c.id][t.id];
             if (v === undefined) return `<td class="dh-empty${sortedCls}">-</td>`;
             const info = pctByCat[c.id][t.id];
-            const tip = `${escapeHtml(t.name)} · ${escapeHtml(c.name)}: ${formatCatValue(v)} (#${info.rank} of ${info.total})`;
-            return `<td class="dh-cell${sortedCls}" style="--pct:${percentileVar(info.pct)};" data-tooltip="${escapeHtml(tip)}">${formatCatValue(v)}</td>`;
+            const tip = `${escapeHtml(t.name)} · ${escapeHtml(c.name)}: ${formatCatValue(v, c.isAvg)} (#${info.rank} of ${info.total})`;
+            return `<td class="dh-cell${sortedCls}" style="--pct:${percentileVar(info.pct)};" data-tooltip="${escapeHtml(tip)}">${formatCatValue(v, c.isAvg)}</td>`;
         }).join('');
         return `
             <tr>
                 <td class="dh-team" title="${escapeHtml(t.name)}">
-                    <span class="dh-dot" style="background:${AppState.teamColorMap[t.id]};"></span>${escapeHtml(t.name)}
+                    <span class="dh-dot" style="background:${AppState.teamColorMap[t.id]};"></span><span class="dh-team-name">${heatmapTeamLabelHtml(t)}</span>
                 </td>
                 ${cells}
             </tr>`;
@@ -1466,7 +1446,32 @@ function renderDominanceHeatmap(container, { capRows = true } = {}) {
         });
     });
     if (capRows) applyHeatmapRowCap(container);
+    sizeHeatmapTeamColumn(container);
     attachDataTooltips(container);
+}
+
+// The heatmap's row label, on the same ruling the bars follow: the league's own abbreviation, with the full name on the cell's title. A real short name says WHO where an ellipsized long one just trails off, and the row is the same width for every team either way. The crown rides along for the reason it does on the bars.
+function heatmapTeamLabelHtml(t) {
+    const name = t.name || '';
+    const crowned = name.endsWith(NAME_CROWN);
+    const bare = crowned ? name.slice(0, -NAME_CROWN.length) : name;
+    const crownHtml = crowned ? `<span class="bar-title-crown">${NAME_CROWN}</span>` : '';
+    return `${escapeHtml(t.abbrev || bare)}${crownHtml}`;
+}
+
+// Sizes the heatmap's team column to the widest label the LEAGUE actually carries, the same measure-then-size pass sizeBarTitles runs on the bars and for the same reason. The column was a hardcoded 126px sized for full names, which clipped five of eleven rows on the owner's league - "Extra Innings Empire" wants 153px - and would still be wrong in the other direction once the labels became two- and three-letter abbreviations, reserving 126px to draw "FT". Measured off the inner span, whose inline box reports its natural text width even though the cell that holds it is overflow:hidden - so no reflow dance, and no need to unclamp the column first. Capped for the same reason the bars are: one absurd abbreviation cannot eat the grid.
+const DH_TEAM_MIN = 40;
+const DH_TEAM_MAX = 140;
+const DH_TEAM_PAD = 22; // the colour dot, its gap, and the cell's right padding
+
+function sizeHeatmapTeamColumn(container) {
+    const labels = [...container.querySelectorAll('.dh-team-name')];
+    if (!labels.length) return;
+    let widest = 0;
+    labels.forEach(el => { widest = Math.max(widest, el.getBoundingClientRect().width); });
+    if (!widest) return;
+    const w = Math.max(DH_TEAM_MIN, Math.min(DH_TEAM_MAX, Math.ceil(widest) + DH_TEAM_PAD));
+    container.style.setProperty('--dh-team-w', `${w}px`);
 }
 
 // Three-state cycle per column, descending then ascending, then back to the league's default team order. Re-renders through renderHeatmapBand so the same path serves the inline band and the pop-out overlay (the container node is the same one either way).
@@ -1899,7 +1904,7 @@ function renderRotoRaceGraph(container) {
 
     // One loading line held until the best expected tier is complete, then exactly one chart. Drawing each tier as it arrived repainted a visibly different race two or three times on a cold load; the ladder below it degrades on harvest FAILURE, never on latency.
     if (race.loading) {
-        container.innerHTML = buildEmptyStateHtml('Building the Roto Race...');
+        container.innerHTML = buildLoadingHtml();
         return;
     }
     if (race.weeks.length === 0) {
@@ -2403,4 +2408,741 @@ function renderCategoryGraph() {
     });
 
     renderCategoryBlocks(container, blocks);
+}
+
+
+// ==== THE PRE-DRAFT FACE Team Metrics is not removed before a draft, it FLIPS BASIS - there are no games to chart, so the tab answers the questions a league actually has at that moment instead of drawing empty boxes. The decision is seasonState's alone (season-state.js), so this file never re-derives it. Regions built here: the countdown, and the lineup ground drawn on the sport's own field from the league's slot counts. The last-season card and the ranked pool are not wired yet - see the note on each below, both waiting on data this face cannot honestly reach yet. ====
+
+// `labelExtraHtml`: raw markup appended after the escaped label, on the SAME row - the Projections card's "click a seat, then a row" hint and the mock ground's "Clear all" both live here rather than in `body`, since both belong beside the title, not under it. Optional and unescaped-by-design (the caller owns real markup, e.g. a button), so it is never handed a raw user string - every existing caller passes nothing and is unaffected.
+function predraftCardHtml(label, body, extraClass = '', labelExtraHtml = '') {
+    // The label badge (.lh-block-head) is an inline-block masthead chip in Boxscore, not a full row - raw markup appended straight into it would land INSIDE the chip. A wrapping flex row is only added when there is something to share the row with, so every caller before this parameter existed renders the exact same markup it always did.
+    const labelHtml = labelExtraHtml
+        ? `<div class="pd-card-label-row"><div class="pd-card-label lh-block-head">${escapeHtml(label)}</div>${labelExtraHtml}</div>`
+        : `<div class="pd-card-label lh-block-head">${escapeHtml(label)}</div>`;
+    return `<div class="pd-card${extraClass ? ' ' + extraClass : ''}">${labelHtml}`
+        + `<div class="pd-card-body">${body}</div></div>`;
+}
+
+// The countdown. Every figure comes from the league's own draftSettings through countdownCard, which takes the clock as an argument - so what this prints three days out is testable.
+function countdownRegionHtml() {
+    const card = countdownCard(AppState.apiData, new Date(), AppState.myTeamId ?? null);
+    const when = card.scheduled
+        ? new Date(card.date).toLocaleString(undefined, {
+            weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+        })
+        : 'No date set yet';
+    const bits = [];
+    if (card.type) bits.push(`${escapeHtml(String(card.type).toLowerCase())} draft`);
+    // A slot is only a fact once the order exists. Before that it is absent rather than "-".
+    if (card.slot && card.teams) bits.push(`you pick ${card.slot} of ${card.teams}`);
+    return predraftCardHtml('Draft', `
+        <div class="pd-countdown">${escapeHtml(card.phrase)}</div>
+        <div class="pd-when">${escapeHtml(when)}</div>
+        ${bits.length ? `<div class="pd-quiet">${bits.join(' · ')}</div>` : ''}`);
+}
+
+// The lineup ground, drawn by the UI lane's pure component from the seats this league opens. Every seat is anonymous here by construction - nobody is drafted - which is exactly the shape its contract calls the pre-draft case.
+function groundRegionHtml(extraClass = '') {
+    const sport = AppState.loadedSport;
+    const counts = AppState.apiData?.settings?.rosterSettings?.lineupSlotCounts || {};
+    const seats = slotSeatsFor({
+        counts,
+        // The bench and injury codes come from the shared convention rather than the catalog, which names them for football and hockey and not for baseball. Without this the ground drew "16" and "17" beside a My Team that said BE and IL for the same two seats.
+        labels: { ...(LINEUP_SLOT_LABELS[sport] || {}), ...nonStartingLabels(sport) },
+        order: LINEUP_SLOT_ORDER[sport] || null
+    });
+    if (!seats.length) return '';
+    // Wrapped so the ground can be CAPPED. Left to itself the SVG scales to the column's full width and comes out 522px tall, which pushed the tab into a page scroll - the one thing Team Metrics never does on desktop (golden rule 2). The cap shrinks the diagram instead.
+    return predraftCardHtml('Your starting lineup',
+        `<div class="pd-ground">${buildLineupGroundHtml(sport, seats, { escapeHtml })}</div>`, extraClass);
+}
+
+// ==== THE MOCK LINEUP. mock-lineup.js is PURE and rendered here verbatim - every figure on "Your mock team" is summary()'s own, never re-derived; this file only builds its inputs (the seats, the pool, the click/drag wiring) and draws its shape. ====
+
+// A noun for the ground's own "pick a receiver" hint - copy that belongs to the renderer (the contract's own section header), since mock-lineup.js has no sport vocabulary of its own. Falls back to the bare label (lowercased) for a slot code this table does not know, which still reads as a real sentence rather than throwing over one.
+const MOCK_SEAT_NOUNS = {
+    QB: 'quarterback', RB: 'running back', WR: 'receiver', TE: 'tight end', FLEX: 'flex',
+    K: 'kicker', 'D/ST': 'defense',
+    C: 'center', LW: 'left wing', RW: 'right wing', D: 'defenseman', G: 'goalie', F: 'forward',
+    UTIL: 'utility player',
+    '1B': 'first baseman', '2B': 'second baseman', '3B': 'third baseman', SS: 'shortstop', OF: 'outfielder',
+    P: 'pitcher', SP: 'starter', RP: 'reliever', DH: 'designated hitter'
+};
+function mockNounFor(label) {
+    return MOCK_SEAT_NOUNS[label] || String(label).toLowerCase();
+}
+
+// Built ONCE per league (the same key change that resets AppState.mockLineupState in data.js), the same lazy-once pattern ensureLastSeason's own key guard uses - a mock lineup is a sketch for THIS draft, and rebuilding it on every render would drop whatever the reader had already seated.
+function ensureMockLineupState() {
+    if (AppState.mockLineupState) return;
+    const sport = AppState.loadedSport;
+    const counts = AppState.apiData?.settings?.rosterSettings?.lineupSlotCounts || {};
+    // R1/S47 (v2): benchLabels, so the appended bench seats read "BE"/"IR" (state.js's own nonStartingLabels convention) rather than falling back to LINEUP_SLOT_LABELS, which has no entry for a non-starting slot id at all.
+    const seats = mockSeatsFor({
+        order: LINEUP_SLOT_ORDER[sport] || [],
+        labels: LINEUP_SLOT_LABELS[sport] || {},
+        counts,
+        nonStarting: NON_STARTING_SLOTS[sport] || new Set(),
+        benchLabels: nonStartingLabels(sport)
+    });
+    AppState.mockLineupState = mockEmptyState(seats);
+}
+
+function mockLineupCtx() {
+    return { flexPositions: FLEX_SLOT_POSITIONS[AppState.loadedSport] || {} };
+}
+
+// THE POOL, FROM THE REAL BOARD, NOT THE VISIBLE SLICE. buildBoard()'s own rows already carry the exact `value` the Projections card prints (rankedPoolCard reads the same field) - handed straight through, per mock-lineup.js's own rule that the figure is the caller's, never a second projection. Ranked rows only (a boardRank), matching which rows the Projections card itself shows - an unranked player has no figure to seat.
+function mockLineupPool() {
+    return buildBoard()
+        .filter(r => r && r.player && r.boardRank && r.value !== null && r.value !== undefined)
+        .map(r => ({ id: r.player.id, name: r.player.name, eligiblePositions: r.player.eligiblePositions || [], value: r.value }));
+}
+
+// The ground, in mock mode: every seat individually addressable and click-targetable, starters and bench both. Falls back to the ordinary read-only ground if somehow there are no starting seats to mock (a league whose every slot is bench) - the same case mock-lineup.js's own summary() refuses with null.
+function mockGroundRegionHtml(extraClass = '') {
+    ensureMockLineupState();
+    const state = AppState.mockLineupState;
+    if (!state || !state.seats.length) return groundRegionHtml(extraClass);
+
+    const sport = AppState.loadedSport;
+    const pool = mockLineupPool();
+    const poolMap = new Map(pool.map(p => [p.id, p]));
+    const s = mockSummaryOf(state, pool, lastSeason.card, mockLineupCtx());
+    const filled = s ? s.filled : 0;
+    const of = s ? s.of : state.seats.filter(seat => !seat.bench).length;
+    const benchFilled = s ? s.benchFilled : 0;
+    const benchOf = s ? s.benchOf : state.seats.filter(seat => seat.bench).length;
+
+    const groundHtml = buildMockLineupGroundHtml(sport, state.seats, {
+        escapeHtml,
+        pool: poolMap,
+        targetIndex: AppState.mockLineupTarget,
+        formatValue: v => v.toFixed(1),
+        nounFor: mockNounFor
+    });
+    // R1/S47: "N of 9 starters · M of 8 bench" (frame H's own header line), replacing the old single "N of 9 seats filled" - the two counts answer different questions (mock-lineup.js's own summary() contract), so the header now asks both rather than only the starters'. Absent the bench clause entirely for a league with no bench seats at all (benchOf === 0), the same "a real answer only when there is one" rule the rest of this contract follows.
+    const counterText = benchOf
+        ? `${filled} of ${of} starters &middot; ${benchFilled} of ${benchOf} bench`
+        : `${filled} of ${of} seats filled`;
+    // Wrapped in one shared span rather than two siblings:.pd-card-label-row spaces exactly two children apart (the label and whatever shares its row), and frame H's own header reads the counter and "Clear all" as one right-side group, not the counter floating mid-row on its own.
+    const labelExtraHtml = `<span class="pd-ground-status"><span class="pd-ground-counter">${counterText}</span>`
+        + `<button type="button" class="pd-ground-clear" id="mock-clear-all">Clear all</button></span>`;
+    return predraftCardHtml('Your starting lineup · mock',
+        `<div class="pd-ground pd-ground-mock">${groundHtml}</div>`, extraClass, labelExtraHtml);
+}
+
+// "Your mock team": the three figure cells, then one row per position in ground order. Takes summary() verbatim - total, place, ceiling and every byPosition row are its own numbers, this function only lays them out. Absent entirely when nothing is seated (filled === 0), which is what lets the last-season card keep showing until the reader actually starts building a team.
+function mockTeamCardHtml() {
+    const state = AppState.mockLineupState;
+    if (!state) return '';
+    const pool = mockLineupPool();
+    const s = mockSummaryOf(state, pool, lastSeason.card, mockLineupCtx());
+    if (!s || s.filled === 0) return '';
+
+    const cell = (figure, label) => `<div class="pd-figure-cell"><div class="pd-figure-lg">${figure}</div><div class="pd-quiet">${escapeHtml(label)}</div></div>`;
+    const cells = [
+        cell(s.total.toFixed(1), `projected points, ${s.filled} seat${s.filled === 1 ? '' : 's'}`)
+    ];
+    // ABSENT, not a dash, where the league keeps no points (placeAmong's own null) - mock-lineup.js's own rule: comparing a projected total against a column of zeros would rank every mock team first, so the cell is not there rather than claiming a place that is not real. S39b: placeAmong's own `better + 1` can reach `of + 1` - a total worse than every finisher, which "#12 of 11" prints as a place inside a field of 11 that does not have a 12th spot. The model's own number is unchanged (the contract still returns {place, of}); this is the renderer's copy for the one value that field can take past the real range.
+    if (s.place) {
+        const figure = s.place.place > s.place.of ? `Below all ${s.place.of}` : `#${s.place.place} of ${s.place.of}`;
+        cells.push(cell(figure, 'against last season\'s finishers'));
+    }
+    cells.push(cell(s.ceiling.toFixed(1), 'if every seat matched its best pick'));
+
+    // R1/S47 (frame H): "the by-position rows become one line of figures so the card stays short" - the old bar-per-position layout (S39) is gone, replaced with one compact inline line, label then figure, warn-toned "0 of N" standing in for an unseated position exactly as it did before (a real figure, never a claim that the position scores zero).
+    const figuresLineHtml = s.byPosition.map(row => {
+        const seatCount = state.seats.filter(seat => seat.label === row.label).length;
+        const figureHtml = row.filled > 0
+            ? `<b>${row.total.toFixed(1)}</b>`
+            : `<b class="pd-mock-figure-empty">0 of ${seatCount}</b>`;
+        return `<span class="pd-mock-figure">${escapeHtml(row.label)} ${figureHtml}</span>`;
+    }).join('');
+
+    return predraftCardHtml('Your mock team',
+        `<div class="pd-figures">${cells.join('')}</div><div class="pd-mock-figures-line">${figuresLineHtml}</div>`,
+        'pd-card-tall');
+}
+
+// One row of the Projections list, mock-aware: a seated player's row greys with "seated · QB" (the slot they hold), the targeted seat's eligible candidates read "-> WR seat", and every row is a click/drag source (data-player-id, draggable). `poolById` carries eligiblePositions (rankedPoolCard's own trimmed rows do not) so eligibility can be checked against the targeted seat; `seatOf` is playerId (string) -> seat index, built once per render rather than walked per row.
+function mockPoolRowHtml(r, ctx) {
+    const idKey = String(r.id);
+    const seatIndex = ctx.seatOf.get(idKey);
+    const seated = seatIndex !== undefined;
+    let suffixHtml = '';
+    if (seated) {
+        const label = ctx.state.seats[seatIndex].label;
+        suffixHtml = ` <span class="pd-pool-mock-note">seated · ${escapeHtml(label)}</span>`;
+    } else if (ctx.targetSeat) {
+        const player = ctx.poolById.get(idKey);
+        if (player && mockCanSeat(player, ctx.targetSeat, ctx.seatCtx)) {
+            suffixHtml = ` <span class="pd-pool-mock-arrow">&#8594; ${escapeHtml(ctx.targetSeat.label)} seat</span>`;
+        }
+    }
+    return `
+        <div class="pd-pool-row${seated ? ' pd-pool-row-seated' : ''}" draggable="true" data-player-id="${escapeHtml(idKey)}">
+            <span class="pd-pool-rank">${r.rank}</span>
+            <span class="pd-pool-name"><b>${escapeHtml(r.name)}</b>${suffixHtml}</span>
+            <span class="pd-pool-meta">${[r.club, r.pos].filter(Boolean).map(escapeHtml).join(' · ')}</span>
+            <span class="pd-pool-value">${r.value === null ? '' : r.value.toFixed(1)}</span>
+        </div>`;
+}
+
+// The last-season card's data, fetched once per league and remembered with its answer - including the answer "there is nothing". A first-season league must not re-ask on every render, and neither must one whose past season could not be read.
+let lastSeason = { key: null, state: 'idle', card: null };
+
+// A category's own "(fewest)"/"(lowest)" mark for an inverse stat, so "Best"/"Weakest" never reads as a raw-number claim it is not (INT #1 meaning fewest thrown, unmarked, was the bug - item 2). Recomputed here rather than carried on the card (preseason-face.js stays pure and does not know the CURRENT league's scoring weights) - the same lowerIsBetterIds call ensureLastSeason already made to build the card in the first place.
+function categoryInverseIds() {
+    return lowerIsBetterIds(INVERSE_STATS[AppState.loadedSport], AppState.scoringWeights);
+}
+
+// R2: figures over labels, no sentences - champion, your finish, your record, each its own gold figure with a small label under it, the same pairing the graded card's headline uses (.pd-figure-lg over.pd-quiet), read left to right as up to five cells rather than one line a reader has to unpick to tell the champion from the finish (S3c, found in the S11b frame: the original one-line join read as a single unlabelled claim). R1: a points league (c.format 'points') makes no per-category claim - the Strongest/Weakest cells come off entirely rather than naming a category a points league does not score standings by. S3c: the card also STRETCHES to its grid row's full height (pd-card-tall, the pool card's own class), rather than sitting squat over the empty half of a cell the pool card already fills. R1/S31/S31b: one row per team, place order (never reordered for the champion - see lastSeasonCard's own comment on why place wins and isChampion only marks the row). record and points print BESIDE each other where the format kept both (a points league: "9-4 · 1,693.2"), never one instead of the other - roto keeps points alone (no record, summarizeSeason's own honest absence rather than a fabricated 0-0-0); an H2H-categories season keeps neither and the figure column is blank rather than a repeated dash. The champion is marked with a crown glyph beside the name (the same medal-glyph convention the leaderboard's own Rank column uses for its top 3, RANK_MEDALS in players.js), and "you" the same way the rest of the face already marks the reader's own team elsewhere on this card (the "You" champion cell, above). LOGOS ARE OMITTED (measured decision, not an oversight): this static card template has no live wiring pass for an image's onerror fallback the way images.js's own avatar helpers expect (wirePlayerAvatars, used everywhere else a logo/headshot appears) - adding one here would be new plumbing for a table that already reads clearly as text, not a fix the row-height budget forced. buildTeamCrestHtml's own host-check exists for the day this is revisited.
+function standingsRowHtml(row) {
+    const record = row.record ? `${row.record.wins}-${row.record.losses}${row.record.ties ? `-${row.record.ties}` : ''}` : '';
+    // S31b: BESIDE the record, not instead of it - a points league keeps both, so both print ("9-4 · 1,693.2"); roto keeps points alone; an H2H-categories season keeps neither and the column is blank. toLocaleString for the thousands separator a season total actually needs.
+    const points = (row.points === null || row.points === undefined)
+        ? '' : row.points.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const figure = [record, points].filter(Boolean).join(' · ');
+    const crown = row.isChampion ? '<span class="pd-standings-crown" title="Champion">\u{1F451}</span>' : '';
+    const you = row.isYou ? '<span class="pd-standings-you">You</span>' : '';
+    // R2: the badge's cell is ALWAYS the row's third grid child, empty or not - the owner's own finding ("they should all line up") traced to a row WITHOUT "You" having only three children where a row WITH it has four, so the grid's implicit column assignment put that row's figure into the badge's own auto-sized column instead of the figure column every other row uses. An always-present (if sometimes empty) cell keeps every row at four children and the figure column fixed regardless of which rows carry the badge.
+    return `<div class="pd-standings-row${row.isYou ? ' pd-standings-row-you' : ''}">
+        <span class="pd-standings-place">${row.place != null ? row.place : '-'}</span>
+        <span class="pd-standings-name">${crown}${escapeHtml(row.name)}</span>
+        <span class="pd-standings-you-cell">${you}</span>
+        <span class="pd-standings-figure">${escapeHtml(figure)}</span>
+    </div>`;
+}
+
+function lastSeasonRegionHtml() {
+    if (lastSeason.state !== 'done' || !lastSeason.card) return '';
+    const c = lastSeason.card;
+    const cell = (figure, label) => `<div class="pd-figure-cell"><div class="pd-figure-lg">${figure}</div><div class="pd-quiet">${escapeHtml(label)}</div></div>`;
+    const cells = [];
+    if (c.champion) {
+        cells.push(cell(c.champion.isYou ? 'You' : escapeHtml(c.champion.name), 'Champion'));
+    }
+    // A finish of null is a season this franchise has no final rank in - said as nothing rather than as "#null".
+    if (c.finish && c.finish.rank) {
+        cells.push(cell(`#${c.finish.rank} of ${c.finish.of}`, 'Your finish'));
+        if (c.finish.record) {
+            const r = c.finish.record;
+            cells.push(cell(`${r.wins}-${r.losses}${r.ties ? `-${r.ties}` : ''}`, 'Record'));
+        }
+    }
+    if (c.format !== 'points') {
+        const inverseIds = categoryInverseIds();
+        const markInverse = (id) => inverseIds.has(String(id)) ? ' (fewest)' : '';
+        if (c.best) cells.push(cell(`${escapeHtml(c.best.label)} #${c.best.rank} of ${c.best.of}${markInverse(c.best.id)}`, 'Strongest'));
+        if (c.worst) cells.push(cell(`${escapeHtml(c.worst.label)} #${c.worst.rank} of ${c.worst.of}${markInverse(c.worst.id)}`, 'Weakest'));
+    }
+    if (!cells.length) return '';
+    // R1: the standings table fills the card under the figure cells - every team, place order.
+    const standingsHtml = (c.standings && c.standings.length)
+        ? `<div class="pd-standings">${c.standings.map(standingsRowHtml).join('')}</div>`
+        : '';
+    return predraftCardHtml(`Last season (${c.year})`,
+        `<div class="pd-figures">${cells.join('')}</div>${standingsHtml}`, 'pd-card-tall');
+}
+
+// Kicks the one history request the card needs, once per league, and re-renders when it lands. Failure is not an error surface: the card is absent, which is what a league with no readable past looks like anyway.
+function ensureLastSeason(key) {
+    if (lastSeason.key === key && lastSeason.state !== 'idle') return;
+    lastSeason = { key, state: 'loading', card: null };
+    loadMostRecentPastSeason().then(payload => {
+        if (lastSeason.key !== key) return;
+        const summary = payload ? summarizeSeason(payload) : null;
+        const sport = AppState.loadedSport;
+        // The user's own team, by the same SWID match My Team and the draft room use. A league the user only spectates matches nothing, and the card then reports the champion without claiming a finish for a franchise that is not theirs.
+        const teams = AppState.apiData?.teams || [];
+        const mineId = findOwnedTeamId(teams, AppState.userSwid);
+        const me = teams.find(t => t.id === mineId) || null;
+        lastSeason = {
+            key,
+            state: 'done',
+            card: summary ? lastSeasonCard(summary, payload, me ? franchiseKeyOf(me) : null, {
+                statMap: ESPN_STAT_MAPS[sport] || {},
+                inverseIds: lowerIsBetterIds(INVERSE_STATS[sport], AppState.scoringWeights)
+            }) : null
+        };
+        renderPreDraftFace();
+    }).catch(() => {
+        if (lastSeason.key === key) lastSeason = { key, state: 'done', card: null };
+    });
+}
+
+
+// THE POOL, RANKED FOR THIS LEAGUE. The rows are the SAME board the Draft tab draws (buildBoard, players.js) and the depth is the same read its own card prints (positionDepth, draft-engine.js) - which is the whole reason the board moved out of draft-view: one board, so the two faces can never disagree about a player's value or about whether goalies are thin. Absent rather than empty when the pool has no projections yet. A board with nothing on it is not a card worth a heading, and the pool arrives on its own (prefetchPlayerData) rather than being fetched from here. R1/S47c: the position-chip row above the Projections list (frame H) - "All" plus every STARTING slot's own label, deduplicated (two RB seats need one "RB" chip, not two), in the league's own ground order (LINEUP_SLOT_ORDER) so the row reads the same left-to-right sequence the ground itself draws seats in.
+function mockPoolPositionOptions(sport) {
+    const order = LINEUP_SLOT_ORDER[sport] || [];
+    const labels = LINEUP_SLOT_LABELS[sport] || {};
+    const seen = new Set();
+    const out = [];
+    order.forEach(id => {
+        const label = labels[id];
+        if (label && !seen.has(label)) { seen.add(label); out.push(label); }
+    });
+    return out;
+}
+
+// A row matches a position chip when the PLAYER (not the ground) is eligible for it. FLEX is not one position but a slot's own accepted set (FLEX_SLOT_POSITIONS) - a league can define more than one FLEX-labelled slot with different accepted positions (rare, but the table allows it), so the chip matches the UNION of every slot sharing that label, never just the first.
+function mockPoolPositionFilterFn(sport, label) {
+    if (label === 'ALL') return () => true;
+    const order = LINEUP_SLOT_ORDER[sport] || [];
+    const labels = LINEUP_SLOT_LABELS[sport] || {};
+    const flexTable = FLEX_SLOT_POSITIONS[sport] || {};
+    const flexIds = order.filter(id => labels[id] === label && flexTable[id]);
+    if (flexIds.length) {
+        const allowed = new Set();
+        flexIds.forEach(id => (flexTable[id] || new Set()).forEach(p => allowed.add(p)));
+        return (r) => (r.player?.eligiblePositions || []).some(p => allowed.has(p));
+    }
+    return (r) => (r.player?.eligiblePositions || []).includes(label);
+}
+
+function mockPoolChipsHtml(sport, active) {
+    const options = ['ALL', ...mockPoolPositionOptions(sport)];
+    return `<div class="pd-pool-chips">${options.map(opt => {
+        const label = opt === 'ALL' ? 'All' : opt;
+        return `<button type="button" class="pd-pool-chip${opt === active ? ' on' : ''}" data-pool-position="${escapeHtml(opt)}">${escapeHtml(label)}</button>`;
+    }).join('')}</div>`;
+}
+
+function rankedPoolRegionHtml() {
+    const sport = AppState.loadedSport;
+    const rows = buildBoard();
+    if (!rows.length) return '';
+
+    // R1/S47c: the chip filters WHICH ROWS SHOW, never the depth analysis below (a whole- board question the reader's own filter choice does not change).
+    const activeFilter = mockPoolPositionOptions(sport).includes(AppState.mockPoolPositionFilter)
+        ? AppState.mockPoolPositionFilter : 'ALL';
+    const filteredRows = activeFilter === 'ALL' ? rows : rows.filter(mockPoolPositionFilterFn(sport, activeFilter));
+
+    const counts = AppState.apiData?.settings?.rosterSettings?.lineupSlotCounts || {};
+    // item 4/O4: flex seats are DATA (FLEX_SLOTS, state.js) rather than a list of labels the engine carried itself - that list had football's FLEX missing entirely, which is why every football league read "FLEX cliff, none above replacement", always. This card passing the set was the last thing the fallback was waiting on, and O4b deleted it: the engine now has no opinion about any sport's slots, so a caller that names no seats gets none.
+    const depth = positionDepth(rows, {
+        counts,
+        labels: LINEUP_SLOT_LABELS[sport] || {},
+        bench: NON_STARTING_SLOTS[sport] || new Set(),
+        flex: FLEX_SLOTS[sport] || new Set(),
+        teams: Number(AppState.apiData?.settings?.size) || (AppState.apiData?.teams || []).length || 0
+    });
+
+    // R1/S47c: the list scrolls INSIDE the card now (frame H), so the limit is the whole filtered board rather than a viewport-sized guess - "any of the 1,036 players can be seated".
+    const card = rankedPoolCard(filteredRows, depth, {
+        limit: Math.max(filteredRows.length, 1),
+        clubs: currentProSchedule() ? buildProTeamAbbrevs(currentProSchedule()) : null
+    });
+    if (!card) return '';
+
+    // R6/S39: mock-aware rows, when there is a mock lineup to be aware of. ensureMockLineupState has already run by the time this renders (mockGroundRegionHtml runs first in the grid), so AppState.mockLineupState exists whenever this league has starting seats to mock at all.
+    const state = AppState.mockLineupState;
+    let rowsHtml, hintHtml;
+    if (state) {
+        const seatOf = new Map();
+        state.seats.forEach((s, i) => { if (s.playerId !== null && s.playerId !== undefined) seatOf.set(String(s.playerId), i); });
+        const targetIndex = AppState.mockLineupTarget;
+        const targetSeat = (targetIndex !== null && targetIndex !== undefined) ? state.seats[targetIndex] : null;
+        const poolById = new Map(mockLineupPool().map(p => [String(p.id), p]));
+        const rowCtx = { state, seatOf, targetSeat, poolById, seatCtx: mockLineupCtx() };
+        rowsHtml = card.rows.map(r => mockPoolRowHtml(r, rowCtx)).join('');
+        hintHtml = '<span class="pd-card-hint">click a seat, then a row</span>';
+    } else {
+        rowsHtml = card.rows.map(r => `
+            <div class="pd-pool-row">
+                <span class="pd-pool-rank">${r.rank}</span>
+                <span class="pd-pool-name">${escapeHtml(r.name)}</span>
+                <span class="pd-pool-meta">${[r.club, r.pos].filter(Boolean).map(escapeHtml).join(' · ')}</span>
+                <span class="pd-pool-value">${r.value === null ? '' : r.value.toFixed(1)}</span>
+            </div>`).join('');
+        hintHtml = '';
+    }
+
+    // R1 (VOICE.md "No tips"): the drop-off/depth sentence and the "Player Metrics ranks the whole pool." pointer line both told the reader what a figure meant or what to do with it - exactly what the rule now forbids, not a caveat about what the figures ARE. Removed rather than reworded; the card ends at its last row. The measured drop-off model itself (dropOffNote/positionDropOffs/depthNote) is gone from draft-engine.js too now (O31) - this card was their only reader. It is recorded as history in docs/RANKING-AUDIT.md. R1/S47c: the chip row (filters), the scrolling list, then a footer naming the count and the two ways to narrow it (frame H's own "1,036 players · scroll, or pick a position above"). Not a tip about what a figure means - a count of what is actually on screen, which is a fact about the list, not advice about reading it.
+    const chipsHtml = mockPoolChipsHtml(sport, activeFilter);
+    const footerHtml = `<div class="pd-pool-footer">${card.rows.length.toLocaleString()} player${card.rows.length === 1 ? '' : 's'} &middot; scroll, or pick a position above</div>`;
+    return predraftCardHtml('Projections',
+        `${chipsHtml}<div class="pd-pool">${rowsHtml}</div>${footerHtml}`, 'pd-card-tall', hintHtml);
+}
+
+
+// ==== THE POST-DRAFT PROJECTED FACE Drafted, nothing played. The tab keeps its subject - where every team stands and in what - and changes only the BASIS: rosters times projected lines, scored by the same engines a played season uses. projected-basis.js does the arithmetic and is reconciled against the draft board's own figures to 1e-9, so a projected standing and the board can never disagree. SEASON TRENDS IS NOT DRAWN HERE, and its absence is deliberate rather than an omission. That box is a WEEKLY chart and a preseason league has no weeks; there is no projected analogue of a trend line, and an empty axis would be a box pretending to have something to say. The graded card takes the slot instead, which is the question a manager actually has the day after a draft. ====
+
+// Every team's roster as PLAYERS, from the ids the payload carries. A team whose roster the payload does not carry is absent from the map rather than present and empty - the difference decides whether a standing can be built at all, and an empty roster would read as a team projected to score nothing. TWO SHAPES, BOTH REAL. ESPN attaches a roster either to the TEAM (teams[].roster.entries, what the mRoster view returns) or to the SIDES OF A MATCHUP (schedule[].home/away.rosterForCurrentScoringPeriod, what a live league payload carries - the shape myteam.js reads). A preseason payload can arrive either way, so both are read and the team-attached one wins where both exist, being the roster rather than a snapshot of one period. Named for what it is rather than reusing myteam.js's rostersFromPayload, which reads only the second shape and returns entry ids rather than players - two functions with one name and different answers is how a later reader gets the wrong one.
+function draftedRostersByTeam() {
+    const byId = new Map((AppState.playerData || []).map(p => [p.id, p]));
+    const entriesByTeam = new Map();
+
+    ((AppState.apiData || {}).schedule || []).forEach(game => {
+        ['home', 'away'].forEach(side => {
+            const s = game[side];
+            const entries = ((s || {}).rosterForCurrentScoringPeriod || {}).entries;
+            if (s && entries && entries.length) entriesByTeam.set(s.teamId, entries);
+        });
+    });
+    (AppState.apiData?.teams || []).forEach(t => {
+        const entries = (t.roster && t.roster.entries) || [];
+        if (entries.length) entriesByTeam.set(t.id, entries);
+    });
+
+    const out = {};
+    entriesByTeam.forEach((entries, teamId) => {
+        const players = entries.map(e => byId.get(e.playerId)).filter(Boolean);
+        if (players.length) out[teamId] = players;
+    });
+    return out;
+}
+
+function projectedContext() {
+    const sport = AppState.loadedSport;
+    const categoryIds = [...(AppState.scoredStatIds || [])];
+    const components = RATE_COMPONENTS[sport] || [];
+    const inverseIds = lowerIsBetterIds(INVERSE_STATS[sport], AppState.scoringWeights);
+    return { sport, categoryIds, components, inverseIds };
+}
+function teamNameOf(teamId) {
+    const t = (AppState.teamStats || []).find(x => String(x.id) === String(teamId));
+    return t ? t.name : String(teamId);
+}
+// YOUR DRAFT, GRADED. Projected placing plus the categories the draft left strongest and thinnest, read off the same values the standing was made of. The best-value pick needs DRAFT PICKS and a real ADP, and neither is guaranteed: a league fetched without the draft view has no picks at all, and ESPN collapses ADP to a filler out of season (degenerateValue, the draft board's own test). Where either is missing the card says the rest and stays quiet about value rather than inventing a pick to praise.
+function draftGradedHtml() {
+    const teams = AppState.apiData?.teams || [];
+    const mineId = findOwnedTeamId(teams, AppState.userSwid);
+    const standings = (AppState.teamStats || [])
+        .map(t => ({ teamId: t.id, points: t.rotoPoints || 0 }))
+        .sort((a, b) => b.points - a.points);
+    const place = mineId == null ? null : placeOf(standings, mineId);
+
+    // THE SLOT ALWAYS CARRIES A CARD (ruled). This is the one thing on the face that is about THIS league's preseason rather than a projection of it, so when it cannot be filled it says what it would show and where that comes from - a blank would read as a surface that forgot to render, and the reader would have no way to tell a missing capture from a missing feature.
+    if (!place) {
+        return predraftCardHtml('Your draft, graded',
+            '<div class="pd-quiet">This card grades YOUR team: where the draft projects it to '
+            + 'finish, the categories it came out strongest and thinnest in, and the pick that beat '
+            + 'its draft position by most. It needs the league opened while signed in, so the '
+            + 'extension can tell which team is yours.</div>');
+    }
+
+    // R2/S3 ruling (a): the placing is the card's own headline figure - a small label over a big gold number (.pd-countdown's own size/weight,.pd-pool-value's own colour and tabular figures), the pairing this card was missing that left three plain lines and a lot of empty card under them.
+    const lines = [
+        '<div class="pd-quiet">Projected</div>',
+        `<div class="pd-figure-lg">#${place.place} of ${place.of}</div>`
+    ];
+    if (AppState.isPointsLeague) {
+        // A points league's own figure (Fable's ruling on S3): the projected points total, and the gap to whichever team sits just ahead - or, sitting first, the lead over #2 - in place of the category line a points league does not stand on (R1). placeOf's own `points` is used rather than indexing standings by place.place - 1: a tie shares one place (placeOf only increments past a DIFFERENT points value), so that index is not reliably my own row. The neighbour is found by nearest points instead, for the same reason - correct under a tie, not just in the common untied case.
+        const myPoints = place.points;
+        const ahead = standings.filter(r => r.points > myPoints).sort((a, b) => a.points - b.points)[0];
+        const behind = standings.filter(r => r.points < myPoints).sort((a, b) => b.points - a.points)[0];
+        let gapHtml = '';
+        if (ahead) {
+            gapHtml = ` <span class="pd-quiet">&middot; ${(ahead.points - myPoints).toFixed(1)} behind #${place.place - 1}</span>`;
+        } else if (behind) {
+            gapHtml = ` <span class="pd-quiet">&middot; ${(myPoints - behind.points).toFixed(1)} ahead of #2</span>`;
+        }
+        lines.push(`<div class="pd-line"><span class="pd-pool-value">${myPoints.toFixed(1)}</span> projected points${gapHtml}</div>`);
+        // S3b: the card still held four lines over air below this one. A points league's own breakdown is where those points come FROM - projected points by position, the same projectedAppliedTotal projectedPointsStandings already sums to the team total above, so the bars can never add up to a different figure than the headline. Ordered by points (a compact bar chart's own convention), not by slot id - FLEX is a roster SLOT a player can fill, never a position the player HAS, so grouping by positionName never invents a FLEX bucket the way the pool card's old bug once did.
+        lines.push(pointsByPositionHtml(mineId));
+    } else {
+        // Strongest and weakest read off the same projected values every other box is drawn from, so the card cannot disagree with the heatmap sitting under it.
+        const { sport, categoryIds, inverseIds } = projectedContext();
+        const statMap = ESPN_STAT_MAPS[sport] || {};
+        // The ranking itself is pure and unit-tested (projectedCategoryRanks); this only hands it the projected values every other box on the face is drawn from.
+        const valuesByTeam = {};
+        (AppState.teamStats || []).forEach(t => { valuesByTeam[t.id] = t.seasonCats || {}; });
+        const ranked = projectedCategoryRanks(valuesByTeam, mineId, categoryIds, inverseIds);
+        if (ranked.length) {
+            // R1/item 2: "Thinnest" is gone (VOICE.md's ban); the inverse gets the same "(fewest)" mark the last-season card carries, so a category where LOW is good never reads as strong or weak off its raw number alone.
+            const name = (r) => `${escapeHtml(statMap[r.id] || r.id)} #${r.rank}${inverseIds.has(String(r.id)) ? ' (fewest)' : ''}`;
+            lines.push(`<div class="pd-quiet">Strongest: ${name(ranked[0])} · Weakest: ${name(ranked[ranked.length - 1])}</div>`);
+            // S3b: the card still held four lines over air below this one. A category/roto league's own breakdown is the FULL ranked list the Strongest/Weakest line above already summarizes to its two ends - every category this team is projected to score, as a chip row, off the exact same `ranked` the heatmap sitting under it reads.
+            lines.push(`<div class="pd-cat-chips">${ranked.map(r => `<span class="pd-cat-chip${r.rank <= Math.ceil(ranked.length / 2) ? ' pd-cat-chip-good' : ' pd-cat-chip-bad'}">${name(r)}</span>`).join('')}</div>`);
+        }
+    }
+    // THE BEST VALUE PICK needs the draft's own picks and an ADP that is not filler, and neither is guaranteed: a league fetched without the draft view has no picks, and ESPN collapses ADP out of season (degenerateValue, the board's own test). Rather than praise a pick it cannot justify, the card names what is missing.
+    lines.push(bestValueLineHtml());
+    return predraftCardHtml('Your draft, graded', lines.join(''));
+}
+
+// S3b: a points league's own breakdown - projected points by position, as a compact bar list. `p.projectedAppliedTotal` is ESPN's own applied-total for this league's real scoring settings (players.js, the same figure projectedPointsStandings already sums to the team total the card's headline reads), summed per `p.positionName` (the player's own PRIMARY position, never a slot id - a two-way-eligible player is counted once, under the one position actually played). Ordered by points, a bar chart's own convention, not by roster slot order.
+function pointsByPositionHtml(mineId) {
+    if (mineId == null) return '';
+    const roster = draftedRostersByTeam()[mineId];
+    if (!roster || !roster.length) return '';
+    const sums = new Map();
+    roster.forEach(p => {
+        const label = p.positionName || 'Other';
+        sums.set(label, (sums.get(label) || 0) + (Number(p.projectedAppliedTotal) || 0));
+    });
+    const rows = [...sums.entries()].sort((a, b) => b[1] - a[1]);
+    if (!rows.length) return '';
+    const max = rows[0][1] || 1;
+    const barsHtml = rows.map(([label, pts]) => `
+        <div class="pd-slot-bar-row">
+            <span class="pd-slot-bar-label">${escapeHtml(label)}</span>
+            <div class="pd-slot-bar-track"><div class="pd-slot-bar-fill" style="width:${Math.max(3, (pts / max) * 100)}%"></div></div>
+            <span class="pd-slot-bar-value">${pts.toFixed(1)}</span>
+        </div>`).join('');
+    return `<div class="pd-slot-bars">${barsHtml}</div>`;
+}
+
+// The pick that beat its own draft position by most, or a line saying why not. `draftPicks` is whatever the draft-detail fetch left in AppState; the board's ADP filler test decides whether the column means anything at all.
+function bestValueLineHtml() {
+    // The picks live in the roster-transaction harvest, which the Roto Race fills once per session - not in a field of their own. Reading them here costs no request: if the harvest has not run, there are no picks and the card says so.
+    const picks = draftPicksFor();
+    if (!picks || !picks.length) {
+        // Still in flight, or genuinely absent (a league fetched without a draft, a format that has none). The line says what is missing rather than leaving the card a promise short.
+        return '<div class="pd-quiet">Best value pick: reading the draft...</div>';
+    }
+    const board = buildBoard();
+    const rankById = new Map(board.filter(r => r.boardRank).map(r => [r.player.id, r.boardRank]));
+    const top = bestValuePick(picks, rankById);
+    if (!top) {
+        return '<div class="pd-quiet">Best value pick: no pick beat its own board rank.</div>';
+    }
+    const player = (AppState.playerData || []).find(p => p.id === top.playerId);
+    const who = player ? player.name : `Player ${top.playerId}`;
+    return `<div class="pd-quiet">Best value: ${escapeHtml(who)} at pick ${top.overallPickNumber}, `
+        + `${top.edge} ahead of the board's #${top.rank}.</div>`;
+}
+
+// THE BASIS SWITCH, not a second page. The tab keeps its own boxes - the rankings box in its slot, the heatmap band in its slot, the filters bar under it - and only the NUMBERS change: every team's seasonCats and roto points are filled from rosters times projected lines. The renderers below are untouched and never learn where the figures came from, which is the whole point: a projected standing is drawn by the same code a played one is. A first attempt built its own cards instead and left the lower half of the tab empty. That is not the layout the owner approved, and an empty Team Metrics is as wrong as a scrolling one.
+let projectedBasisOn = false;
+// The trends box's own markup, kept from before the graded card took its place so a league that has played can have its chart back. Null means the card has never been drawn.
+let trendsBoxMarkup = null;
+
+// Puts the trends box back the way the page shipped it, so the chart's own container exists again by the time renderRightColumn looks for it by id. A re-render after the draft picks land is the case that found this; a league switched from a preseason one to a played one is the case that would have kept an empty box forever.
+function restoreTrendsBox() {
+    if (trendsBoxMarkup === null) return;
+    const trends = document.querySelector('#view-team .col-trends');
+    if (trends) trends.innerHTML = trendsBoxMarkup;
+    trendsBoxMarkup = null;
+}
+
+export function projectedBasisActive() {
+    return projectedBasisOn;
+}
+
+// Fills teamStats with projected figures and says whether it did. teamStats is DERIVED state, rebuilt by processCoreData on every league fetch, so writing into it here is filling in what the payload has no answer for rather than overwriting anything the league reported.
+export function prepareProjectedBasis() {
+    projectedBasisOn = false;
+    if (seasonState(AppState.apiData) !== SEASON_STATE.PRESEASON) return false;
+
+    const rosters = draftedRostersByTeam();
+    // NO ROSTERS, NO PROJECTION. A drafted league whose payload carries no rosters cannot be projected, and the tab's own empty states say that better than a face with nothing in it.
+    if (!Object.keys(rosters).length) return false;
+
+    const { categoryIds, components, inverseIds } = projectedContext();
+    // CATEGORY RANKINGS READS THIS SET, NOT seasonCats. processCoreData's normal pass fills availableStatsSet from the league payload's own played stats (t.valuesByStat) - which a preseason league has none of, so the set stays empty and categoryCycleList (utils.js), the list this tab's Category Rankings pager cycles through, comes back with nothing to cycle. The heatmap never noticed because it asks teamStats directly, not this set - Category Rankings is the one surface that reads the projected basis through this specific door.
+    categoryIds.forEach(id => AppState.availableStatsSet.add(String(id)));
+    const sums = projectedTeamSums(rosters, { categoryIds, components });
+    const values = projectedValues(sums, categoryIds, components);
+    const standings = AppState.isPointsLeague
+        ? projectedPointsStandings(rosters)
+        : projectedRotoStandings(values, categoryIds.map(id => ({ id, inverse: inverseIds.has(String(id)) })), rotoPointsForCategory);
+    const pointsByTeam = new Map(standings.map(r => [String(r.teamId), r.points]));
+    // projectedRotoStandings ALREADY computes this split (its own return comment says so: "so the projected heatmap and the category view can read the same numbers the order came from") - only the total ever made it to teamStats. A points league's standings carry no byCategory (there is no per-category score to split), so this is empty there, same as rotoPointsByStat already reads as "nothing to show" for a points league on a played season.
+    const byCategoryByTeam = new Map(standings.map(r => [String(r.teamId), r.byCategory || {}]));
+
+    (AppState.teamStats || []).forEach(t => {
+        const row = values[t.id] || values[String(t.id)] || {};
+        t.seasonCats = {};
+        // EVERY SCORED CATEGORY KEEPS ITS KEY, null where the projections cannot speak to it. Skipping the key instead dropped the whole COLUMN: the heatmap asks whether any team carries a figure, and a category no team has an entry for looks like a category the league does not score. Baseball loses E and fielding assists that way, because ESPN projects no fielding at all (unprojectedCategoryIds in players.js measured it) - so a league scoring errors was shown a grid that silently omitted one of the things it plays for. "You have no figure here" is a fact about the roster and the band should say it. null, never 0: a team with no projected errors has not been projected to commit none, and in an inverse category zero would be the best in the league.
+        categoryIds.forEach(id => {
+            const v = row[id];
+            t.seasonCats[id] = (v === undefined ? null : v);
+        });
+        t.rotoPoints = pointsByTeam.get(String(t.id)) || 0;
+        t.rotoPointsByStat = byCategoryByTeam.get(String(t.id)) || {};
+    });
+
+    projectedBasisOn = true;
+    return true;
+}
+
+// The masthead tag and the graded card, put into the tab AFTER its normal boxes have rendered. The graded card takes the Season Trends slot, which is the one box with nothing honest to draw: it is a WEEKLY chart and a preseason league has no weeks.
+export function decorateProjectedFace() {
+    if (!projectedBasisOn) return;
+    const view = document.getElementById('view-team');
+    const host = document.getElementById('predraft-face');
+    if (!view || !host) return;
+
+    host.style.display = '';
+    // item 11:.predraft-face's own flex:1 1 auto (dashboard.css) exists so the TRUE pre-draft face - which hides.layout outright and stands in for it - takes the whole view rather than ending two thirds of the way down. This face never hides.layout; it sits above it, a masthead over the normal boxes. Sharing that rule with.layout (also flex:1, dashboard.css) let both grow-compete for the tab's leftover height, so a host holding one 18px-tall.pd-mast line still claimed ~148px - a ~130px blank band before.layout's own row began. pd-mast-only pins it to its content's own height instead.
+    host.classList.add('pd-mast-only');
+    host.innerHTML = `
+        <div class="pd-mast">
+            <span class="pd-tag">PRESEASON · PROJECTED</span>
+            <span class="pd-mast-note">No games yet. Every box reads off the drafted rosters and ESPN's projections.</span>
+        </div>`;
+
+    // THE FACE'S ONE REQUEST. The picks are not in the league payload and the only thing that ever fetches them is the roto race, which this face never draws - so without this the card's third promise could not be kept for anyone. Fired only here, only in preseason, key-guarded, and the response is shared with the Draft tab and the race.
+    ensureDraftPicks(AppState.loadedSport);
+
+    // The trends box keeps its slot and its size; only its occupant changes. ITS OWN MARKUP IS KEPT FIRST, because replacing it destroys #line-graph-container along with it - and the very next render of this tab reaches for that element and throws. Nothing re-rendered the tab after the face was decorated until the draft picks started arriving asynchronously, so the fault has been latent since the face was built. A league SWITCHED from a preseason one to a played one would have hit it too, and left the trends box permanently empty with no way back short of a reload.
+    const trends = view.querySelector('.col-trends');
+    if (trends) {
+        if (trendsBoxMarkup === null) trendsBoxMarkup = trends.innerHTML;
+        trends.innerHTML = draftGradedHtml();
+    }
+}
+
+// THE TEAM METRICS TAB, whichever face it is wearing. ONE entry point because there are TWO call sites - a league fetch committing (data.js) and the tab being shown (main.js) - and they must not be able to disagree about which face the league gets. They did disagree. The face used to be decided only in the tab's own show(), and on a FIRST LOAD that never runs: data.js draws the three boxes itself the moment a fetch commits, and the view registry's show() is not wired up yet, so renderActiveLeagueView finds no show to call. The projected face therefore appeared only after switching tabs and coming back - which is exactly how it was verified, so the bug survived the check that was meant to catch it. The pre-draft face had the same hole for the same reason.
+export function renderTeamMetricsTab() {
+    // Before a draft the tab flips basis entirely - the normal boxes have no games to chart, and rendering them into a hidden layout would measure zero heights.
+    if (renderPreDraftFace()) return;
+    if (!AppState.apiData) return;
+    // Drafted but not played: the tab keeps its own boxes and only the NUMBERS change, so this fills teamStats with projected figures and the normal renders below draw them without learning where they came from. decorateProjectedFace adds the tag and swaps the trends box afterwards, once those renders have run and their geometry is real. ALWAYS before the ordinary renders, not only when the basis is off: the previous pass may have put the graded card where the chart's own container lives, and renderRightColumn reaches for that container by id. Restoring first makes every render start from the page as shipped, and decorateProjectedFace puts the card back afterwards if this league still wants it.
+    restoreTrendsBox();
+    prepareProjectedBasis();
+    renderLeftColumn();
+    renderRightColumn();
+    renderHeatmapBand();
+    decorateProjectedFace();
+    syncTrendFilterAvailability();
+}
+
+// TREND LINES CONTROL A CHART THAT IS NOT THERE on the projected face - decorateProjectedFace just put the graded card in Season Trends' own slot, so Cat Wins/Match Wins would toggle lines on a chart the reader cannot see. Greyed with the reason, the same treatment the timeframe chips already give a choice that currently changes nothing (see rebuildTimeframeOptions, controls.js). dashboard.css's own:has(input:disabled) rule does the dimming off the disabled attribute set here, so this function owns only the fact, not the look.
+function syncTrendFilterAvailability() {
+    const disabled = projectedBasisOn;
+    const reason = 'No weekly trend yet - every figure on this page is a projection.';
+    ['toggle-cat', 'toggle-match'].forEach(id => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.disabled = disabled;
+        const label = input.closest('label');
+        if (label) label.title = disabled ? reason : '';
+    });
+}
+
+// R1/S47c: the old measure-then-trim approach (build a generous list, hide whatever the card's own height cannot show) is gone - frame H's own design is a fixed-height card with the list scrolling INSIDE it ("the list scrolling inside the card"), which needs no measurement at all:.pd-card-tall.pd-pool (dashboard.css) grows to fill the column and scrolls whatever does not fit. sizePoolRows and its POOL_MIN_ROWS lived here through S47b.
+
+// R6/S39: click a seat, then a row - or drag a row onto a seat. Delegated on the two containers rather than one listener per row/seat, since the whole face re-renders (a fresh innerHTML) on every change anyway; re-attaching per element would just re-delegate the same way with extra bookkeeping. Every mutation goes through mock-lineup.js's own operations (seat/unseat/ clear) and re-renders through the SAME entry point (renderPreDraftFace) every other pre-draft change already uses, so there is exactly one render path to keep correct.
+function wireMockLineup(container) {
+    const groundEl = container.querySelector('.pd-ground');
+    const poolEl = container.querySelector('.pd-pool');
+    const chipsEl = container.querySelector('.pd-pool-chips');
+    const clearBtn = container.querySelector('#mock-clear-all');
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            if (!AppState.mockLineupState) return;
+            AppState.mockLineupState = mockClear(AppState.mockLineupState);
+            AppState.mockLineupTarget = null;
+            renderPreDraftFace();
+        });
+    }
+
+    // R1/S47c: the position-chip row - picking one re-renders the whole face with the Projections list filtered, the same "re-render is cheap enough" call every other mock control here already makes. The seat target survives the filter (clearing it would undo the very click a reader just made to arm a seat before narrowing the list to find its occupant).
+    if (chipsEl) {
+        chipsEl.addEventListener('click', (e) => {
+            const chip = e.target.closest('[data-pool-position]');
+            if (!chip) return;
+            AppState.mockPoolPositionFilter = chip.getAttribute('data-pool-position');
+            renderPreDraftFace();
+        });
+    }
+
+    if (groundEl) {
+        groundEl.addEventListener('click', (e) => {
+            const removeEl = e.target.closest('[data-seat-remove]');
+            if (removeEl) {
+                if (!AppState.mockLineupState) return;
+                const idx = Number(removeEl.getAttribute('data-seat-remove'));
+                AppState.mockLineupState = mockUnseat(AppState.mockLineupState, idx);
+                if (AppState.mockLineupTarget === idx) AppState.mockLineupTarget = null;
+                renderPreDraftFace();
+                return;
+            }
+            // A FILLED seat is still a valid click target - re-targeting it is how rule 3 (seating into an occupied seat replaces) is reached from the ground side, not only by clicking straight to a row with nothing yet armed.
+            const seatEl = e.target.closest('[data-seat-index]');
+            if (!seatEl) return;
+            const idx = Number(seatEl.getAttribute('data-seat-index'));
+            AppState.mockLineupTarget = AppState.mockLineupTarget === idx ? null : idx;
+            renderPreDraftFace();
+        });
+        groundEl.addEventListener('dragover', (e) => {
+            if (e.target.closest('[data-seat-index]')) e.preventDefault();
+        });
+        groundEl.addEventListener('drop', (e) => {
+            const seatEl = e.target.closest('[data-seat-index]');
+            if (!seatEl || !AppState.mockLineupState) return;
+            e.preventDefault();
+            const idx = Number(seatEl.getAttribute('data-seat-index'));
+            const playerId = e.dataTransfer.getData('text/plain');
+            if (!playerId) return;
+            AppState.mockLineupState = mockSeat(AppState.mockLineupState, playerId, idx, mockLineupPool(), mockLineupCtx());
+            AppState.mockLineupTarget = null;
+            renderPreDraftFace();
+        });
+    }
+
+    if (poolEl) {
+        poolEl.addEventListener('click', (e) => {
+            const rowEl = e.target.closest('[data-player-id]');
+            if (!rowEl) return;
+            const target = AppState.mockLineupTarget;
+            if (target === null || target === undefined || !AppState.mockLineupState) return;
+            const playerId = rowEl.getAttribute('data-player-id');
+            AppState.mockLineupState = mockSeat(AppState.mockLineupState, playerId, target, mockLineupPool(), mockLineupCtx());
+            AppState.mockLineupTarget = null;
+            renderPreDraftFace();
+        });
+        poolEl.querySelectorAll('[data-player-id]').forEach(rowEl => {
+            rowEl.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', rowEl.getAttribute('data-player-id'));
+                e.dataTransfer.effectAllowed = 'copy';
+            });
+        });
+    }
+}
+
+// Renders the pre-draft face if that is the league's state, and says whether it did - the caller skips the normal boxes when it did, and they never render into a hidden layout.
+export function renderPreDraftFace() {
+    const host = document.getElementById('predraft-face');
+    const view = document.getElementById('view-team');
+    if (!host || !view) return false;
+    // A stale mark from decorateProjectedFace's own last render of this same element - this face takes the whole view rather than sharing it with.layout, so it always wants the plain flex:1 1 auto rule, never the masthead-only pin.
+    host.classList.remove('pd-mast-only');
+
+    // EVERY sibling, not just.layout. The heatmap band and the Data Filters bar are siblings of the layout rather than children of it, so hiding the layout alone left "No category data for this timeframe yet" sitting under a face whose whole point is that there is no data yet. Only what THIS function hid is restored, marked as it goes. Clearing inline display on every sibling would have reached the overlays too, which are hidden by CSS today but are opened by an inline display - so a blanket reset would quietly close one that happened to be open.
+    const hideSiblings = () => [...view.children].forEach(el => {
+        if (el === host || el.style.display === 'none') return;
+        el.dataset.pdHidden = '1';
+        el.style.display = 'none';
+    });
+    const restoreSiblings = () => view.querySelectorAll('[data-pd-hidden]').forEach(el => {
+        el.style.display = '';
+        delete el.dataset.pdHidden;
+    });
+
+    if (seasonState(AppState.apiData) !== SEASON_STATE.PRE_DRAFT) {
+        host.style.display = 'none';
+        host.innerHTML = '';
+        restoreSiblings();
+        return false;
+    }
+
+    hideSiblings();
+    ensureMockLineupState();
+    // WHAT SITS UNDER THE LINEUP DECIDES ITS SIZE. A first-season league has no last season, so the right column would hold one capped card and half a screen of nothing - and a card floating in a tall empty column fails golden rule 2's second half as surely as a scrollbar fails its first. Built first so the ground knows whether it is sharing the column. R6/S39: "Your mock team" TAKES the last-season card's own slot the moment a seat is filled - mockTeamCardHtml already returns '' at filled === 0, so falling back to lastSeasonRegionHtml() here is what makes the last-season figures "return the moment the seats are cleared" (the brief's own words): nothing here has to notice the transition, the fallback just re-applies on the next render once filled drops back to zero.
+    const rightCardHtml = mockTeamCardHtml() || lastSeasonRegionHtml();
+    host.style.display = '';
+    // R1/S47d: two independent flex COLUMNS, not a 2x2 grid. The grid this replaced coupled both columns' row heights together - the ground (a capped, short-ish card) and the Draft card shared "row 1", so row 1's own height came out as the TALLER of the two, and Draft (far shorter) sat at the top of that tall row with the leftover space stranded beneath it before "row 2" (Projections) could even begin - measured live as 314px of dead column, the owner's exact complaint. A column is its own stack: Draft's natural height, then Projections filling whatever is left, with no cross-column row to answer to.
+    host.innerHTML = `
+        <div class="pd-mast">
+            <span class="pd-tag">PRESEASON · DRAFT NOT HELD</span>
+        </div>
+        <div class="pd-grid">
+            <div class="pd-col pd-col-left">
+                ${countdownRegionHtml()}
+                ${rankedPoolRegionHtml()}
+            </div>
+            <div class="pd-col pd-col-right">
+                ${mockGroundRegionHtml(rightCardHtml ? '' : 'pd-card-fill')}
+                ${rightCardHtml}
+            </div>
+        </div>`;
+    wireMockLineup(host);
+    ensureLastSeason(`${AppState.loadedSport}:${AppState.apiData?.id}:${AppState.apiData?.seasonId}`);
+    return true;
 }

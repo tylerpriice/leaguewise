@@ -1,11 +1,12 @@
-import { AppState, TEAM_COLORS } from './state.js';
-import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, collapseSettingsBar } from './controls.js';
-import { renderLeftColumn, renderRightColumn, renderHeatmapBand, resetRankingsViewState } from './graphs.js';
+import { AppState, TEAM_COLORS, SECONDARY_LINEUP_SLOTS } from './state.js';
+import { seasonState, isPreseason } from './season-state.js';
+import { rebuildTimeframeOptions, renderCategoryAdvancedToggle, buildLegend, collapseSettingsBar, refreshMyTeamTabAvailability } from './controls.js';
+import { renderTeamMetricsTab, resetRankingsViewState } from './graphs.js';
 import { resetLeaderboardWeeklyFetchState, normalizePlayerViewStateForLeague, prefetchPlayerData, refreshOpenPlayerDetail, revalidateStalePoolIfDue } from './players.js';
-import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat, resetLeagueViews, revalidateLeagueViews, renderActiveLeagueView, leagueSeasonYears, matchupTally, matchupPoints, readsAsPlayedMatchup, matchupCatsForSide, matchResultOf } from './utils.js';
+import { statValue, unwrapStats, firstDefined, escapeHtml, axisUnit, numericStat, resetLeagueViews, revalidateLeagueViews, renderActiveLeagueView, leagueSeasonYears, matchupTally, matchupPoints, readsAsPlayedMatchup, matchupCatsForSide, matchResultOf, leagueTypeBadge } from './utils.js';
 
-// ESPN's own game ids, the authoritative statement of what sport a payload IS. Only the two this app supports are mapped; anything else falls back to the form (see AppState.loadedSport).
-const GAME_ID_SPORTS = { 2: 'flb', 4: 'fhl' };
+// ESPN's own game ids, the authoritative statement of what sport a payload IS. Only the two this app supports are mapped; anything else falls back to the form (see AppState.loadedSport). gameId 1 is football. Without this row an ffl payload fell through to the dropdown and then to 'flb', so a football league would have loaded as BASEBALL and been scored with baseball's ids - the silent-wrong path the audit flagged, and the reason this row lands in the same commit that makes the sport selectable.
+const GAME_ID_SPORTS = { 1: 'ffl', 2: 'flb', 4: 'fhl' };
 
 // Publishes the loaded sport to CSS, which is how the Boxscore theme picks its shapes - the ballpark set for baseball, the rink set for hockey. It is the LEAGUE's answer and never a user choice, which is why it is stamped here rather than wired to a control. Before any league loads the attribute is absent and Boxscore shows the baseball set, since light baseball is the look the store listings shoot.
 function setSportAttribute() {
@@ -32,8 +33,17 @@ export function processCoreData({ revalidate = false } = {}) {
         // A previous league's pool failure says nothing about this one, and the user may have logged in since.
         AppState.playerDataError = null;
         AppState.playerWeeklyCache = {};
+        // The pro-team schedule belongs to ONE sport and year. The accessors already refuse to hand a mismatched body to anything, so this is not what makes a wrong club impossible - it is so a league nobody is looking at any more does not keep its schedule resident. The next surface that wants one asks, and the live class answers 304-cheap.
+        AppState.proTeamSchedules = null;
         AppState.selectedPlayerId = null;
         AppState.comparePlayerId = null;
+        // A forward-look choice is tied to THIS league's own matchup structure (next/rest read this league's schedule), so it does not carry over to a new one.
+        AppState.ahead = null;
+        AppState.showEmptyNights = false;
+        // A sketch for THIS league's draft, not a value that should survive into a different one.
+        AppState.mockLineupState = null;
+        AppState.mockLineupTarget = null;
+        AppState.mockPoolPositionFilter = 'ALL';
         // A failed bulk weekly-stats fetch (see ensureLeaderboardWeeklyDataLoaded in players.js) from a previous league/season shouldn't permanently block this new one from trying.
         resetLeaderboardWeeklyFetchState();
         // Rankings box view position is not data. The viewed category and any sections flipped to a pie both belong to the league that was on screen, so a new league starts from its own first category with every section back on bars.
@@ -121,11 +131,27 @@ export function processCoreData({ revalidate = false } = {}) {
     const scoringItems = data.settings?.scoringSettings?.scoringItems || [];
     AppState.scoredStatIds = new Set(scoringItems.map(i => i.statId?.toString()).filter(Boolean));
 
-    // The same items carry the POINTS each stat is worth, which is what makes a points league rankable. pointsOverrides holds per-position weights when a league uses them; none of the captures do, so a league that does keeps its base weight here and its rank is honest but slightly coarse for the overridden positions rather than wrong for everyone.
+    // The same items carry the POINTS each stat is worth, which is what makes a points league rankable. POINTSOVERRIDES ARE LOAD-BEARING, and the note here used to say no capture used them. The football capture does, decisively: 20 OF ITS 46 SCORED IDS HAVE A BASE OF ZERO AND SCORE ONLY through an override on the D/ST slot. Under the old reading - base weights only, and `if (i.points)` dropping a zero besides - every team defence in the league scored exactly nothing. So the overrides are kept, keyed by the slot they apply to, and a caller ranking a group asks for the table that group is scored by. The base map keeps its old shape and its old contents, so nothing that reads it changes.
     AppState.scoringWeights = {};
+    AppState.scoringSlotWeights = {};
+    AppState.secondaryStatIds = new Set();
     scoringItems.forEach(i => {
         const id = i.statId?.toString();
-        if (id && i.points) AppState.scoringWeights[id] = i.points;
+        if (!id) return;
+        if (i.points) AppState.scoringWeights[id] = i.points;
+        Object.entries(i.pointsOverrides || {}).forEach(([slot, points]) => {
+            if (!points) return;
+            const table = AppState.scoringSlotWeights[slot] || (AppState.scoringSlotWeights[slot] = {});
+            table[id] = points;
+        });
+    });
+    // An id with NO base weight that scores only inside a secondary slot belongs to that group - the league saying so itself, which is better than a table saying it per sport. This is what puts football's defensive statistics on the D/ST tab and off the players' one.
+    const secondarySlots = SECONDARY_LINEUP_SLOTS[AppState.loadedSport] || new Set();
+    Object.entries(AppState.scoringSlotWeights).forEach(([slot, table]) => {
+        if (!secondarySlots.has(Number(slot))) return;
+        Object.keys(table).forEach(id => {
+            if (!AppState.scoringWeights[id]) AppState.secondaryStatIds.add(id);
+        });
     });
 
     // Which roster slots this league actually uses (nonzero count) - e.g. a league might only roster a generic OF slot with no separate LF/CF/RF, or vice versa. Player eligible positions get filtered down to this set so a player isn't shown split into positions this league doesn't even have roster spots for (see SLOT_POSITION_MAPS in state.js).
@@ -308,6 +334,10 @@ export function processCoreData({ revalidate = false } = {}) {
     if (weekIndicator && scoreboardDropdown) {
         // Roto has no matchup periods and no live scoreboard behind them - the payload carries a single undecided placeholder entry - so this whole control stands down rather than reading "Week 1 | 0 Matchups" forever.
         weekIndicator.style.display = AppState.isRotoLeague ? 'none' : '';
+        // PRESEASON KEEPS THE LABEL AND GREYS IT, with the reason on hover. Roto above hides its indicator because roto never has matchup periods AT ALL; preseason has them, it just has not played them yet, so the honest treatment is the disabled one the timeframe pills take rather than the absent one. The dropdown says the same thing below instead of opening a scoreboard of games nobody has played.
+        const preseason = isPreseason(seasonState(data));
+        weekIndicator.classList.toggle('week-indicator-quiet', preseason);
+        weekIndicator.title = preseason ? 'No games yet. Every figure on this page is a projection.' : '';
         // "Matchup", not "Week". currentWeek here IS status.currentMatchupPeriod, and this indicator sits on the same screen as graphs whose axes read M. It only ever renders for matchup leagues (hidden for roto just above), so the unit is theirs by construction.
         weekIndicator.innerHTML = `${axisUnit().long} ${currentWeek} <span style="color:#ccc; margin: 0 4px;">|</span> ${activeMatchups} Matchups ▾`;
         // A recap is a single matchup's story (both sides, category by category), which roto has no equivalent of - so the button goes quiet and says why rather than opening a modal with nothing to put in it.
@@ -318,10 +348,24 @@ export function processCoreData({ revalidate = false } = {}) {
                 ? 'Recaps cover a single matchup, and roto leagues play the whole season at once.'
                 : 'Build a shareable image + text recap of a matchup week';
         }
-        if (activeMatchups > 0) {
+        if (preseason) {
+            scoreboardDropdown.innerHTML = `<div style="font-size:12px; color:#aaa; text-align:center;">No games yet.</div>`;
+        } else if (activeMatchups > 0) {
             scoreboardDropdown.innerHTML = `<div style="font-size:12px; font-weight:bold; margin-bottom:12px; color:#fff; border-bottom:1px solid #444; padding-bottom:6px; text-align:center;">${axisUnit().long} ${currentWeek} Live Scoreboard</div>` + scoreboardHtml;
         } else {
             scoreboardDropdown.innerHTML = `<div style="font-size:12px; color:#aaa; text-align:center;">No active matchups available.</div>`;
+        }
+    }
+
+    // THE LEAGUE-TYPE BADGE. Visible on every panel, unlike week-indicator above (which hides outright for roto) - roto is exactly the format this badge exists to always name, pairing with the own roto notice. leagueTypeBadge (utils.js) is the validated mapping; this is just wiring it onto the one DOM node.
+    const badgeEl = document.getElementById('league-type-badge');
+    if (badgeEl) {
+        const badge = leagueTypeBadge(scoringType);
+        if (badge) {
+            badgeEl.textContent = badge.label;
+            badgeEl.style.display = '';
+        } else {
+            badgeEl.style.display = 'none';
         }
     }
 
@@ -348,10 +392,10 @@ export function processCoreData({ revalidate = false } = {}) {
     rebuildTimeframeOptions(!revalidate);
     renderCategoryAdvancedToggle();
     buildLegend();
+    refreshMyTeamTabAvailability();
 
-    renderLeftColumn();
-    renderRightColumn();
-    renderHeatmapBand();
+    // The whole tab, face and all - see renderTeamMetricsTab. Calling the three renderers directly from here is what hid both preseason faces on a first load.
+    renderTeamMetricsTab();
     // And whichever tab is actually on screen, for the same reason the Team Metrics boxes re-render here. A fetch committed while another tab is showing otherwise leaves the PREVIOUS league sitting there - the stale-view rule, which had to be applied by hand to the third tab and was then missed on the fourth. The registry answers it for every tab at once, including ones that do not exist yet. Team Metrics is already drawn by the three calls above, so its own entry re-runs them; that is cheap and keeps the rule with no exceptions to remember.
     renderActiveLeagueView();
 

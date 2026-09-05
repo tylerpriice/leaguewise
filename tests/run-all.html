@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>every suite, one pass</title>
+    <style>
+        body { font-family: monospace; padding: 20px; font-size: 13px; }
+        h1 { font-size: 16px; }
+        .pass { color: #2e7d32; }
+        .fail { color: #c62828; font-weight: bold; }
+        .absent { color: #8a6d1f; }
+        #summary { font-size: 15px; font-weight: bold; margin: 12px 0; }
+        table { border-collapse: collapse; }
+        td { padding: 1px 14px 1px 0; vertical-align: top; }
+        #frames { position: absolute; left: -9999px; top: 0; }
+    </style>
+</head>
+
+<body>
+    <!-- EVERY SUITE IN ONE PASS, because the alternative is opening twenty-three tabs by hand and golden rule 6 asks for all of them after any change they cover. Opening some of them is how a regression in a suite nobody thought was related survives a commit. IT RUNS THEM, IT DOES NOT REIMPLEMENT THEM. Each suite is loaded in an iframe exactly as a person would open it, and this page only reads the #summary element the suite writes. There is no second copy of any assertion here, so this page cannot disagree with a suite about whether the suite passed. A SUITE THAT IS NOT IN THIS TREE IS REPORTED, NOT WAITED FOR. Not every copy of this repository carries every suite - one is withheld wherever its fixture would publish private league data - so a list written here would 404 in those copies. Each file is probed with fetch first and marked ABSENT at once, which turns a hang into a fact. An absent suite is NOT counted as a pass; the header says how many were found. AND A SUITE THAT NEVER REPORTS IS A FAILURE, not a blank. A page stuck on "Running..." with an empty console is a module-level SyntaxError, which prints nothing anywhere - the failure mode this repo has been bitten by more than once. After the timeout it reads NO REPORT and the header goes red. -->
+    <h1>every suite, one pass</h1>
+    <div id="summary">Running...</div>
+    <table id="results"></table>
+    <div id="frames"></div>
+
+    <script type="module">
+        // Hardcoded because a static server has no directory listing to ask. Keep it sorted, and
+        // add a suite here in the same commit that adds the suite.
+        const SUITES = [
+            'coverage-band.test.html', 'coverage-model.test.html', 'draft-engine.test.html',
+            'features.test.html', 'images.test.html', 'leaderboard-model.test.html',
+            'leaderboard-row.test.html', 'leverage-engine.test.html', 'lineup-ground.test.html',
+            'matchup-rank.test.html', 'mock-lineup.test.html', 'off-night-band.test.html',
+            'player-rail.test.html', 'preseason-face.test.html', 'preseason-snapshot.test.html',
+            'projected-basis.test.html', 'projection-pacing.test.html', 'rank-engine.test.html',
+            'season-state.test.html', 'seasons-band.test.html', 'team-compare-band.test.html',
+            'team-compare.test.html', 'zip.test.html'
+        ];
+
+        // features.test.html imports sixteen modules and is the slow one; the rest finish in well
+        // under a second. Generous enough that a slow machine is not read as a failure.
+        const LOAD_TIMEOUT_MS = 20000;
+        const REPORT_TIMEOUT_MS = 15000;
+
+        const summaryEl = document.getElementById('summary');
+        const resultsEl = document.getElementById('results');
+        const framesEl = document.getElementById('frames');
+        const rows = [];
+
+        const row = (name, cls, text) => {
+            rows.push({ name, cls, text });
+            resultsEl.innerHTML = rows
+                .map(r => `<tr><td>${r.name}</td><td class="${r.cls}">${r.text}</td></tr>`)
+                .join('');
+        };
+
+        const present = async (file) => {
+            try { return (await fetch(file, { method: 'GET' })).ok; } catch (e) { return false; }
+        };
+
+        const runOne = async (file) => {
+            const fr = document.createElement('iframe');
+            fr.width = 1200;
+            fr.height = 400;
+            fr.src = file;
+            framesEl.appendChild(fr);
+            try {
+                await new Promise(r => { fr.onload = r; setTimeout(r, LOAD_TIMEOUT_MS); });
+                const until = Date.now() + REPORT_TIMEOUT_MS;
+                while (Date.now() < until) {
+                    let txt = '';
+                    try { txt = fr.contentDocument.getElementById('summary')?.textContent || ''; }
+                    catch (e) { return { cls: 'fail', text: 'UNREADABLE (cross-origin)', ok: false, counted: true }; }
+                    if (txt && !/^\s*running/i.test(txt)) {
+                        const m = txt.match(/(\d+)\s*\/\s*(\d+)/);
+                        const ok = m ? m[1] === m[2] : false;
+                        return { cls: ok ? 'pass' : 'fail', text: txt.trim(), ok, counted: true, n: m ? Number(m[2]) : 0 };
+                    }
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                return { cls: 'fail', text: 'NO REPORT - a module-level SyntaxError prints nothing', ok: false, counted: true };
+            } finally {
+                fr.remove();
+            }
+        };
+
+        let green = 0, red = 0, absent = 0, assertions = 0;
+        for (const file of SUITES) {
+            if (!(await present(file))) {
+                absent += 1;
+                row(file, 'absent', 'ABSENT from this tree');
+                continue;
+            }
+            const r = await runOne(file);
+            if (r.ok) { green += 1; assertions += r.n || 0; } else { red += 1; }
+            row(file, r.cls, r.text);
+        }
+
+        const found = green + red;
+        summaryEl.textContent =
+            `${green}/${found} suites green, ${assertions} assertions` +
+            (absent ? `, ${absent} absent` : '') +
+            (red ? ` - ${red} NOT GREEN` : ' ✓');
+        summaryEl.className = red ? 'fail' : 'pass';
+        // For a headless run: one object rather than scraped text.
+        window.__RUN_ALL = { green, red, absent, assertions, rows };
+        window.__DONE = true;
+    </script>
+</body>
+
+</html>

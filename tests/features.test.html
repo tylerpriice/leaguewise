@@ -19,6 +19,10 @@
     <div id="results"></div>
     <!-- players.js/export.js read the sport select the dashboard normally provides -->
     <select id="sport" style="display:none;"><option value="flb" selected>Baseball</option></select>
+    <!-- getLeagueParams reads all THREE of these, so anything reaching api.js's pro-schedule
+         accessors needs the pair below present as well as the select above (B215 O2b). -->
+    <input id="league-id" style="display:none;" value="12345">
+    <input id="year" style="display:none;" value="2025">
     <script type="module" src="features.test.js"></script>
 </body>
 

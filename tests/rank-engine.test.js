@@ -7,7 +7,8 @@ import {
     buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis, scoreWeekByCategory,
     rotoPointsForCategory, scoreRotoWeek, competitionRanks, formatRank, comparePlayerCategories,
     perDayAverages, scoreDayAgainstSelf, dayVerdict, typicalDayScore, presentDayScore, DAY_SCORE_TYPICAL, DAY_SCORE_CAP,
-    DAY_SIGNATURE_RATIO, DAY_ORDINARY_BAND
+    DAY_SIGNATURE_RATIO, DAY_ORDINARY_BAND,
+    windowProjectedLine, windowLineRanks
 } from '../rank-engine.js';
 import { buildRosterTimeline, ownerTeamIdsByPlayer, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from '../roster-timeline.js';
 
@@ -28,6 +29,8 @@ const P = (id, totals) => ({ id, seasonTotals: totals });
 
 // Baseline ctx for batter-style pools: one workload measure for both shrinkage and threshold (games played, id '81'), no inverse stats unless a test says so.
 const ctx = (over = {}) => ({
+    // Every id in this file is a BASEBALL id, so the ctx says so. The engine's opportunity gates and its RP per-nine rule are keyed by sport now, and a ctx without one gets neither - which is the point: another sport's id numbered 57 must not inherit a save-chances gate.
+    sport: 'flb',
     relevantStatIds: ['5'],
     inverseStatIds: new Set(),
     // Empty by default, so every scored cat is treated as counting, so a missing value zero-fills. Rate tests opt in a stat (e.g. rateStatIds: new Set(['47'])) to keep the undefined-skip.
@@ -76,17 +79,24 @@ test('inningsPitchedOf: outs divided by 3, missing stat -> 0', () => {
 
 test('statValueForRanking: raw normally, K as K/9 in RP pools', () => {
     const p = P(1, { '48': 80, '34': 180 }); // 60 IP
-    assertClose(statValueForRanking(p, '48', false), 80, 'raw K outside RP pool');
-    assertClose(statValueForRanking(p, '48', true), 12, 'K/9 inside RP pool (80/60*9)');
-    assert(statValueForRanking(P(2, {}), '48', true) === undefined, 'undefined stays undefined');
-    assertClose(statValueForRanking(P(3, { '48': 5 }), '48', true), 0, 'zero IP -> 0, not Infinity');
+    assertClose(statValueForRanking(p, '48', false, 'flb'), 80, 'raw K outside RP pool');
+    assertClose(statValueForRanking(p, '48', true, 'flb'), 12, 'K/9 inside RP pool (80/60*9)');
+    // A hockey id numbered 48 is not strikeouts per nine innings.
+    assertClose(statValueForRanking(p, '48', true, 'fhl'), 80, 'no per-nine substitution outside baseball');
+    assert(statValueForRanking(P(2, {}), '48', true, 'flb') === undefined, 'undefined stays undefined');
+    assertClose(statValueForRanking(P(3, { '48': 5 }), '48', true, 'flb'), 0, 'zero IP -> 0, not Infinity');
 });
 
 test('opportunityGateFor: SV ungated only in RP pools, QS gated everywhere', () => {
-    assert(opportunityGateFor('57', false) !== null && opportunityGateFor('57', false) !== undefined, 'SV gated outside RP');
-    assert(opportunityGateFor('57', true) === null, 'SV NOT gated inside RP');
-    assert(!!opportunityGateFor('63', true), 'QS gated inside RP');
-    assert(!!opportunityGateFor('63', false), 'QS gated outside RP');
+    assert(opportunityGateFor('57', false, 'flb') !== null && opportunityGateFor('57', false, 'flb') !== undefined, 'SV gated outside RP');
+    assert(opportunityGateFor('57', true, 'flb') === null, 'SV NOT gated inside RP');
+    assert(!!opportunityGateFor('63', true, 'flb'), 'QS gated inside RP');
+    assert(!!opportunityGateFor('63', false, 'flb'), 'QS gated outside RP');
+    // AND THE WHOLE POINT OF KEYING THEM: another sport's id numbered 57 or 63 inherits nothing.
+    assert(!opportunityGateFor('57', false, 'fhl'), 'no save-chances gate in hockey');
+    assert(!opportunityGateFor('63', false, 'fhl'), 'no quality-start gate in hockey');
+    assert(!opportunityGateFor('57', false, 'ffl'), 'nor in a sport nobody has validated');
+    assert(!opportunityGateFor('57', false, undefined), 'nor with no sport at all');
 });
 
 // ==== Single-stat ranking (stat chips) ====
@@ -188,7 +198,7 @@ test('computeRotoRanks: SV opportunity gate protects zero-chance players outside
     const setup = P(2, { '5': 20, '57': 2, '58': 3, '81': 60 });     // 5 chances < 15% of 35
     const starter = P(3, { '5': 30, '57': 0, '58': 0, '81': 60 });   // 0 chances
     const r = computeRotoRanks([closer, setup, starter], ctx({ relevantStatIds: ['5', '57'] }));
-    // HR percentiles: 0 / 50 / 100. SV: only the closer has real opportunity -> single-member basis -> 100 for him; setup and starter skip the category instead of eating a zero.
+    // HR percentiles: 0 / 50 / 100. SV: only the closer has real opportunity -> single-member basis -> 100 for that closer; setup and starter skip the category instead of eating a zero.
     assertClose(r.scores.get(1), 50, 'closer averages HR 0 + SV 100');
     assertClose(r.scores.get(2), 50, 'setup scored on HR only');
     assertClose(r.scores.get(3), 100, 'starter scored on HR only, tops the pool');
@@ -217,7 +227,7 @@ test('computeRotoRanks: QS stays gated inside RP pools', () => {
 test('computeRotoRanks: inverse stat ranks the LOWER value first', () => {
     const A = P(1, { '47': 2.5, '81': 100 });
     const B = P(2, { '47': 3.5, '81': 100 });
-    const r = computeRotoRanks([A, B], ctx({ relevantStatIds: ['47'], inverseStatIds: new Set(['47']) }));
+    const r = computeRotoRanks([A, B], ctx({ sport: 'flb', relevantStatIds: ['47'], inverseStatIds: new Set(['47']) }));
     assertClose(r.scores.get(1), 100, 'lower ERA scores 100');
     assertClose(r.ranks.get(1), 1, 'lower ERA ranks #1');
 });
@@ -396,7 +406,7 @@ test('computeCategoryBreakdown: a true full-precision rate tie yields equal perc
 test('buildCategoryRateBasis: counting stats divide by weeks, rate stats never do', () => {
     const pool = [P(1, { '5': 20, '2': 0.300 }), P(2, { '5': 10, '2': 0.250 })];
     const basis = buildCategoryRateBasis(pool, {
-        relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
+        sport: 'flb', relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
     });
     const hr = basis.find(c => c.id === '5');
     const avg = basis.find(c => c.id === '2');
@@ -407,7 +417,7 @@ test('buildCategoryRateBasis: counting stats divide by weeks, rate stats never d
 test('buildCategoryRateBasis: opportunity gate filters the rate pool', () => {
     const pool = [P(1, { '57': 30, '58': 5 }), P(2, { '57': 1, '58': 0 })]; // chances 35 vs 1; min = 5.25
     const basis = buildCategoryRateBasis(pool, {
-        relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: 10
+        sport: 'flb', relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: 10
     });
     assertClose(basis[0].rates.length, 1, 'no-chance reliever excluded from the SV basis');
 });
@@ -415,7 +425,7 @@ test('buildCategoryRateBasis: opportunity gate filters the rate pool', () => {
 test('buildCategoryRateBasis: categories with no data in the pool are dropped entirely', () => {
     const pool = [P(1, { '2': 0.300 }), P(2, { '2': 0.250 })]; // nobody has stat '5'
     const basis = buildCategoryRateBasis(pool, {
-        relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
+        sport: 'flb', relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
     });
     assertClose(basis.length, 1, 'empty category dropped');
     assert(basis[0].id === '2', 'the populated category survives');
@@ -424,37 +434,37 @@ test('buildCategoryRateBasis: categories with no data in the pool are dropped en
 test('scoreWeekAgainstBasis: inverse rate stat: a lower weekly value scores higher', () => {
     const pool = [P(1, { '47': 3.0 }), P(2, { '47': 4.0 })];
     const basis = buildCategoryRateBasis(pool, {
-        relevantStatIds: ['47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['47']), weeksElapsed: 10
+        sport: 'flb', relevantStatIds: ['47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['47']), weeksElapsed: 10
     });
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 2.0 }, basis), 100, 'sub-basis ERA beats everyone');
-    assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis), 50, 'mid ERA beats one of two');
+    assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis), 100, 'a better-than-median ERA on a two-member basis: the n-1 scale has only 0 and 100');
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 5.0 }, basis), 0, 'blow-up week beats nobody');
     // Inverse + proration. Rates must stay unprorated even when the matchup is half-played
-    assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis, 0.5), 50, 'partial week leaves ERA alone');
+    assertClose(scoreWeekAgainstBasis(pool[0], { '47': 3.5 }, basis, 0.5), 100, 'partial week leaves ERA alone - same figure, same percentile');
 });
 
 test('scoreWeekByCategory: the rows the explainer draws, and their mean IS the score', () => {
     const pool = [P(1, { '5': 20, '2': 0.300, '47': 3.0 }), P(2, { '5': 10, '2': 0.250, '47': 4.0 })];
-    const bctx = { relevantStatIds: ['5', '2', '47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['2', '47']), weeksElapsed: 10 };
+    const bctx = { sport: 'flb', sport: 'flb', relevantStatIds: ['5', '2', '47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['2', '47']), weeksElapsed: 10 };
     const basis = buildCategoryRateBasis(pool, bctx);
-    // HR 2.5 beats [1,2] -> 100; AVG.280 beats [.25] -> 50; ERA 3.5 (inverse) beats [4.0] -> 50
+    // Every figure here beats one of a TWO-member basis, and on the season engine's n-1 scale that is 1/(2-1) = 100 for each - so the rows are 100, 100, 100 and the mean is 100. The old strictly-worse/n rule read each as 50. Two peers cannot express an interior percentile; the real basis is hundreds of weeks, where the two denominators differ by a fraction of a point.
     const rows = scoreWeekByCategory(pool[0], { '5': 2.5, '2': 0.280, '47': 3.5 }, basis);
     assert(rows.length === 3, 'one row per scoreable category');
     assertClose(rows.find(r => r.id === '5').percentile, 100, 'HR row');
-    assertClose(rows.find(r => r.id === '2').percentile, 50, 'AVG row');
-    assertClose(rows.find(r => r.id === '47').percentile, 50, 'ERA row');
+    assertClose(rows.find(r => r.id === '2').percentile, 100, 'AVG row');
+    assertClose(rows.find(r => r.id === '47').percentile, 100, 'ERA row');
     assert(rows.find(r => r.id === '47').inverse === true, 'the inverse flag rides along for the label');
     assertClose(rows.find(r => r.id === '5').value, 2.5, 'value is the compared figure');
-    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 2.5, '2': 0.280, '47': 3.5 }, basis), 200 / 3, 'the score is the mean of the rows');
+    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 2.5, '2': 0.280, '47': 3.5 }, basis), 100, 'the score is the mean of the rows');
     assert(scoreWeekByCategory(pool[0], null, basis).length === 0, 'no week -> no rows');
 });
 
 test('scoreWeekAgainstBasis: exact percentiles, and null for unscoreable weeks', () => {
     const pool = [P(1, { '5': 20, '2': 0.300 }), P(2, { '5': 10, '2': 0.250 })];
-    const bctx = { relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10 };
+    const bctx = { sport: 'flb', sport: 'flb', relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10 };
     const basis = buildCategoryRateBasis(pool, bctx);
-    // HR 1.5 beats [1] of [1,2] -> 50; AVG.280 beats [.25] of [.25,.30] -> 50; average 50
-    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 1.5, '2': 0.280 }, basis), 50, 'full week');
+    // HR 1.5 beats one of [1,2]; AVG.280 beats one of [.25,.30]. On the n-1 scale each is 100.
+    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 1.5, '2': 0.280 }, basis), 100, 'full week');
     assert(scoreWeekAgainstBasis(pool[0], {}, basis) === null, 'empty week -> null');
     assert(scoreWeekAgainstBasis(pool[0], undefined, basis) === null, 'missing week -> null');
 });
@@ -462,17 +472,17 @@ test('scoreWeekAgainstBasis: exact percentiles, and null for unscoreable weeks',
 test('scoreWeekAgainstBasis: proration scales counting stats up, never rate stats', () => {
     const pool = [P(1, { '5': 20, '2': 0.300 }), P(2, { '5': 10, '2': 0.250 })];
     const basis = buildCategoryRateBasis(pool, {
-        relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
+        sport: 'flb', relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']), weeksElapsed: 10
     });
-    // Half a week: HR 1.2 -> on pace 2.4, beats both rates -> 100; AVG.280 unprorated -> 50
-    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 1.2, '2': 0.280 }, basis, 0.5), 75, 'prorated average');
+    // Half a week: HR 1.2 -> on pace 2.4, beats both rates -> 100; AVG.280 unprorated beats one of two -> 100 on the n-1 scale. Mean 100. Proration still only touches the counting stat - that is what this test pins, and it is unchanged.
+    assertClose(scoreWeekAgainstBasis(pool[0], { '5': 1.2, '2': 0.280 }, basis, 0.5), 100, 'prorated average');
 });
 
 test('scoreWeekAgainstBasis: opportunity-gated player skips the category', () => {
     const closer = P(1, { '57': 30, '58': 5 });
     const noChance = P(2, { '57': 1, '58': 0 });
     const basis = buildCategoryRateBasis([closer, noChance], {
-        relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: 10
+        sport: 'flb', relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: 10
     });
     assert(scoreWeekAgainstBasis(noChance, { '57': 2 }, basis) === null, 'gated player has no scoreable category');
     assert(scoreWeekAgainstBasis(closer, { '57': 2 }, basis) !== null, 'gated basis still scores the closer');
@@ -488,7 +498,7 @@ test('buildWeeklyValueBasis: counting stats collect raw per-week totals, rate st
         WP(1, {}, [{ stats: { '5': 3, '2': 0.300 }, games: 6 }, { stats: { '5': 1, '2': 0.200 }, games: 5 }]),
         WP(2, {}, [{ stats: { '5': 2, '2': 0.250 }, games: 6 }, { stats: { '5': 0, '2': 0.100 }, games: 4 }])
     ];
-    const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']) });
+    const basis = buildWeeklyValueBasis(pool, { sport: 'flb', sport: 'flb', relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']) });
     const hr = basis.find(c => c.id === '5');
     const avg = basis.find(c => c.id === '2');
     assert(JSON.stringify(hr.rates) === '[0,1,2,3]', `HR rates are real per-week totals, undivided: ${JSON.stringify(hr.rates)}`);
@@ -497,13 +507,13 @@ test('buildWeeklyValueBasis: counting stats collect raw per-week totals, rate st
 
 test('buildWeeklyValueBasis: a zero-games week is excluded from the distribution', () => {
     const pool = [WP(1, {}, [{ stats: { '5': 5 }, games: 0 }, { stats: { '5': 2 }, games: 6 }])];
-    const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
+    const basis = buildWeeklyValueBasis(pool, { sport: 'flb', sport: 'flb', relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
     assert(JSON.stringify(basis[0].rates) === '[2]', `zero-games week excluded: ${JSON.stringify(basis[0].rates)}`);
 });
 
 test('buildWeeklyValueBasis: inverse category: a lower real week scores higher via scoreWeekAgainstBasis', () => {
     const pool = [WP(1, {}, [{ stats: { '47': 5.00 }, games: 4 }]), WP(2, {}, [{ stats: { '47': 2.00 }, games: 4 }])];
-    const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['47']) });
+    const basis = buildWeeklyValueBasis(pool, { sport: 'flb', sport: 'flb', relevantStatIds: ['47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['47']) });
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 1.00 }, basis), 100, 'ERA better than both real weeks scores 100');
     assertClose(scoreWeekAgainstBasis(pool[0], { '47': 6.00 }, basis), 0, 'ERA worse than both real weeks scores 0');
 });
@@ -511,13 +521,13 @@ test('buildWeeklyValueBasis: inverse category: a lower real week scores higher v
 test('buildWeeklyValueBasis: opportunity gate filters the pool using SEASON totals, not any one week', () => {
     const closer = WP(1, { '57': 30, '58': 5 }, [{ stats: { '57': 2 }, games: 6 }]);    // 35 season chances
     const noChance = WP(2, { '57': 1, '58': 0 }, [{ stats: { '57': 0 }, games: 6 }]);   // 1 chance < 15% of 35
-    const basis = buildWeeklyValueBasis([closer, noChance], { relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set() });
+    const basis = buildWeeklyValueBasis([closer, noChance], { sport: 'flb', sport: 'flb', relevantStatIds: ['57'], inverseStatIds: new Set(), avgStatIds: new Set() });
     assertClose(basis[0].rates.length, 1, 'no-chance reliever excluded from the SV weekly-value basis');
 });
 
 test('buildWeeklyValueBasis: a category nobody has any real week for is dropped entirely', () => {
     const pool = [WP(1, {}, [{ stats: { '2': 0.3 }, games: 4 }])];
-    const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']) });
+    const basis = buildWeeklyValueBasis(pool, { sport: 'flb', sport: 'flb', relevantStatIds: ['5', '2'], inverseStatIds: new Set(), avgStatIds: new Set(['2']) });
     assertClose(basis.length, 1, 'the empty category is dropped');
     assert(basis[0].id === '2', 'the populated category survives');
 });
@@ -550,31 +560,34 @@ test('Matchup Score bug, reproduced: the OLD season-average basis saturates: a r
         P('PT5', { '5': 1 }), P('PT6', { '5': 0 }), P('PT7', { '5': 1 }), P('PT8', { '5': 0 })
     ];
     const oldBasis = buildCategoryRateBasis(oldPool, {
-        relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: b14WeeksElapsed
+        sport: 'flb', relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set(), weeksElapsed: b14WeeksElapsed
     });
     // Typical weeks sorted: [0,0,0,0, 0.25,0.25,0.25,0.25, 3.5] (9 members).
     const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, oldBasis);
     const hotScore = scoreWeekAgainstBasis(b14Subject, { '5': 6 }, oldBasis);
-    assertClose(coldScore, (8 / 9) * 100, 'a genuinely bad 1-HR week still beats 8 of 9 smoothed peer averages');
+    // Under the shared season convention (midrank over n-1) the cold week beats eight of nine and lands exactly at the ceiling: 8/(9-1) = 100. The bug reads WORSE now, not better - on the old basis the bad week and the hot week become literally the same number.
+    assertClose(coldScore, 100, 'a genuinely bad 1-HR week saturates the smoothed basis outright');
     assertClose(hotScore, 100, 'the hot week also caps at 100, indistinguishable from the "bad" week at a glance');
     assert(coldScore >= 80, `THE BUG: cold week saturates near the ceiling instead of reading low (got ${coldScore})`);
 });
 
 test('Matchup Score fix, verified: the NEW real-weekly-value basis scores the same cold week meaningfully lower than the hot week', () => {
     const pool = [b14RegularPeer, ...b14PartTimers];
-    const basis = buildWeeklyValueBasis(pool, { relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
-    // Real weekly pool sorted: [0,0,0,0, 1,1,1,1, 2,3,4,5] (12 real weeks).
+    const basis = buildWeeklyValueBasis(pool, { sport: 'flb', sport: 'flb', relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
+    // Real weekly pool sorted: [0,0,0,0, 1,1,1,1, 2,3,4,5] (12 real weeks). The cold week's 1 HR TIES the four 1-HR weeks: four strictly worse, plus half of the three other ties = 5.5, over n-1 = 11 -> 50.0. The old strictly-worse/n rule read 33.3 and counted a tied week as beaten - exactly the tie block fixed for the season number and P2 ports here.
     const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, basis);
     const hotScore = scoreWeekAgainstBasis(b14Subject, { '5': 6 }, basis);
-    assertClose(coldScore, (4 / 12) * 100, 'cold week beats only the four real 0-HR weeks in the pool');
+    assertClose(coldScore, 50, 'the cold week sits exactly at the median of this pool');
     assertClose(hotScore, 100, 'hot week still beats every real peer week');
-    assert(coldScore < 50, `cold week now reads as genuinely below average (got ${coldScore})`);
-    assert(hotScore - coldScore > 50, `the fix restores real week-to-week spread (got ${hotScore - coldScore} points)`);
+    // NOT "below average" any more, and the honest reading is better: against a pool where eight of twelve weeks are one home run or none, a 1-HR week IS the median week. The old rule called it 33rd because it counted the four weeks tied with it as beating it. What this test pins is the SPREAD - the thing was about - and that is unchanged at fifty points.
+    assert(coldScore <= 50, `cold week reads no better than the median (got ${coldScore})`);
+    // Exactly fifty now rather than sixty-seven: the cold week rose to the median it belongs at, the hot week was already capped, so the spread narrowed by the same amount the tie correction moved the cold week. Half the scale between a bad week and a great one is still the point.
+    assert(hotScore - coldScore >= 50, `the fix restores real week-to-week spread (got ${hotScore - coldScore} points)`);
 });
 
 test('Matchup Score min-games decision: excluding part-timers from the weekly-value basis sharpens the cold-week score further', () => {
     // Same subject and cold week, but the basis pool is restricted to just the full-time peer - simulating players.js filtering to MIN_PLAYING_TIME_FRACTION of games played (same threshold/measure computeRotoRanks already uses for its own qualified-pool basis) before handing the pool to buildWeeklyValueBasis.
-    const basis = buildWeeklyValueBasis([b14RegularPeer], { relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
+    const basis = buildWeeklyValueBasis([b14RegularPeer], { sport: 'flb', sport: 'flb', relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
     // Real weekly pool: [2,3,4,5] (the full-time peer's real weeks only).
     const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, basis);
     assertClose(coldScore, 0, 'a 1-HR week beats none of a true regular peer\'s real weeks');
@@ -726,7 +739,7 @@ test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () =>
             TX(25, [IT(10, 'DRAFT', 1)]) // stray DRAFT-typed item after a drop must be ignored
         ]
     });
-// item 5: the careers table asks "who ever held him", not "who held him on day 87".
+// item 5: the careers table asks "who ever held this player", not "who held them on day 87".
 test('ownerTeamIdsByPlayer: every franchise a player was ever on, first-held first', () => {
     const tl = buildRosterTimeline({
         picks: [{ playerId: 10, teamId: 1 }],
@@ -1037,10 +1050,10 @@ test('presentDayScore: a typical day reads 50, twice typical reads 100, and noth
 });
 
 test('dayVerdict: the ratio is against the TYPICAL day, not against 1', () => {
-    // A player whose typical day scores 2: a day at 2 is ordinary for him, and 3.5 is his signature.
-    assert(dayVerdict(2, false, 2) === 'ordinary', 'his own typical day is ordinary');
+    // A player whose typical day scores 2: a day at 2 is ordinary there, and 3.5 is a signature one.
+    assert(dayVerdict(2, false, 2) === 'ordinary', 'that own typical day is ordinary');
     assert(dayVerdict(3.5, false, 2) === 'signature', '1.75x of 2');
-    assert(dayVerdict(1, false, 2) === 'below', 'half his usual is a poor day');
+    assert(dayVerdict(1, false, 2) === 'below', 'half the usual is a poor day');
 });
 
 test('dayVerdict: a signature day overrules the ratio, in both directions', () => {
@@ -1060,6 +1073,178 @@ test('dayVerdict: an unscoreable day, or no baseline, reads ordinary rather than
 
 
 // Report ---------------------------------------------------------------------------
+
+
+// ==== window-projected lines ====
+
+test('windowProjectedLine: counting categories scale with games, rates do NOT', () => {
+    // Four games of two home runs a game is eight home runs. Four games of a 3.00 ERA is still a 3.00 ERA - multiplying it would say a pitcher gets worse the more they pitch, a unit error rather than a projection.
+    const line = windowProjectedLine({ 5: 2, 47: 3.0 }, 4, new Set(['47']));
+    assertClose(line['5'], 8, 'home runs scale');
+    assertClose(line['47'], 3.0, 'ERA rides through untouched');
+});
+
+test('windowProjectedLine: a null per-game figure is skipped, never read as zero', () => {
+    const line = windowProjectedLine({ 5: null, 20: undefined, 9: 1 }, 3, new Set());
+    assert(!('5' in line), 'null is absent, not 0');
+    assert(!('20' in line), 'undefined too');
+    assertClose(line['9'], 3, 'and the real one scales');
+});
+
+// Fable's own case: two players, two categories, one club playing twice the games. Player A: 1 HR and 1 RBI per game, club plays 2 -> line 2 HR, 2 RBI. Player B: 1 HR and 1 RBI per game, club plays 4 -> line 4 HR, 4 RBI. B is ahead in both, so B is #1 and A is #2 - the whole point of the lens.
+test('windowLineRanks: the same player ranks higher when that club plays more', () => {
+    const rateIds = new Set();
+    const rows = [
+        { id: 'A', line: windowProjectedLine({ 5: 1, 21: 1 }, 2, rateIds) },
+        { id: 'B', line: windowProjectedLine({ 5: 1, 21: 1 }, 4, rateIds) }
+    ];
+    const ranks = windowLineRanks(rows, { categoryIds: ['5', '21'], rateIds });
+    assert(ranks.get('B').label === 1, 'the club playing twice as often');
+    assert(ranks.get('A').label === 2, 'the identical player with half the games');
+});
+
+test('windowLineRanks: an inverse category ranks the LOW line first', () => {
+    // Two pitchers, ERA only. A projects 2.50, B projects 4.00 - A is better and must rank first.
+    const rateIds = new Set(['47']);
+    const rows = [
+        { id: 'A', line: windowProjectedLine({ 47: 2.5 }, 3, rateIds) },
+        { id: 'B', line: windowProjectedLine({ 47: 4.0 }, 6, rateIds) }
+    ];
+    const ranks = windowLineRanks(rows, { categoryIds: ['47'], inverseIds: new Set(['47']), rateIds });
+    assert(ranks.get('A').label === 1, 'the lower ERA leads');
+    assert(ranks.get('B').label === 2, 'more games does not rescue a worse rate');
+});
+
+test('windowLineRanks: equal lines SHARE a place and are marked tied', () => {
+    const rows = [
+        { id: 'A', line: { 5: 4 } },
+        { id: 'B', line: { 5: 4 } },
+        { id: 'C', line: { 5: 1 } }
+    ];
+    const ranks = windowLineRanks(rows, { categoryIds: ['5'] });
+    assert(ranks.get('A').label === 1 && ranks.get('B').label === 1, 'both first');
+    assert(ranks.get('A').tied && ranks.get('B').tied, 'and told so');
+    assert(ranks.get('C').label === 3 && !ranks.get('C').tied, 'the third is third, not second');
+});
+
+test('windowLineRanks: a rate nobody posted ranks nobody; a missing COUNT really is zero of it', () => {
+    // Opposite treatments on purpose, the same pivot the engine keeps: not appearing in home runs is zero home runs, but having no ERA is not an ERA of zero, which would be the best possible.
+    const rows = [
+        { id: 'A', line: { 5: 3 } },
+        { id: 'B', line: { 5: 1, 47: 2.0 } }
+    ];
+    const ranks = windowLineRanks(rows, { categoryIds: ['5', '47'], inverseIds: new Set(['47']), rateIds: new Set(['47']) });
+    // Only home runs can be scored across both, so A leads on the one category they share.
+    assert(ranks.get('A').label === 1, 'three home runs beats one');
+    assert(ranks.get('B').label === 2, 'and the unshared ERA does not rescue it');
+});
+
+test('windowLineRanks: one line ranks nobody', () => {
+    assert(windowLineRanks([{ id: 'A', line: { 5: 3 } }], { categoryIds: ['5'] }).size === 0, 'no peers');
+    assert(windowLineRanks([], { categoryIds: ['5'] }).size === 0, 'nobody at all');
+});
+
+
+// ==== weekly/season parity ====
+
+// A basis of ten peer weeks in one counting category, six of them ZERO - the shape a sparse category really has (measured: SB is an explicit zero on 92% of real played days).
+const SPARSE_BASIS = [{
+    id: '23', inverse: false, isRate: false,
+    rates: [0, 0, 0, 0, 0, 0, 1, 2, 3, 4]
+}];
+
+test('scoreWeekByCategory: a tied zero is MIDRANKED, not counted dead last', () => {
+    // Six zeroes and four better weeks. Strictly-worse/n scored this 0 - bottom of the league for a week that half the pool also had. Midrank over n-1: below 0, five others equal, so worseCount = 0 + (6-1)/2 = 2.5 of 9 = 27.8%.
+    const rows = scoreWeekByCategory({}, { '23': 0 }, SPARSE_BASIS);
+    assertClose(rows[0].percentile, 2.5 / 9 * 100, 'a shared zero is not dead last');
+    assert(rows[0].percentile > 20, `the B41 pathology is gone, got ${rows[0].percentile}`);
+});
+
+test('scoreWeekByCategory: beating the whole basis is still exactly 100', () => {
+    const rows = scoreWeekByCategory({}, { '23': 9 }, SPARSE_BASIS);
+    assertClose(rows[0].percentile, 100, 'clamped at the top, same as the season path');
+});
+
+test('scoreWeekByCategory: a counting category the week omits is ZERO, not skipped', () => {
+    // The week was played and nothing was stolen. The season path has zero-filled that since, and skipping it here let the week average over a smaller, kinder set of categories.
+    const basis = [
+        { id: '5', inverse: false, isRate: false, rates: [0, 1, 2] },
+        ...SPARSE_BASIS
+    ];
+    const rows = scoreWeekByCategory({}, { '5': 2 }, basis);
+    assert(rows.length === 2, 'both categories scored');
+    assert(rows[1].id === '23', 'including the one never registered');
+    assert(rows[1].value === 0, 'as a zero that was earned');
+});
+
+test('scoreWeekByCategory: a RATE nobody posted stays absent, never a zero', () => {
+    // A week with no innings has no ERA. Zero would be the best in the league, in an inverse category - the same rule the season engine keeps for rate cats.
+    const basis = [{ id: '47', inverse: true, isRate: true, rates: [2.0, 3.0, 4.0] }, ...SPARSE_BASIS];
+    const rows = scoreWeekByCategory({}, { '23': 1 }, basis);
+    assert(rows.length === 1, 'only the counting category');
+    assert(rows[0].id === '23', 'the rate is not invented');
+});
+
+test('scoreWeekByCategory: a week with NO figure at all is not a week of zeroes', () => {
+    // The guard the zero-fill makes necessary: applied to a week nobody played, zero-filling would score the player worst-possible in every category instead of leaving the week unscored.
+    assert(scoreWeekByCategory({}, {}, SPARSE_BASIS).length === 0, 'no data, no rows');
+    assert(scoreWeekByCategory({}, { '99': 5 }, SPARSE_BASIS).length === 0, 'nothing the basis scores');
+});
+
+test('scoreWeekByCategory: an inverse category still ranks the LOW value best', () => {
+    const basis = [{ id: '47', inverse: true, isRate: true, rates: [2.0, 3.0, 4.0] }];
+    const good = scoreWeekByCategory({}, { '47': 1.0 }, basis)[0];
+    const bad = scoreWeekByCategory({}, { '47': 5.0 }, basis)[0];
+    assertClose(good.percentile, 100, 'the lowest ERA beats them all');
+    assertClose(bad.percentile, 0, 'the highest beats none');
+});
+
+// ===== O1: what the preseason basis exists to prevent ===================================== Two behaviours the leaderboard depended on before it learned to rank on projections. Both are stated here rather than screenshotted, because a capture of the old build cannot be taken any more (the fixture it needs cannot be copied into a proof tree) and because a property outlasts a picture.
+
+// THE TRAP THE UNKNOWN SET CLOSES. In an INVERSE category a missing value read as zero is the BEST figure in the league - nil errors is a perfect fielding record - so a player the projection estimate could not reach would out-rank everyone who actually posted a number. rotoContext answers this by folding those ids into rateStatIds, and a rate is ranked only among the players who posted one, so the gap is skipped instead of flattered.
+const TRAP_CTX = {
+    sport: 'flb',
+    relevantStatIds: ['72'],
+    inverseStatIds: new Set(['72']),
+    isRpPool: false,
+    requireMinPlayingTime: false,
+    workloadOf: p => p.games,
+    thresholdWorkloadOf: p => p.games,
+    statMap: { '72': 'E' }
+};
+const TRAP_POOL = [
+    { id: 1, name: 'Two errors', games: 10, seasonTotals: { '72': 2 } },
+    { id: 2, name: 'Eight errors', games: 10, seasonTotals: { '72': 8 } },
+    { id: 3, name: 'No figure at all', games: 10, seasonTotals: {} }
+];
+
+test('an inverse category zero-fills a missing value into the BEST score without the unknown set', () => {
+    const { ranks } = computeRotoRanks(TRAP_POOL, { ...TRAP_CTX, rateStatIds: new Set() });
+    assert(ranks.get(3) === 1, 'the player with no error figure at all ranks first - the trap');
+    assert(ranks.get(1) === 2, 'two errors is only second best behind a nil that was never posted');
+});
+
+test('the unknown set skips the missing value instead of scoring it', () => {
+    const { ranks, scores } = computeRotoRanks(TRAP_POOL, { ...TRAP_CTX, rateStatIds: new Set(['72']) });
+    assert(!ranks.has(3), 'the player with no figure is not ranked in a category never posted');
+    assert(ranks.get(1) === 1, 'two errors is now the best posted figure');
+    assert(ranks.get(2) === 2, 'eight errors second');
+    assert(!scores.has(3), 'and carries no score to be sorted on');
+});
+
+// THE OLD LEADERBOARD, STATED. Before O1 the preseason leaderboard summed seasonTotals, which a league that has not played does not have, so every score was 0 - and computePointsRanks breaks a tie by ascending id BY DESIGN (a stable order across re-renders). The two together are why the owner found a real player at #671: not a bug in the tie-break, but a tie-break asked to carry a ranking it was never meant to decide. The pool order is deliberately NOT id order here, so this pins the id rule rather than the arrival order.
+test('an all-zero score map ranks by ascending player id, which is the #671 the owner saw', () => {
+    const pool = [
+        { id: 900, seasonTotals: {} },
+        { id: 12, seasonTotals: {} },
+        { id: 671, seasonTotals: {} }
+    ];
+    const { ranks, scores } = computePointsRanks(pool, { weights: { '53': 4 }, workloadOf: () => 1 });
+    assert(scores.get(671) === 0, 'no stats, no points');
+    assert(ranks.get(12) === 1, 'lowest id first');
+    assert(ranks.get(671) === 2, 'then 671');
+    assert(ranks.get(900) === 3, 'then 900 - arrival order ignored');
+});
 
 const passed = results.filter(r => r.ok).length;
 const failed = results.length - passed;

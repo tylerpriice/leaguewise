@@ -1,7 +1,7 @@
 // League History's rendering. The math is in history.js and is pure; this file only turns its output into markup and owns the loading state. PLACEMENT: a third top-level tab, not a league-level header above the tabs. The no-scroll rule is the reason. A header band would cost every OTHER tab vertical space permanently - Team Metrics already fights for it, and My Team's roster band is sized from what is left after the summary - so a persistent history strip would shrink three working views to decorate a fourth. As a tab it costs one button in a row that already exists and takes the full view height when it is the thing being read. It also matches the drill-down the entry asks for: a season row loads that season in today's dashboard, which is a tab switch rather than a navigation. Everything a roto season cannot answer is stated rather than blanked. The measured league changed format partway through its life, so "no head-to-head record" is a normal state here, not an error.
 import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS, RATE_COMPONENTS, INVERSE_STATS, POSITION_MAPS, SLOT_POSITION_MAPS } from './state.js';
 import { escapeHtml, openingSortDir, registerLeagueView, splitStatIdsByRole, attachDataTooltips, leagueSeasonYears } from './utils.js';
-import { playerRoleGroups, computeEligiblePositions } from './players.js';
+import { playerRoleGroups, computeEligiblePositions, liveHarvestInFlight } from './players.js';
 import { buildTeamLogoHtml, wirePlayerAvatars } from './images.js';
 import { sampleLogoColour, darkenUntilContrast, toCssRgb, parseCssColour, contrastRatio } from './logo-colour.js';
 import { loadHistorySeasons, loadHistoryPools, loadHistoryOwnership } from './api.js';
@@ -17,7 +17,7 @@ const HINT_BREAK = String.fromCharCode(10);
 const defaultSort = () => ({ key: null, dir: 'desc' });
 // One per role group, since the two groups do not share columns.
 const defaultSorts = () => ({ primary: defaultSort(), secondary: defaultSort() });
-const emptyCareers = () => ({ status: 'idle', rows: [], loaded: 0, total: 0, years: [], phase: 'pools', refining: 0, deferred: [], logYears: null, owners: {} });
+const emptyCareers = () => ({ status: 'idle', rows: [], loaded: 0, total: 0, years: [], phase: 'pools', refining: 0, deferred: [], refused: [], logYears: null, owners: {} });
 let state = { key: null, status: 'idle', seasons: [], payloads: {}, franchises: [], loaded: 0, total: 0, gridRow: null, rivalKey: null, careerSort: defaultSorts(), careerGroup: 'primary', focusPane: 'h2h', careers: emptyCareers() };
 
 export function resetHistoryView() {
@@ -380,12 +380,17 @@ function careerBlockHtml() {
     // The coverage line becomes a lead-in and a row of year chips. The sentence used to end "...is still being played, so these totals keep moving", which the live dot now says without a clause - and said it in prose on every read, which is the kind of sentence VOICE deletes once a mark can carry it.
     const lead = `Totals over ${years.length} ${years.length === 1 ? 'season' : 'seasons'}`;
     const deferred = new Set(c.deferred || []);
+    const refused = new Set(c.refused || []);
     const chips = years.map(y => {
         const isLive = live !== null && y === live;
         // A DEFERRED season's transaction log was never requested: its franchises come from the draft, and its chip is the affordance that requests the rest. A button rather than a span, because it does something now.
         if (deferred.has(y)) {
+            // Same control, different sentence. A season that was never asked for and one that was asked for and cut off are both "franchises from the draft, click for the rest", but saying "Load" to someone whose load just stopped would be the app pretending it did not happen. Neutral about cause, per VOICE: what is true is that it stopped.
+            const title = refused.has(y)
+                ? 'Franchises are from the draft. The rest stopped loading. Click to try again.'
+                : "Franchises are from the draft. Load the season's full history.";
             return `<button type="button" class="lh-season-chip is-deferred" data-log-year="${y}"`
-                + ` title="Franchises are from the draft. Load the season's full history.">`
+                + ` title="${escapeHtml(title)}">`
                 + `${escapeHtml(String(y))}</button>`;
         }
         // The title is the only place the words survive, because a dot alone cannot say WHY it is there to someone meeting it for the first time.
@@ -443,7 +448,7 @@ function careerGroupHtml(label, rows, statIds, groupKey, union, years) {
         const hint = names.length ? names.join(HINT_BREAK) : 'Never rostered';
         const cells = statIds.map(statId => {
             const v = careerValue(row, statId, specs);
-            // Blank, not zero, for a stat he has no components for. The same rule the category table follows, for the same reason.
+            // Blank, not zero, for a stat with no components behind it. The same rule the category table follows, for the same reason.
             if (v === null || v === undefined || !Number.isFinite(Number(v))) return '<td class="lh-blank"></td>';
             const text = rateSet.has(statId) ? Number(v).toFixed(3) : String(Math.round(Number(v)));
             return `<td>${escapeHtml(text)}</td>`;
@@ -486,7 +491,7 @@ function careerTableHtml(rows, years) {
         const role = playerRoleGroups({ eligiblePositions: positionsOf(row) }, sport);
         if (role.primary) acc.primary.push(row);
         if (role.secondary) acc.secondary.push(row);
-        // Eligibility can be missing for a player the pool no longer carries a position for. He is not dropped - he goes with the outfield players, whose columns are the counting stats every sport shares.
+        // Eligibility can be missing for a player the pool no longer carries a position for. The row is not dropped - it goes with the outfield players, whose columns are the counting stats every sport shares.
         if (!role.primary && !role.secondary) acc.primary.push(row);
         return acc;
     }, { primary: [], secondary: [] });
@@ -532,7 +537,8 @@ async function ensureCareers(container, key) {
         const status = rows.length || Object.keys(pools).length ? 'done' : 'error';
         state.careers = {
             status, rows, loaded: years.length, total: years.length, years, phase: 'done', refining,
-            deferred: state.careers.deferred || [], logYears: state.careers.logYears, owners
+            deferred: state.careers.deferred || [], refused: state.careers.refused || [],
+            logYears: state.careers.logYears, owners
         };
         render(container);
     };
@@ -543,8 +549,11 @@ async function ensureCareers(container, key) {
         : null;
     if (!state.careers.logYears) state.careers.logYears = years.slice(-2);
     let outstanding = 0;
+    // The race may be MID-HARVEST of the live season right now. Handing its promise down lets that season's slot join the walk already running instead of starting a second one; the pane paints exactly as it does without it, because the joined season still gets its draft in PHASE 1 and refines through the same onSeason callback below.
+    const livePending = liveHarvestInFlight();
     const owners = await loadHistoryOwnership(AppState.loadedSport, AppState.apiData.id, years, state.payloads, {
         liveSeason: live,
+        liveSeasonPending: livePending,
         fullLogYears: state.careers.logYears,
         // The loader says which seasons still owe a transaction log, so the note counts the real remainder rather than assuming every season needs one - a cached season, or the live one the Roto Race already harvested, is finished before this fires. Deferred seasons are a third state: not owed, OFFERED.
         onDrafts: (draftOwners, walkingYears, deferredYears) => {
@@ -555,6 +564,14 @@ async function ensureCareers(container, key) {
         onSeason: (year, soFar) => {
             outstanding = Math.max(0, outstanding - 1);
             attribute(soFar, outstanding);
+        },
+        // The walk stopped short because the host was refusing. A refused season is OFFERED rather than owed - the same state a deferred one is in - so it joins that list and its chip becomes the ask-again control without a new one being built. It leaves logYears because it is no longer a season whose full log this pane holds.
+        onRefused: (refusedYears) => {
+            if (state.key !== key || !refusedYears.length) return;
+            state.careers.refused = refusedYears;
+            state.careers.deferred = [...new Set([...(state.careers.deferred || []), ...refusedYears])];
+            state.careers.logYears = (state.careers.logYears || []).filter(y => !refusedYears.includes(y));
+            render(container);
         }
     });
     if (state.key !== key) return;

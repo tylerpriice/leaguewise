@@ -2,7 +2,7 @@
 
 // ==== Domain constants (validated against real ESPN data - see each comment) ====
 
-// Games-played id per sport and role-group, used for the minimum-playing-time threshold (and, in hockey, for shrinkage too - see workloadOf in players.js). Baseball: GP (id 81) turned out to be batting-only - confirmed by real data showing it completely absent (undefined, not zero) for every pitcher, which meant every single pitcher was landing under the threshold. Pitchers use 32 ("G"), confirmed via exact matches against real games-appeared for three validation pitchers (31/67/62). Hockey: both skaters and goalies use GP (id 30) - confirmed present and ~82 for full-season players across the whole 2026 cats pool (see ESPN_STAT_MAPS.fhl validation). Keyed by role-group ('primary'/'secondary') so gamesPlayedOf can look it up by the active tab; hockey uses the same id for both since, unlike baseball's SP-vs-RP appearances, all goalies (and all skaters) are a single comparable role - no swingman problem that would need an innings-style workload instead.
+// Games-played id per sport and role-group, used for the minimum-playing-time threshold (and, in hockey, for shrinkage too - see workloadOf in players.js). Baseball: GP (id 81) turned out to be batting-only - confirmed by real data showing it completely absent (undefined, not zero) for every pitcher, which meant every single pitcher was landing under the threshold. Pitchers use 32 ("G"), confirmed via exact matches against real games-appeared for three validation pitchers (31/67/62). Hockey: both skaters and goalies use GP (id 30) - confirmed present and ~82 for full-season players across the whole 2026 cats pool (see ESPN_STAT_MAPS.fhl validation). Keyed by role-group ('primary'/'secondary') so gamesPlayedOf can look it up by the active tab; hockey uses the same id for both since, unlike baseball's SP-vs-RP appearances, all goalies (and all skaters) are a single comparable role - no swingman problem that would need an innings-style workload instead. FOOTBALL IS DELIBERATELY ABSENT, and its absence was measured rather than assumed. Searched the whole 1,091-player pool for any id present on most players, integer-valued and topping out near a season's length: THERE IS NONE. The season line carries no games-played statistic at all. A count IS derivable - appliedTotal divided by appliedAverage comes out a clean integer for every one of the 647 players who scored anything, distributed 1 to 18 with a spike of 191 at 17, which is an NFL regular season. It is deliberately NOT wired here: 444 players have no average to divide by, so it answers for two thirds of the pool, and nothing in a points league needs it. computePointsRanks uses workload only for its zero floor, and a player who scored nothing ranks last on those points alone, which is already correct. gamesPlayedOf returns null for a sport with no entry and gamesPlayedKnown says so out loud, which is the honest state for football today. A categories football league would need this filled in first - that is what the null is for. THE PROJECTED LINE DIVIDES THE SAME WAY, measured since: 532 of 1052 projections carry a usable appliedAverage, and Josh Allen's comes out at exactly 17.000. So the PAIR the estimator needs - last season's games and this season's - is derivable for roughly half the pool, and leaving GAMES_PLAYED_IDS without a football entry is a CHOICE rather than an impossibility. THE THREE ALTERNATIVES THAT GET PROPOSED ALL FAIL, measured, so they are written down here to stop the fourth proposal: - The pro schedule cancels ALGEBRAICALLY. A club plays the same 17 games every season, so lastGames and projectedGames are the same number and (had / 17) * 17 is had. It is not an approximation of a per-game scaling, it is the identity. - Club games are not a player's games. Checked in hockey, where a real count exists to test against: across 1002 players the ratio of games played to club games has a mean of 0.605, and only a quarter played 95% or more of their club's schedule. Dividing by the club's games reads an injury as a bad season. - Weeks with a stat are not in the pool at all. Every line there is a season total, so that one costs the whole weekly pipeline before it is even wrong. AND THE REASON NOT TO WIRE THE DERIVABLE ONE IS THE BLAST RADIUS, not honesty. The estimator may only touch a category NO projected player carries, which on both football pools is 4 of 46 scored ids: three ESPN_STAT_MAPS has no name for, and FG60+, which ESPN declines to project for anybody including kickers. A working estimator would fill a kicker's 60-yard field goals from last year's count and change nothing else.
 export const GAMES_PLAYED_IDS = {
     flb: { primary: "81", secondary: "32" },
     fhl: { primary: "30", secondary: "30" }
@@ -19,24 +19,31 @@ export function inningsPitchedOf(p) {
 // A player needs at least this fraction of the pool's most-active player's games to be ranked at all when the qualifier is on - filters out plate-appearance-of-one call-ups whose rate stats are meaningless noise, not real signal. Games played specifically (not innings pitched, even for pitchers) - see computeRotoRanks' own comment for why the hard exclusion threshold needs a role-neutral measure, distinct from the innings-based one shrinkage uses. Kept deliberately low (20%) across every pool - the point of this toggle is filtering out extreme, tiny-sample outliers (a two-game rehab stint), not setting a "regular" bar.
 export const MIN_PLAYING_TIME_FRACTION = 0.2;
 
-// SV is a POSITIVE counting stat (more is better) locked almost entirely behind a role decision a player has no control over - a starting pitcher who's never deployed as a closer structurally can't earn saves no matter how good they are, so their 0 SV is a role/ opportunity artifact, not a deserved outcome, and scoring it like a real 0 unfairly tanks a great starter's average (a #2-of-147 starter had an average score of only 62.7 - the zeroed-out SV category alone was dragging it down). Require real save chances (SV+BS) before a low SV count counts against a player who was never given the chance to earn a high one. QS has the exact same problem, in the opposite direction of the roster. A true relief pitcher who never starts a game structurally cannot record a quality start, so an RP pool's comparison basis is otherwise full of real zeros that aren't a fair reflection of anything - confirmed against real 2025 RP data. An SP/RP swingman making occasional spot starts was landing at #2 overall ahead of several elite-ratio closers purely on the strength of a category true one-inning relievers can never even attempt. Games Started (id 33) is the opportunity signal. CS and E deliberately do NOT get this same treatment, even though they're structurally similar - they're NEGATIVE stats (fewer is better), and a 0 in a "fewer is better" category is a genuinely correct, fully-deserved value regardless of why it's 0: a fantasy Rank score is about actual category contribution, not a separate "how skilled is this player" judgment.
+// SV is a POSITIVE counting stat (more is better) locked almost entirely behind a role decision a player has no control over - a starting pitcher who's never deployed as a closer structurally can't earn saves no matter how good they are, so their 0 SV is a role/ opportunity artifact, not a deserved outcome, and scoring it like a real 0 unfairly tanks a great starter's average (a #2-of-147 starter had an average score of only 62.7 - the zeroed-out SV category alone was dragging it down). Require real save chances (SV+BS) before a low SV count counts against a player who was never given the chance to earn a high one. QS has the exact same problem, in the opposite direction of the roster. A true relief pitcher who never starts a game structurally cannot record a quality start, so an RP pool's comparison basis is otherwise full of real zeros that aren't a fair reflection of anything - confirmed against real 2025 RP data. An SP/RP swingman making occasional spot starts was landing at #2 overall ahead of several elite-ratio closers purely on the strength of a category true one-inning relievers can never even attempt. Games Started (id 33) is the opportunity signal. CS and E deliberately do NOT get this same treatment, even though they're structurally similar - they're NEGATIVE stats (fewer is better), and a 0 in a "fewer is better" category is a genuinely correct, fully-deserved value regardless of why it's 0: a fantasy Rank score is about actual category contribution, not a separate "how skilled is this player" judgment. KEYED BY SPORT, because a bare stat id is not a stat. These gates were keyed by number alone - "57" and "63" - and consulted for every scored id in every league. That works today only by luck: hockey happens to score nothing numbered 57 or 63. Another sport's id space reuses those numbers for unrelated things, and a league scoring an id numbered 57 would silently have a SAVE-CHANCES gate applied to it, excluding players from a category for failing a test about a statistic that sport does not have. The rules themselves are real baseball facts, correctly derived and validated; only the bare-number keying was an accident, and it is the kind that fails quietly. A sport with no entry gets NO gates, which is the honest default: a gate is a claim about what a category structurally requires, and inventing one for a sport nobody has validated is exactly the guesswork golden rule 4 forbids.
 export const CATEGORY_OPPORTUNITY = {
-    "57": p => (p.seasonTotals["57"] || 0) + (p.seasonTotals["58"] || 0), // SV needs real save chances (SV+BS)
-    "63": p => p.seasonTotals["33"] || 0 // QS needs real starts (GS)
+    flb: {
+        "57": p => (p.seasonTotals["57"] || 0) + (p.seasonTotals["58"] || 0), // SV needs real save chances (SV+BS)
+        "63": p => p.seasonTotals["33"] || 0 // QS needs real starts (GS)
+    }
 };
+
+// The category compared as a per-nine RATE inside an RP pool, per sport - the K/9 substitution below. Same reasoning as the gates: a table rather than an `id === '48'` branch, so no sport inherits it by having a stat that happens to be numbered 48.
+export const RP_PER_NINE_ID = { flb: "48" };
 export const MIN_OPPORTUNITY_FRACTION = 0.15;
 
-// SV's opportunity gate exists to protect STARTERS from an unearned penalty for a role they structurally can't access - within the RP pool specifically, every player already IS a reliever, so a real (possibly zero) SV total is legitimate signal about their bullpen pecking-order/trust, not a role artifact that needs protecting. Gating it there anyway let a non-closer duck the category entirely instead of being fairly compared against actual closers (confirmed against real 2026 data: Dylan Lee - 0 SV, 0 real save chances - became the top-ranked RP because "Excluded: SV, QS" let him skip both). QS doesn't have this problem in either direction, so QS stays gated everywhere.
-export function opportunityGateFor(id, isRpPool) {
-    if (id === '57' && isRpPool) return null;
-    return CATEGORY_OPPORTUNITY[id];
+// SV's opportunity gate exists to protect STARTERS from an unearned penalty for a role they structurally can't access - within the RP pool specifically, every player already IS a reliever, so a real (possibly zero) SV total is legitimate signal about their bullpen pecking-order/trust, not a role artifact that needs protecting. Gating it there anyway let a non-closer duck the category entirely instead of being fairly compared against actual closers (confirmed against real 2026 data: Dylan Lee - 0 SV, 0 real save chances - became the top-ranked RP because "Excluded: SV, QS" let that player skip both). QS doesn't have this problem in either direction, so QS stays gated everywhere.
+export function opportunityGateFor(id, isRpPool, sport) {
+    const gates = CATEGORY_OPPORTUNITY[sport] || {};
+    // The RP exception is baseball's, so it is scoped to the table that defines the gate rather than to the number 57 wherever it appears.
+    if (isRpPool && gates === CATEGORY_OPPORTUNITY.flb && id === '57') return null;
+    return gates[id];
 }
 
 // A player's value for a given scored category, normally just their raw total - except K (id 48) compared as a RATE (K/9) within an RP pool specifically. Same underlying problem as skipping shrinkage there. A true one-inning reliever's raw K total is mechanically capped by innings no swingman is bound by (confirmed against real RP data, a swingman with a 6.56 K/9 - worse than most true relievers in the pool - still out-totaled a true reliever's 12.375 K/9 season on raw K, purely from throwing over twice the innings).
-export function statValueForRanking(p, id, isRpPool) {
+export function statValueForRanking(p, id, isRpPool, sport) {
     const raw = p.seasonTotals[id];
     if (raw === undefined) return undefined;
-    if (isRpPool && id === '48') {
+    if (isRpPool && id === RP_PER_NINE_ID[sport]) {
         const ip = inningsPitchedOf(p);
         return ip > 0 ? (raw / ip) * 9 : 0;
     }
@@ -44,15 +51,15 @@ export function statValueForRanking(p, id, isRpPool) {
 }
 
 // Whether a scored category aggregates as a RATE (averaged over opportunities) rather than a COUNT (summed). This is the pivot for how a MISSING value is read, and the two directions are opposite: - Counting cats (HR, R, HAT, SHP, W, SV,...): ESPN omits a zero-valued sparse stat entirely - a skater with no hat trick has no id-28 key at all - so a missing key is a real 0. Reading it as 0 (below) ranks every qualified player in every scored counting cat, instead of ranking HAT among only the 77 players who happened to record one and letting a zero cost nothing. - Rate cats (AVG/OPS/OBP/SLG/ERA/WHIP/K9/GAA/SV%, and K compared as K/9 inside an RP pool): a rate you never posted is genuinely absent, not zero. A 0.000 AVG or 0.00 ERA is a real, and wrong, data point that would crater or inflate the average, so these keep the undefined-skip. ctx supplies rateStatIds (players.js owns AVERAGE_STATS) so the pure engine needs no stat knowledge of its own; the RP-K/9 case is the one substitution the engine already knows about.
-function isRateCategory(id, isRpPool, rateStatIds) {
-    return (rateStatIds && rateStatIds.has(id)) || (isRpPool && id === '48');
+function isRateCategory(id, isRpPool, rateStatIds, sport) {
+    return (rateStatIds && rateStatIds.has(id)) || (isRpPool && id === RP_PER_NINE_ID[sport]);
 }
 
 // The value used for basis membership and for a player's own ranking in a category: the raw stat value, or - for a COUNTING category the player has no key for - a real 0. Rate categories return undefined for a missing value so the caller skips them (see isRateCategory).
-function categoryValueFor(p, id, isRpPool, rateStatIds) {
-    const v = statValueForRanking(p, id, isRpPool);
+function categoryValueFor(p, id, isRpPool, rateStatIds, sport) {
+    const v = statValueForRanking(p, id, isRpPool, sport);
     if (v !== undefined) return v;
-    return isRateCategory(id, isRpPool, rateStatIds) ? undefined : 0;
+    return isRateCategory(id, isRpPool, rateStatIds, sport) ? undefined : 0;
 }
 
 // ==== Percentile primitives ====
@@ -87,9 +94,72 @@ export function percentileFor(sortedBasisValues, val, inverse) {
     return Math.min(100, (worseCount / (n - 1)) * 100);
 }
 
-// ==== Roto-style pool ranking For every scored category, percentile-rank each player against qualified same-role peers, average the percentiles (every category counts equally - standard Roto behavior), rank by that average. Sample size is handled three ways; only #3 is a leniency setting, #1 and #2 always apply because they correct what the numbers MEAN: 1. Playing-time shrinkage. Percentiles get pulled toward 50 proportional to how much less the player has played than the pool's leader (ctx.workloadOf; skipped entirely for RP pools - see ctx.isRpPool - because innings aren't comparable between true relievers and spot-starting swingmen, confirmed by Rasmussen/Holmes/Martinez outranking Chapman's 0.701-WHIP season on shrinkage alone). 2. Per-category opportunity gating (CATEGORY_OPPORTUNITY, via opportunityGateFor). 3. Hard exclusion (ctx.requireMinPlayingTime). Players under MIN_PLAYING_TIME_FRACTION of the pool leader's games (ctx.thresholdWorkloadOf - a role-neutral ACTIVITY measure, deliberately different from shrinkage's innings-based VALUE measure. No true reliever can clear 20% of a workhorse ace's innings, but any active reliever clears 20% of his games) don't get ranked at all. 4. Zero floor (NOT toggleable). A player with zero games is never ranked in either toggle state - see the candidatePlayers comment below for why shrinkage makes a zero score exactly 50 and why that has to be excluded rather than ranked. Critically, the COMPARISON BASIS is ALWAYS the qualified pool, regardless of #3 - a well-established player's score must never shift just because more or fewer marginal bench players are also being shown a rank. Toggling #3 off scores those marginal players by inserting them into that same fixed basis, it doesn't grow the basis itself. ctx: { relevantStatIds: string[] - scored ids for this pool's role, already data-filtered inverseStatIds: Set<string> - "lower is better" ids (ERA, WHIP, CS, E,...) rateStatIds: Set<string> - averaged (not summed) ids; a missing value stays absent, counting cats zero-fill instead (see isRateCategory) isRpPool: boolean - primary-role RP pool (no shrinkage, K as K/9, SV ungated) requireMinPlayingTime: boolean - the Minimum Games Played toggle workloadOf: p => number - shrinkage measure (GP for batters, IP for pitchers) thresholdWorkloadOf: p => number - hard-exclusion measure (games played for everyone) } ====
+// ==== Window-projected lines A POINTS league can rank a playoff window by one number - the per-game projection times the games in it. A CATEGORY league has no such number: it has ten of them, and there is no honest way to add a batting average to a home-run total. So the analogue is to build each player's projected LINE over the window and rank those lines the way every other line in this app is ranked. A RATE DOES NOT SCALE WITH GAMES, and this is the part that is easy to get wrong. Four games of a 3.00 ERA is still a 3.00 ERA; four games of two home runs a game is eight home runs. Multiplying the rate as well would have said a pitcher's ERA gets worse the more they pitch, which is not a projection, it is a unit error. Counting categories scale, rates ride through untouched. ====
+export function windowProjectedLine(perGame, games, rateIds) {
+    const out = {};
+    const n = Number(games);
+    if (!perGame || !Number.isFinite(n)) return out;
+    Object.keys(perGame).forEach(id => {
+        const v = perGame[id];
+        if (v === null || v === undefined) return;     // null before Number: Number(null) is 0
+        const num = Number(v);
+        if (!Number.isFinite(num)) return;
+        out[id] = (rateIds && rateIds.has(String(id))) ? num : num * n;
+    });
+    return out;
+}
+
+// Those lines, percentile-ranked against each other - the SAME percentileFor the Rank column is built on, over the same kind of basis, so a player who ranks well here ranks well for a reason a reader can already recognise. `rows` is [{ id, line }]. A category is scored on the players who HAVE a figure in it, so a rate nobody posted ranks nobody and a player missing a rate is left out of that category rather than read as zero - the same rule the engine's own rate handling keeps. Returns a Map of id -> { label, tied }, the shape the row model's own rank field uses, so the renderer needs no second vocabulary. Competition ranking: equal scores share a place and the label says so.
+export function windowLineRanks(rows, { categoryIds = [], inverseIds = new Set(), rateIds = new Set() } = {}) {
+    const out = new Map();
+    const players = (rows || []).filter(r => r && r.id !== undefined && r.line);
+    if (players.length < 2) return out;                // one line ranks nobody, the same rule as everywhere
+
+    const sums = new Map(players.map(r => [r.id, { total: 0, count: 0 }]));
+    categoryIds.forEach(rawId => {
+        const id = String(rawId);
+        const valueOf = (r) => {
+            const v = r.line[id];
+            if (v === null || v === undefined) return undefined;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : undefined;
+        };
+        // A rate is ranked only among the players who posted one; a counting category is ranked across everyone, because not appearing in it really is zero of it.
+        const isRate = rateIds.has(id);
+        const basis = players.map(valueOf).filter(v => v !== undefined);
+        if (basis.length < 2) return;
+        const sorted = [...basis].sort((a, b) => a - b);
+        const inverse = inverseIds.has(id);
+        players.forEach(r => {
+            let v = valueOf(r);
+            if (v === undefined) {
+                if (isRate) return;                    // no figure, no percentile in this category
+                v = 0;
+            }
+            const bucket = sums.get(r.id);
+            bucket.total += percentileFor(sorted, v, inverse);
+            bucket.count += 1;
+        });
+    });
+
+    const scored = players
+        .map(r => ({ id: r.id, score: sums.get(r.id).count ? sums.get(r.id).total / sums.get(r.id).count : null }))
+        .filter(r => r.score !== null)
+        .sort((a, b) => b.score - a.score);
+    scored.forEach((r, i) => {
+        const label = (i > 0 && scored[i - 1].score === r.score) ? out.get(scored[i - 1].id).label : i + 1;
+        out.set(r.id, { label, tied: false });
+    });
+    // A place shared by more than one player says so, which the row's own rank field also does.
+    const counts = new Map();
+    out.forEach(v => counts.set(v.label, (counts.get(v.label) || 0) + 1));
+    out.forEach(v => { v.tied = (counts.get(v.label) || 0) > 1; });
+    return out;
+}
+
+// ==== Roto-style pool ranking For every scored category, percentile-rank each player against qualified same-role peers, average the percentiles (every category counts equally - standard Roto behavior), rank by that average. Sample size is handled three ways; only #3 is a leniency setting, #1 and #2 always apply because they correct what the numbers MEAN: 1. Playing-time shrinkage. Percentiles get pulled toward 50 proportional to how much less the player has played than the pool's leader (ctx.workloadOf; skipped entirely for RP pools - see ctx.isRpPool - because innings aren't comparable between true relievers and spot-starting swingmen, confirmed by Rasmussen/Holmes/Martinez outranking Chapman's 0.701-WHIP season on shrinkage alone). 2. Per-category opportunity gating (CATEGORY_OPPORTUNITY, via opportunityGateFor). 3. Hard exclusion (ctx.requireMinPlayingTime). Players under MIN_PLAYING_TIME_FRACTION of the pool leader's games (ctx.thresholdWorkloadOf - a role-neutral ACTIVITY measure, deliberately different from shrinkage's innings-based VALUE measure. No true reliever can clear 20% of a workhorse ace's innings, but any active reliever clears 20% of that games) don't get ranked at all. 4. Zero floor (NOT toggleable). A player with zero games is never ranked in either toggle state - see the candidatePlayers comment below for why shrinkage makes a zero score exactly 50 and why that has to be excluded rather than ranked. Critically, the COMPARISON BASIS is ALWAYS the qualified pool, regardless of #3 - a well-established player's score must never shift just because more or fewer marginal bench players are also being shown a rank. Toggling #3 off scores those marginal players by inserting them into that same fixed basis, it doesn't grow the basis itself. ctx: { relevantStatIds: string[] - scored ids for this pool's role, already data-filtered inverseStatIds: Set<string> - "lower is better" ids (ERA, WHIP, CS, E,...) rateStatIds: Set<string> - averaged (not summed) ids; a missing value stays absent, counting cats zero-fill instead (see isRateCategory) isRpPool: boolean - primary-role RP pool (no shrinkage, K as K/9, SV ungated) requireMinPlayingTime: boolean - the Minimum Games Played toggle workloadOf: p => number - shrinkage measure (GP for batters, IP for pitchers) thresholdWorkloadOf: p => number - hard-exclusion measure (games played for everyone) } ====
 export function computeRotoRanks(groupPlayers, ctx) {
-    const { relevantStatIds, inverseStatIds, rateStatIds, isRpPool, requireMinPlayingTime, workloadOf, thresholdWorkloadOf } = ctx;
+    const { relevantStatIds, inverseStatIds, rateStatIds, isRpPool, requireMinPlayingTime, workloadOf, thresholdWorkloadOf, sport } = ctx;
 
     const maxWorkload = Math.max(0, ...groupPlayers.map(workloadOf));
     const shrinkFactor = p => isRpPool ? 1 : (maxWorkload > 0 ? Math.min(1, workloadOf(p) / maxWorkload) : 1);
@@ -106,14 +176,16 @@ export function computeRotoRanks(groupPlayers, ctx) {
 
     const percentileSum = new Map();
     const catCount = new Map();
+    // THE PERCENTILES THEMSELVES, kept rather than only summed. Every one of these is already computed below to make the score; discarding them and asking for them again a player at a time is what computeCategoryBreakdown is for, and that rebuilds the whole basis per call. A caller that needs the per-category picture for a WHOLE GROUP - the draft board, which measures a player category by category against a replacement - would otherwise have to reimplement the basis, the gates and the rate pivot outside this file, which is the one thing the engine exists to prevent. Purely additive: nothing below reads this map, so the score arithmetic is untouched.
+    const byCategory = new Map();
 
     relevantStatIds.forEach(id => {
-        const isRate = isRateCategory(id, isRpPool, rateStatIds);
+        const isRate = isRateCategory(id, isRpPool, rateStatIds, sport);
         // The comparison basis is always drawn from the qualified pool only, never from candidatePlayers - see the function comment above. A counting cat ranks the WHOLE qualified pool (missing values read as 0); a rate cat only the players who posted one.
         let basisPlayers = isRate
-            ? qualifiedPlayers.filter(p => statValueForRanking(p, id, isRpPool) !== undefined)
+            ? qualifiedPlayers.filter(p => statValueForRanking(p, id, isRpPool, sport) !== undefined)
             : qualifiedPlayers;
-        const opportunityOf = opportunityGateFor(id, isRpPool);
+        const opportunityOf = opportunityGateFor(id, isRpPool, sport);
         let minOpportunity = 0;
         if (opportunityOf) {
             const maxOpportunity = Math.max(0, ...basisPlayers.map(opportunityOf));
@@ -123,10 +195,10 @@ export function computeRotoRanks(groupPlayers, ctx) {
         if (basisPlayers.length === 0) return;
 
         const inverse = inverseStatIds.has(id);
-        const basisValues = basisPlayers.map(p => categoryValueFor(p, id, isRpPool, rateStatIds)).sort((a, b) => a - b);
+        const basisValues = basisPlayers.map(p => categoryValueFor(p, id, isRpPool, rateStatIds, sport)).sort((a, b) => a - b);
 
         candidatePlayers.forEach(p => {
-            const val = categoryValueFor(p, id, isRpPool, rateStatIds);
+            const val = categoryValueFor(p, id, isRpPool, rateStatIds, sport);
             if (val === undefined) return; // a rate this player never posted
             if (opportunityOf && opportunityOf(p) < minOpportunity) return;
 
@@ -134,6 +206,9 @@ export function computeRotoRanks(groupPlayers, ctx) {
             const pct = 50 + (rawPct - 50) * shrinkFactor(p);
             percentileSum.set(p.id, (percentileSum.get(p.id) || 0) + pct);
             catCount.set(p.id, (catCount.get(p.id) || 0) + 1);
+            let cats = byCategory.get(p.id);
+            if (!cats) { cats = new Map(); byCategory.set(p.id, cats); }
+            cats.set(id, pct);
         });
     });
 
@@ -147,12 +222,12 @@ export function computeRotoRanks(groupPlayers, ctx) {
     const ranks = new Map();
     ranked.forEach((p, i) => ranks.set(p.id, i + 1));
 
-    return { scores, ranks, ranked, total: ranked.length, categoryCount: relevantStatIds.length };
+    return { scores, ranks, ranked, total: ranked.length, categoryCount: relevantStatIds.length, byCategory };
 }
 
 // Same math as computeRotoRanks, but for a single player - returns the full per-category breakdown (raw percentile, shrink-adjusted percentile) that gets averaged into their Rank score, so a drill-down can show exactly how the number was built. Categories the player has no real opportunity in are reported separately as "excluded" rather than silently dropped. ctx: computeRotoRanks' ctx plus statMap (id -> display name) for row labels.
 export function computeCategoryBreakdown(player, groupPlayers, ctx) {
-    const { relevantStatIds, inverseStatIds, rateStatIds, isRpPool, workloadOf, thresholdWorkloadOf, statMap } = ctx;
+    const { relevantStatIds, inverseStatIds, rateStatIds, isRpPool, workloadOf, thresholdWorkloadOf, statMap, sport } = ctx;
 
     const maxWorkload = Math.max(0, ...groupPlayers.map(workloadOf));
     const shrink = isRpPool ? 1 : (maxWorkload > 0 ? Math.min(1, workloadOf(player) / maxWorkload) : 1);
@@ -165,16 +240,16 @@ export function computeCategoryBreakdown(player, groupPlayers, ctx) {
     const excluded = [];
     // Every branch below mirrors computeRotoRanks exactly (same basis, same value resolution, same gate) so the row percentiles reconstruct the leaderboard score - the avg returned here IS that score. A counting cat the player has no key for is now a real 0 row, not a skip.
     relevantStatIds.forEach(id => {
-        const isRate = isRateCategory(id, isRpPool, rateStatIds);
-        const val = categoryValueFor(player, id, isRpPool, rateStatIds);
+        const isRate = isRateCategory(id, isRpPool, rateStatIds, sport);
+        const val = categoryValueFor(player, id, isRpPool, rateStatIds, sport);
         if (val === undefined) return; // a rate this player never posted
         // Labeled so a K/9-substituted value doesn't look like a mislabeled raw K count.
-        const name = (statMap[id] || `Stat ${id}`) + (isRpPool && id === '48' ? ' (as K/9)' : '');
+        const name = (statMap[id] || `Stat ${id}`) + (isRpPool && id === RP_PER_NINE_ID[sport] ? ' (as K/9)' : '');
 
         let basisPlayers = isRate
-            ? qualifiedPlayers.filter(p => statValueForRanking(p, id, isRpPool) !== undefined)
+            ? qualifiedPlayers.filter(p => statValueForRanking(p, id, isRpPool, sport) !== undefined)
             : qualifiedPlayers;
-        const opportunityOf = opportunityGateFor(id, isRpPool);
+        const opportunityOf = opportunityGateFor(id, isRpPool, sport);
         if (opportunityOf) {
             const maxOpportunity = Math.max(0, ...basisPlayers.map(opportunityOf));
             const minOpportunity = maxOpportunity * MIN_OPPORTUNITY_FRACTION;
@@ -189,7 +264,7 @@ export function computeCategoryBreakdown(player, groupPlayers, ctx) {
         if (basisPlayers.length === 0) return;
 
         const inverse = inverseStatIds.has(id);
-        const basisValues = basisPlayers.map(p => categoryValueFor(p, id, isRpPool, rateStatIds)).sort((a, b) => a - b);
+        const basisValues = basisPlayers.map(p => categoryValueFor(p, id, isRpPool, rateStatIds, sport)).sort((a, b) => a - b);
         const rawPct = percentileFor(basisValues, val, inverse);
         const adjPct = 50 + (rawPct - 50) * shrink;
 
@@ -238,9 +313,10 @@ export function computeStatRankInPool(pool, playerId, statId, inverse) {
 
 // FALLBACK basis (see buildWeeklyValueBasis above for the preferred one): peer "typical week" rate distributions per scored category, built from SEASON-AVERAGE rates rather than real weeks. Used only when the pool doesn't have enough real weekly data cached yet to build the preferred basis (players.js' buildWeeklyRateBasis decides which one to use, and why) - an averaged week has far less variance than a real one, which is exactly what made this basis read flat for everyday players (a real full week from a regular beat almost every peer's smoothed average, slump or not - see buildWeeklyValueBasis's comment for the full diagnosis). Rates are sorted ascending so scoring a week is a binary search rather than a linear scan. Rate stats (AVG, ERA, WHIP,... - ctx.avgStatIds) are already per-opportunity rates. A peer's "typical week" for those IS their timeframe rate, unchanged. Dividing a rate by the week count (as counting stats need) produced a nonsense basis (a 0.280 AVG became 0.028) that every real weekly value trivially beat, pinning rate categories at ~100 (or ~0 for lower-is-better ones) instead of measuring anything. ctx: { relevantStatIds, inverseStatIds, avgStatIds: Set, weeksElapsed: number }
 export function buildCategoryRateBasis(pool, ctx) {
-    const { relevantStatIds, inverseStatIds, avgStatIds, weeksElapsed } = ctx;
+    const { relevantStatIds, inverseStatIds, avgStatIds, weeksElapsed, sport } = ctx;
+    const gates = CATEGORY_OPPORTUNITY[sport] || {};
     return relevantStatIds.map(id => {
-        const opportunityOf = CATEGORY_OPPORTUNITY[id];
+        const opportunityOf = gates[id];
         let catPool = pool.filter(p => p.seasonTotals[id] !== undefined);
         let minOpportunity = 0;
         if (opportunityOf) {
@@ -262,9 +338,10 @@ export function buildCategoryRateBasis(pool, ctx) {
 
 // Peer REAL weekly-value distributions per scored category - the PREFERRED basis for scoreWeekAgainstBasis (see buildCategoryRateBasis's own comment for the superseded "typical week" approach). That approach compared a player's real, noisy week against peers' season averages, which have far less variance than any single real week - almost any full week from an everyday player beat almost every part-timer's smoothed average, slump or not, so only the rate categories (a minority of most scoring formats) still moved. Confirmed by a real report. A regular's Matchup Score chart read flat and high all season despite a real early slump. Scoring a week against the pool's OTHER REAL WEEKS instead keeps the comparison apples-to-apples - a cold week lands against other players' actual cold weeks and reads genuinely low. weeklyValuesByPlayer: [{ id, seasonTotals, weeks: [{ stats: {statId: value}, games },...] }] - seasonTotals is read ONLY for CATEGORY_OPPORTUNITY gating, which is deliberately a SEASON-level role signal (real save chances, real starts) - one spot-relief outing shouldn't count as "real bullpen opportunity" for that single week. - weeks is whatever real per-matchup-week entries the caller (players.js) has already selected for its window; this function doesn't know or care what the window is. - stats carries each week's own derived value per category - the real per-week RATE for rate categories (AVG, ERA,... - already computed by summing that single week's raw components, not by averaging a smoothed number) and the real per-week total for counting categories. Both are used exactly as given, unlike buildCategoryRateBasis's season-total / weeksElapsed division. A week with zero games played is excluded from the distribution entirely (per-player, at the call site below) - a bye/IL week is an absence, not a performance to be beaten, and letting a pile of literal zeros sit at the bottom of every counting category's distribution would make almost any real week look artificially great by comparison, reintroducing a milder version of the exact problem this basis exists to fix. ctx: { relevantStatIds, inverseStatIds, avgStatIds: Set }
 export function buildWeeklyValueBasis(weeklyValuesByPlayer, ctx) {
-    const { relevantStatIds, inverseStatIds, avgStatIds } = ctx;
+    const { relevantStatIds, inverseStatIds, avgStatIds, sport } = ctx;
+    const gates = CATEGORY_OPPORTUNITY[sport] || {};
     return relevantStatIds.map(id => {
-        const opportunityOf = CATEGORY_OPPORTUNITY[id];
+        const opportunityOf = gates[id];
         let catPool = weeklyValuesByPlayer.filter(p => p.weeks.some(w => w.stats[id] !== undefined));
         let minOpportunity = 0;
         if (opportunityOf) {
@@ -299,13 +376,20 @@ export function scoreWeekAgainstBasis(player, weekStats, categoryRates, partialW
 // The same score, one row per category, BEFORE the average: [{ id, value, percentile }]. This is the Matchup Score explainer's raw material - the owner could not see how the number was made from the number alone, and the honest way to show it is the per-category percentiles it averages, for a real week. scoreWeekAgainstBasis is this list's mean, by construction rather than by a second copy of the loop, so the figure in the explainer cannot drift from the one on the chart. `value` is the figure that was actually compared (prorated for a partial week, per-game when the basis is), which is the figure the explainer has to print beside the bar.
 export function scoreWeekByCategory(player, weekStats, categoryRates, partialWeekFraction = 1) {
     if (!weekStats) return [];
+    // A WEEK WITH NO FIGURE AT ALL IS NOT A WEEK OF ZEROES. Zero-filling below is what makes a played week honest; applied to a week nobody played it would score that player as the worst possible in every category rather than leaving the week unscored.
+    const played = categoryRates.some(c => weekStats[c.id] !== undefined);
+    if (!played) return [];
+
     const rows = [];
     categoryRates.forEach(({ id, inverse, isRate, rates, opportunityOf, minOpportunity }) => {
-        if (weekStats[id] === undefined) return;
+        const raw = weekStats[id];
+        // THE SEASON ENGINE'S OWN MISSING-VALUE RULE. A COUNTING category the week does not carry is a zero that was earned - no bases stolen, none caught - and the season path has zero-filled those since. A RATE nobody posted is absent, not zero: a week with no innings has no ERA, and 0.00 would be the best in the league. MEASURED before it was changed: real ESPN day lines DO carry explicit zeros for sparse ids (SB zero on 92% of played days, HR on 85%, SV on 85%), and even so a scored id is missing from about 41% of played weeks. So both halves of this rule fire on real data.
+        if (raw === undefined && isRate) return;
         if (opportunityOf && opportunityOf(player) < minOpportunity) return;
-        const val = (!isRate && partialWeekFraction < 1) ? weekStats[id] / partialWeekFraction : weekStats[id];
-        const worseCount = inverse ? countGreaterThan(rates, val) : countLessThan(rates, val);
-        rows.push({ id, value: val, inverse: !!inverse, percentile: (worseCount / rates.length) * 100 });
+        const base = raw === undefined ? 0 : raw;
+        const val = (!isRate && partialWeekFraction < 1) ? base / partialWeekFraction : base;
+        // percentileFor, not a strictly-worse count: midrank tie-splitting, the n-1 denominator and the 100 clamp, so a week and a season percentile mean the same thing. Without it a week with no steals tied a huge zero block and read 0th percentile in that category, while the identical season value reads near 50 - the exact pathology fixed for the season number and never ported here.
+        rows.push({ id, value: val, inverse: !!inverse, percentile: percentileFor(rates, val, inverse) });
     });
     return rows;
 }
@@ -359,7 +443,7 @@ export function scoreRotoWeek(teams, categories) {
     return totals;
 }
 
-// PURE. The points-league equivalent of computeRotoRanks. It ranks by fantasy points scored. A points league needs no percentile machinery, because it already agrees on one number. Every stat carries a weight in the league's own scoringSettings.scoringItems, and the weighted sum IS the player's fantasy total. VALIDATED against a real 2026 NHL points league, summing stat x weight reproduced ESPN's own appliedTotal for all 1039 players in the pool, to the tenth. Computing it rather than reading appliedTotal is what lets the rank follow the timeframe pills. appliedTotal is a season figure ESPN publishes once; the same arithmetic over a windowed stat line gives the points scored in that window, so "Last 4 Matchups" ranks by the last four matchups instead of quietly re-showing the season. The minimum-playing-time machinery deliberately does NOT apply here. It exists because a rate category rewards a tiny sample, and points do the opposite. A player with three games has fewer points and already sits where he belongs. Only true zero evidence is withheld, matching computeRotoRanks' own floor, so a player who has not played reads as unranked rather than as tied last with everyone else who has not played. ctx: { weights, workloadOf } where weights maps statId to points per unit.
+// PURE. The points-league equivalent of computeRotoRanks. It ranks by fantasy points scored. A points league needs no percentile machinery, because it already agrees on one number. Every stat carries a weight in the league's own scoringSettings.scoringItems, and the weighted sum IS the player's fantasy total. VALIDATED against a real 2026 NHL points league, summing stat x weight reproduced ESPN's own appliedTotal for all 1039 players in the pool, to the tenth. Computing it rather than reading appliedTotal is what lets the rank follow the timeframe pills. appliedTotal is a season figure ESPN publishes once; the same arithmetic over a windowed stat line gives the points scored in that window, so "Last 4 Matchups" ranks by the last four matchups instead of quietly re-showing the season. The minimum-playing-time machinery deliberately does NOT apply here. It exists because a rate category rewards a tiny sample, and points do the opposite. A player with three games has fewer points and already sits where that belongs. Only true zero evidence is withheld, matching computeRotoRanks' own floor, so a player who has not played reads as unranked rather than as tied last with everyone else who has not played. ctx: { weights, workloadOf } where weights maps statId to points per unit.
 export function computePointsRanks(groupPlayers, ctx) {
     const { weights, workloadOf } = ctx;
     const ids = Object.keys(weights || {}).filter(id => weights[id]);

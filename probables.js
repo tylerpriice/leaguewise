@@ -1,4 +1,4 @@
-// Projected pitching starts. PURE - no DOM, no AppState, no fetches, so the counting rule is unit-testable and stated in one place rather than scattered through a render. The chain, all of it ESPN's own data: starterStatusByProGame a pitcher's games, each PROBABLE or NOTSTARTING (player pool) proGamesByScoringPeriod which day each pro game falls on (season schedule) the league's own day-to-matchup history VALIDATED: every game id in the first resolves against the second, 3441 of 3441, and ESPN lists a full projected rotation up to 58 days ahead. Nothing here estimates a rotation.
+// Projected pitching starts. PURE - no DOM, no AppState, no fetches, so the counting rule is unit-testable and stated in one place rather than scattered through a render. The chain, all of it ESPN's own data: starterStatusByProGame a pitcher's games, each PROBABLE or NOTSTARTING (player pool) proGamesByScoringPeriod which day each pro game falls on (season schedule) the league's own day-to-matchup history VALIDATED: every game id in the first resolves against the second, 3441 of 3441, and ESPN lists a full projected rotation up to 58 days ahead. Nothing here estimates a rotation. BASEBALL ONLY, AND NOW MEASURED RATHER THAN ASSUMED. The September captures settle whether the same chain could name a hockey GOALIE start: it cannot, because the first link does not exist there. starterStatusByProGame is carried by 2,817 of the 3,000 players in the baseball pool and by ZERO of 1,713 and ZERO of 1,655 in the two hockey pools. Two independent hockey leagues, two seasons, not one player - so this is ESPN declining to publish a projected goalie, not a capture that missed a field. A hockey equivalent therefore cannot be a PROJECTION off ESPN's own flag, and the fallback the audit named - a descriptive start share off NHL data - needs a source this project does not have permission for, so it stays behind the NHL terms ruling. Nothing to build here until that lands; this note exists so the next reader does not go looking for the flag again.
 
 // Flattens the proTeamSchedules_wl response to gameId -> { period, date, home, away }. String keys throughout, because that is how the ids arrive in starterStatusByProGame. The date and the two team ids ride along so a start can name its day and its opponent without a second lookup. Both come off the same game object. SCORING PERIOD -> CALENDAR DATE, off the same schedule the probables machinery already reads. PURE. shipped chips labelled "Day 1, Day 2" because nothing in the LEAGUE payload dates a period, and the one candidate anchor was tested and rejected - standingsUpdateDate tracks the day mid-season and drifts by six days on a finished hockey league, so it is a last-touched timestamp rather than a date. The pro-team schedule has the real thing: every game carries its own date, and a scoring period is the day its games are played on. The EARLIEST game of a period is the period's date. A period holds a whole slate, and games run into the small hours of the next day in UTC - taking the earliest keeps a Tuesday slate on Tuesday instead of letting a 00:05 finish drag the label to Wednesday. (The same UTC edge showed up in the anchor test on opening day.)
 export function datesByScoringPeriod(scheduleResponse) {
@@ -20,6 +20,23 @@ export function datesByScoringPeriod(scheduleResponse) {
         });
     });
     return byPeriod;
+}
+
+// WHAT DAY A SCORING PERIOD WAS, ready to print - "Tue", "Sat". The row contract wants the label pre-formatted (the gpLabel convention: this lane owns formatting, the renderer owns layout), and this is the only module that knows a period's date, so it is the only one that can answer. Returns a FUNCTION rather than a map because the caller asks it once per day per player and a closure over the map costs nothing, while re-deriving the date per row would cost a Date parse three thousand times over. A period the schedule has no date for falls back to its own number rather than an empty label: a column reading "12" is odd, a column reading nothing is broken.
+export function dayLabelerFor(datesByPeriod) {
+    const cache = new Map();
+    return (period) => {
+        const p = Number(period);
+        if (cache.has(p)) return cache.get(p);
+        const at = datesByPeriod && typeof datesByPeriod.get === 'function' ? datesByPeriod.get(p) : null;
+        let label = String(period);
+        if (Number.isFinite(Number(at))) {
+            const d = new Date(Number(at));
+            if (!Number.isNaN(d.getTime())) label = d.toLocaleDateString(undefined, { weekday: 'short' });
+        }
+        cache.set(p, label);
+        return label;
+    };
 }
 
 export function buildGamePeriodIndex(scheduleResponse) {
@@ -85,6 +102,12 @@ export function currentMatchupWindow(matchupMap, todayPeriod) {
     });
     // The matchup is live but no day has been filed under it yet, which is the morning it opens.
     if (start === null) start = Number(todayPeriod) || matchupMap.lastPeriod + 1;
+
+    // THE LEAGUE'S OWN SPAN FIRST, THE MODAL LENGTH ONLY AS A FALLBACK. The fallback below is the modal length of the league's COMPLETED matchups, and a playoff round is exactly the case it cannot see: measured on a live 2026 baseball league, twenty of its twenty-two completed rounds ran seven days so the modal length is 7, while the round being played runs FOURTEEN. This window therefore ended on day 166 of a round running to 173, and a pitcher with a listed start on day 167 read "1 start, 0 left" - his Monday reported as not happening, which is the owner's own report. buildMatchupPeriodMap works the real span out from the league's week counts and its final day and carries it as `currentSpan` (utils.js spanOfOpenMatchup). It is read here rather than re-derived, because two modules computing "how long is this matchup" is what produced the defect. This file imports nothing, deliberately, so the answer travels on the map.
+    const span = matchupMap.currentSpan;
+    if (span && Number.isFinite(span.end) && span.start === start) {
+        return { matchup: current, start, end: Math.max(span.end, Number(todayPeriod) || start), assumedEnd: false };
+    }
     const end = Math.max(start + typicalMatchupLength(matchupMap) - 1, Number(todayPeriod) || start);
     return { matchup: current, start, end, assumedEnd: true };
 }
@@ -117,7 +140,7 @@ export function buildOddsIndex(scoreboardResponse) {
     return index;
 }
 
-// The line for ONE pitcher's own side of his own game, which is the only form the card wants. Null whenever there is no line, which the caller must render as nothing at all rather than as a dash or a zero - an absent line is the normal state of a start more than a day out.
+// The line for ONE pitcher's own side of that game, which is the only form the card wants. Null whenever there is no line, which the caller must render as nothing at all rather than as a dash or a zero - an absent line is the normal state of a start more than a day out.
 export function moneylineFor(oddsIndex, gameId, isHome) {
     const line = oddsIndex && oddsIndex.get(String(gameId));
     if (!line) return null;
@@ -142,14 +165,14 @@ export function countProjectedStarts(pitchers, gameIndex, window, fromPeriod) {
             if (games[gameId] !== 'PROBABLE') return;
             const game = gameIndex.get(String(gameId));
             if (!game || game.period < window.start || game.period > window.end) return;
-            // Which side the pitcher is on decides the opponent, and the pool gives his proTeamId.
+            // Which side the pitcher is on decides the opponent, and the pool gives the proTeamId.
             const isHome = p.proTeamId != null && game.home === p.proTeamId;
             const opponentId = isHome ? game.away : game.home;
             starts.push({
                 id: String(gameId),
                 period: game.period,
                 date: game.date || null,
-                // The pitcher's OWN club rides along beside the opponent's, because a home start is played in his park and the difficulty engine has to be able to name it. It also records what `isHome` was decided from. Null here means the side is a guess, not a fact.
+                // The pitcher's OWN club rides along beside the opponent's, because a home start is played in that park and the difficulty engine has to be able to name it. It also records what `isHome` was decided from. Null here means the side is a guess, not a fact.
                 teamId: p.proTeamId ?? null,
                 opponentId: opponentId ?? null,
                 isHome,

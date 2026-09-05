@@ -1,7 +1,8 @@
 import { AppState } from './state.js';
+import { seasonState, isPreseason, SEASON_STATE } from './season-state.js';
 import { advancedCategoryCount, axisUnit, parseTimeframe } from './utils.js';
 import { renderLeftColumn, renderRightColumn, renderHeatmapBand } from './graphs.js';
-import { renderPlayerLeaderboard, refreshOpenPlayerDetail, rotoWindowsAvailable, rotoWindowMaxWeek } from './players.js';
+import { renderPlayerLeaderboard, refreshOpenPlayerDetail, rotoWindowsAvailable, rotoWindowMaxWeek, aheadReasons } from './players.js';
 import { renderMyTeamTab } from './myteam.js';
 
 // AppState.timeframe is now the ONE shared selection driving Team Metrics graphs, the Player Metrics leaderboard, the player drill-down chart, and its rank chips/breakdown all at once - refresh whichever of those currently have data loaded/open, regardless of which tab is active, so switching tabs never shows stale data for the newly-selected timeframe.
@@ -99,7 +100,9 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     const spanValues = options.map(o => o.value);
     const span = spanValues.includes(activeSpan) ? activeSpan : (hasPlayoffs ? 'all' : 'reg');
     const unit = axisUnit();
-    [1, 4, 8, 12].forEach(n => {
+    // O27/S30/S30b: the two forward-looking pills, Next and Rest of season, sit at the FAR right of this SAME segmented group - the group reads as one time axis, past to future (Last 12, Last 8, Last 4, Current, Next, Rest of season), so the iteration order below is itself the display order (renderTimeframeToggle appends each option to its group in the order given). Next/Rest do not compose with the span the way a window pill does (no `window`/`${span}+lastN` value; they drive the separate, shared AppState.ahead field instead, tagged `aheadKey` so the click handler below can tell the two option shapes apart). Greyed with aheadReasons() - the same schedule-existence check the leaderboard's own header/rows read, so a pill can never claim a window the render beneath it would then refuse to draw.
+    const ahead = aheadReasons();
+    [12, 8, 4, 1].forEach(n => {
         if (maxWk <= n) return;
         const fits = spanLength(span) > n;
         options.push({
@@ -109,8 +112,19 @@ export function rebuildTimeframeOptions(forceDefault = false) {
                 ? `Only ${spanLength(span)} ${(spanLength(span) === 1 ? unit.long : unit.plural).toLowerCase()} in this span`
                 : (n === 1 ? `The ${unit.long.toLowerCase()} being played now` : `The last ${n} completed ${unit.plural.toLowerCase()}`)
         });
+        if (n === 1) {
+            options.push({
+                value: '__ahead_next', group: 'recent', aheadKey: 'next', disabled: !!ahead.next,
+                text: 'Next', title: ahead.next || 'Your next matchup, projected'
+            });
+            options.push({
+                value: '__ahead_rest', group: 'recent', aheadKey: 'rest', disabled: !!ahead.rest,
+                text: 'Rest of season', title: ahead.rest || 'The rest of the season from today, projected'
+            });
+        }
     });
 
+    // NO GAMES, NO WINDOW TO CHOOSE. Before the first game every surface reads the same projected line whichever pill is lit, so a live row would offer a choice that changes nothing - a matchup picker on a league with no matchups is the tab describing a season that has not happened. GREYED WITH THE REASON rather than removed, and the reason is the same one the disabled window pills already carry: the chrome keeps ONE SHAPE across the season. Taking the row away would make the preseason tab bar a different shape from the played one, and it is centred between the tabs and the utilities, so every pill in the row would move on the way in and out. The utility cluster beside it is untouched - Legend, Export and Recap all still mean something before a game. R3 (owner override): the row used to grey every pill with a reason here instead of hiding - "No games yet. Every figure on this page is a projection." replaces that with ABSENT, the League History way, so this function no longer greys anything for preseason; the setTimeframeVisible call at the bottom hides the row outright instead.
     const currentVal = forceDefault ? null : AppState.timeframe;
     const fallback = hasPlayoffs ? 'all' : 'reg';
     // A window that the NEW span cannot offer costs the window, not the span. Switching to a four-matchup playoff bracket while holding "last 4" used to throw both away and land back on Full Season, which is not what either click asked for.
@@ -119,12 +133,28 @@ export function rebuildTimeframeOptions(forceDefault = false) {
     AppState.timeframe = live(currentVal) ? currentVal : (live(spanOnly) ? spanOnly : fallback);
 
     renderTimeframeToggle(options);
+    // R3: re-evaluated on every rebuild (a fresh fetch, a revalidate), not only on a tab click - "the selector returns the moment the season state leaves preseason, on the same call that rebuilds it." setTimeframeVisible's own preseason check wins regardless of what is passed here; the History/Draft tabs are read straight off the DOM since this function has no other way to know which one is active.
+    const historyActive = document.getElementById('tab-btn-history')?.classList.contains('active');
+    const draftActive = document.getElementById('tab-btn-draft')?.classList.contains('active');
+    setTimeframeVisible(!historyActive && !draftActive);
 }
 
-// A row of always-visible pill buttons (same visual language as.filter-flex/.legend-item elsewhere in this file) - lives directly in.tabs-container (dashboard.html) so it's visible regardless of which tab is active. AppState.timeframe is the real source of truth now (no backing <select> anymore - see state.js). League History answers "how has this league gone", which no timeframe narrows - its seasons are its own axis. So the pills are absent there, and absent is the word: the CONTAINER stays in the row and keeps its flex, so it still absorbs the free space between the tabs and the right edge exactly as it does when full. Hiding the container instead would hand that space back to the tabs and slide them, which is the reflow the ruling forbids.
+// R5/S35: My Team has nothing to show before a draft (rostersFromPayload's own refusal - see myteam.js's "No roster until the draft" state, unchanged by this item). DIMMED says "there is less here right now" without claiming the tab does not exist. R4/S45: the owner OVERRULED R5's "stays clickable" half - "the My Team tab should be unclickable in the preseason, as well as greyed." The tab still exists (dimmed, not removed), it just cannot be entered until a draft has happened: `disabled` on the button (native, so a disabled button fires no click event at all - see main.js's own belt-and-suspenders guard in switchTab) with a title naming why, restored the moment PRE_DRAFT ends since this runs on every rebuild same as the dim class already did.
+export function refreshMyTeamTabAvailability() {
+    const btn = document.getElementById('tab-btn-myteam');
+    if (!btn) return;
+    const preDraft = seasonState(AppState.apiData) === SEASON_STATE.PRE_DRAFT;
+    btn.classList.toggle('tab-button-dim', preDraft);
+    btn.disabled = preDraft;
+    btn.title = preDraft ? 'Nothing to show until the draft is held' : '';
+}
+
+// A row of always-visible pill buttons (same visual language as.filter-flex/.legend-item elsewhere in this file) - lives directly in.tabs-container (dashboard.html) so it's visible regardless of which tab is active. AppState.timeframe is the real source of truth now (no backing <select> anymore - see state.js). League History answers "how has this league gone", which no timeframe narrows - its seasons are its own axis. So the pills are absent there, and absent is the word: the CONTAINER stays in the row and keeps its flex, so it still absorbs the free space between the tabs and the right edge exactly as it does when full. Hiding the container instead would hand that space back to the tabs and slide them, which is the reflow the ruling forbids. R3: "Regular Season | Matchup" is useless before a game exists, the same reason item 1 once greyed it with a reason instead - the owner has now overridden that ruling to ABSENT, the League History way, rather than present-but-disabled. The preseason check lives HERE, inside the one function every caller (main.js's per-tab switchTab call, this file's own rebuildTimeframeOptions) already goes through, rather than in each caller - so League History's own per-tab toggle (main.js: setTimeframeVisible(!isHistory && !isDraft) on every tab switch) cannot flip the row back on for a preseason league by arguing from a tab that knows nothing about season state. The preseason hide wins regardless of what any caller asks for; `visible` only matters once the season is not.
 export function setTimeframeVisible(visible) {
     const toggle = document.getElementById('timeframe-toggle');
-    if (toggle) toggle.classList.toggle('timeframe-hidden', !visible);
+    if (!toggle) return;
+    const hide = !visible || isPreseason(seasonState(AppState.apiData));
+    toggle.classList.toggle('timeframe-hidden', hide);
 }
 
 function renderTimeframeToggle(options) {
@@ -148,9 +178,10 @@ function renderTimeframeToggle(options) {
     options.forEach(opt => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        // Each segment shows its own half of the answer: the span pill for the part of the season, the window pill for the stretch, and no window pill lit means the whole span.
+        // Each segment shows its own half of the answer: the span pill for the part of the season, the window pill for the stretch, and no window pill lit means the whole span. The two ahead pills (O27/S30) answer a THIRD, independent question - AppState.ahead, never AppState.timeframe - so their lit state is read off that field instead.
         const cur = parseTimeframe(AppState.timeframe);
-        const isActive = opt.group === 'recent' ? cur.window === opt.window : cur.span === opt.value;
+        const isActive = opt.aheadKey ? AppState.ahead === opt.aheadKey
+            : (opt.group === 'recent' ? cur.window === opt.window : cur.span === opt.value);
         btn.className = 'timeframe-chip' + (isActive ? ' active' : '') + (opt.disabled ? ' disabled' : '');
         btn.disabled = !!opt.disabled;
         btn.textContent = opt.text;
@@ -160,6 +191,13 @@ function renderTimeframeToggle(options) {
         (groups[opt.group] || groups.span).appendChild(btn);
         if (opt.disabled) return;
         btn.addEventListener('click', () => {
+            // An ahead pill toggles AppState.ahead directly - it shares the row but not the timeframe value, so it takes its own branch before any of the span/window logic below runs. Same unclick idiom as the window pills: clicking the active one clears it.
+            if (opt.aheadKey) {
+                AppState.ahead = AppState.ahead === opt.aheadKey ? null : opt.aheadKey;
+                rebuildTimeframeOptions();
+                handleTimeframeChange();
+                return;
+            }
             // A window pill toggles. Clicking the active one drops back to the whole span, which is how "the whole regular season" stays reachable without spending a pill on saying so. A span pill carries the current window across, so switching Regular Season to Playoffs keeps you on "last 4" rather than silently widening the view.
             const cur = parseTimeframe(AppState.timeframe);
             let next;
@@ -193,12 +231,22 @@ export function syncRotoTimeframePills() {
     const maxWeek = rotoWindowMaxWeek(sport);
     // GROUPED LIKE EVERY OTHER FORMAT'S ROW. The pills used to carry no `group`, so all of them fell into the SPAN segment and the "Week" caption - which belongs between the two segments - trailed off the end of the row. A fifth pill pushed it past the right edge and clipped it. Roto's one official standing is the span; its lookbacks are the recent windows. Saying so puts the caption where it belongs and makes the row read the way the other formats' rows do, which is the whole point of standardizing Current across them.
     const options = [{ value: 'all', text: 'Full Season', title: "ESPN's official season standings", group: 'span' }];
-    // CURRENT, which roto did not offer at all until - the pill row went Full Season straight to Last 4, so the one window every other format opens on was the one roto could not select. It is the same last1 window the other formats use, named the same way, in the same position in the row. Offered only once the season is longer than a week, on the same "a window has to mean something different from the full season" rule the lookbacks follow. It is also what makes the day-level roto surfaces reachable: both the Roto Race and the category race under the ranking bars already had a window === 1 branch that drew days, and with no Current pill neither branch could ever run.
-    if (maxWeek > 1) options.push({ value: 'last1', text: 'Current', title: 'The current week, day by day', group: 'recent', window: 1 });
-    [4, 8, 12].forEach(n => {
+    // Same past-to-future axis as the H2H row (S30b): the lookbacks lead, Current sits at the present, then the two ahead pills - Next always structurally disabled for roto (aheadReasons itself), Rest of season live whenever a pro schedule is in hand, since it needs no matchup at all - just today through the league's final period off the club schedule.
+    [12, 8, 4].forEach(n => {
         if (maxWeek > n) options.push({ value: `last${n}`, text: `Last ${n} Weeks`, group: 'recent', window: n });
     });
-    if (options.length === 1) return; // season too short for any honest window - keep the row hidden
+    // CURRENT, which roto did not offer at all until - the pill row went Full Season straight to Last 4, so the one window every other format opens on was the one roto could not select. It is the same last1 window the other formats use, named the same way, in the same position in the row. Offered only once the season is longer than a week, on the same "a window has to mean something different from the full season" rule the lookbacks follow. It is also what makes the day-level roto surfaces reachable: both the Roto Race and the category race under the ranking bars already had a window === 1 branch that drew days, and with no Current pill neither branch could ever run.
+    if (maxWeek > 1) options.push({ value: 'last1', text: 'Current', title: 'The current week, day by day', group: 'recent', window: 1 });
+    // S30b (owner ruling): roto gets both ahead pills too - Next always greyed with the honest structural reason (aheadReasons sets it unconditionally for a roto league, ahead of any schedule check), Rest of season live/greyed the ordinary schedule-existence way. A pill that exists and says why beats one that is missing without a word, so this row is no longer hidden just because the season is too short for a lookback - Next/Rest give it something honest to show even then.
+    const ahead = aheadReasons();
+    options.push({
+        value: '__ahead_next', group: 'recent', aheadKey: 'next', disabled: !!ahead.next,
+        text: 'Next', title: ahead.next || 'Your next matchup, projected'
+    });
+    options.push({
+        value: '__ahead_rest', group: 'recent', aheadKey: 'rest', disabled: !!ahead.rest,
+        text: 'Rest of season', title: ahead.rest || 'The rest of the season from today, projected'
+    });
 
     toggleEl.style.display = '';
     renderTimeframeToggle(options); // AppState.timeframe is still 'all', so Full Season starts active

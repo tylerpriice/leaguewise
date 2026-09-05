@@ -1,17 +1,29 @@
 // My Team: the third pillar. Team Metrics answers how the LEAGUE is doing, Player Metrics answers who is good, this answers how MY team is doing and why. It is a roster VIEWER that defaults to the user's own team and can scout any other, which is what makes the later lineup features (optimal lineup, keep/drop, the time machine) work for whichever team is on screen. Nothing here forks the engines: ranks come from the leaderboard's own pool ranking, the category profile from the heatmap's aggregation.
 
-import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS, LINEUP_SLOT_ORDER, SLOT_POSITION_MAPS, POSITION_MAPS } from './state.js';
-import { escapeHtml, getTimeframeBounds, axisUnit, attachDataTooltips, splitStatIdsByRole, injuryBadgeHtml, playerPoolErrorText, parseTimeframe, registerLeagueView } from './utils.js';
+import { AppState, ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, NON_STARTING_SLOTS, SECONDARY_LINEUP_SLOTS, LINEUP_SLOT_ORDER, LINEUP_SLOT_LABELS, SLOT_POSITION_MAPS, POSITION_MAPS, nonStartingLabels, lowerIsBetterIds } from './state.js';
+import { seasonState, SEASON_STATE, isPreseason, seasonIsFinished } from './season-state.js';
+import { escapeHtml, getTimeframeBounds, axisUnit, attachDataTooltips, splitStatIdsByRole, injuryBadgeHtml, playerPoolErrorText, parseTimeframe, registerLeagueView, setDebugContext, readsAsPlayedMatchup } from './utils.js';
 import { buildPlayerAvatarHtml, wirePlayerAvatars } from './images.js';
-import { rosterRankLookup, openPlayerDetail, playerRoleGroups, effectivePlayerPool, loadPlayerTabIfNeeded, matchupPeriodMap, ensureWeeklyDataForTimeframe, weeklyDataPending, revalidateStalePoolIfDue } from './players.js';
-import { fetchRosterForPeriod, fetchProTeamSchedules, fetchScoreboardOdds, invalidateStoredProSchedule } from './api.js';
-import { buildGamePeriodIndex, buildProTeamAbbrevs, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor } from './probables.js';
+import { rosterRankLookup, openPlayerDetail, playerRoleGroups, effectivePlayerPool, loadPlayerTabIfNeeded, matchupPeriodMap, periodsOfMatchup, ensureWeeklyDataForTimeframe, weeklyDataPending, revalidateStalePoolIfDue, groupLabel as roleGroupLabel } from './players.js';
+import { fetchRosterForPeriod, fetchProTeamSchedules, fetchScoreboardOdds, invalidateStoredProSchedule, finalScoringPeriodOf } from './api.js';
+import { buildGamePeriodIndex, buildProTeamAbbrevs, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor, datesByScoringPeriod, dayLabelerFor } from './probables.js';
+// Schedule-insight contract v1 (tests/fixtures/schedule-insight.md). Both functions take the matchup's own DAYS, never settings.scheduleSettings.matchupPeriods (that field maps a matchup to week indices, not scoring periods - the contract's own measured trap).
+import { twoStartPitchers, gamesByProTeamForMatchup, matchupWindow } from './schedule-insight.js';
+import { coverageBand, idsToSum, sumPlayers } from './coverage-model.js';
+// remainderLine is the ONE derivation of "what is still expected"; every forward-looking figure on this tab reads it so two cards can never sum different bases.
+import { remainderLine } from './projected-basis.js';
+import { rosterNightCoverage } from './schedule-insight.js';
+import { buildNightsBandHtml } from './off-night-band.js';
+import { startingSlotsByGroup } from './draft-engine.js';
+import { buildCoverageStripHtml, buildCoverageDrawerHtml, buildCoverageDrawerHeadHtml } from './coverage-band.js';
 import {
     teamOffence, offenceStrength, offenceBreakdown, startDifficulty, difficultyLabel, daysBetween, isSidelined,
     SHORT_REST_ADJUSTMENT, SHORT_REST_DAYS, MLB_PARK_FACTORS
 } from './matchup-difficulty.js';
 import { GAMES_PLAYED_IDS, competitionRanks, formatRank } from './rank-engine.js';
 import { teamCategoryProfile } from './graphs.js';
+import { teamCompare } from './team-compare.js';
+import { buildTeamCompareHtml } from './team-compare-band.js';
 
 // Which team the tab is showing, remembered per league so scouting another roster survives a tab switch but never leaks into the next league fetched.
 let viewedTeamKey = null;
@@ -31,14 +43,15 @@ const POINTS_COL = '__points__';
 const RANK_COL = '__rank__';
 // Projected starts. A pseudo-column like the two above, since it is not an ESPN stat id. It is counted from the probables feed against the pro schedule, and it only exists for pitchers.
 const STARTS_COL = '__starts__';
+const GAMES_COL = '__games__';
 // Real line breaks in a data-hint, which the hint tooltip renders via white-space: pre-line.
 const NEWLINE = String.fromCharCode(10);
 // Half-width of the park bars' scale, in run-index points. Coors is +25 and T-Mobile -17, so 25 puts the widest park at the end of its half and everything else in proportion to it. Derived from the shipped table rather than typed, so a refresh that moves the extreme moves the scale.
 const PARK_INDEX_SPAN = Math.max(...Object.values(MLB_PARK_FACTORS).map(p => Math.abs(p[0] - 100)));
 // A finished season's last lineup, fetched once per league. The payload carries current rosters only while a matchup is live, so this is what makes the tab work after a season ends. ESPN still serves the final scoring period's rosters, which IS the team as it stood for the last matchup.
 let finalRosters = { key: null, byTeam: null, state: 'idle' };
-// The pro schedule behind projected starts, fetched once per league and re-rendered into when it lands. Same fire-and-forget shape as finalRosters above, and a failure just means the line does not render.
-let proSchedule = { key: null, index: null, abbrevs: null, state: 'idle' };
+// The pro schedule behind projected starts, fetched once per league and re-rendered into when it lands. Same fire-and-forget shape as finalRosters above, and a failure just means the line does not render. proTeams is the raw settings.proTeams array (schedule-insight's gamesByProTeamForMatchup wants it directly, proGamesByScoringPeriod and all) - held alongside the derived index/abbrevs rather than re-deriving it, since it is the same one fetch.
+let proSchedule = { key: null, index: null, abbrevs: null, proTeams: null, state: 'idle' };
 // The day's betting lines, same fire-and-forget shape. Odds exist for ESPN's current slate only, so this answers for at most one day of the calendar and a miss is the ordinary case.
 let scoreboardOdds = { key: null, index: null, state: 'idle' };
 // The column widths chosen for a roster at a viewport. Deliberately NOT keyed on the timeframe: switching windows changes the VALUES (a full-season 0.947 against a single matchup's dash) and re-measuring those resized the whole table on every pill click. Widths may only ever GROW within a key, so entering a wider window still cannot clip, and the table never shrinks back.
@@ -73,7 +86,7 @@ export function resetMyTeamView() {
     openStartKey = null;
     openStartDrill = null;
     finalRosters = { key: null, byTeam: null, state: 'idle' };
-    proSchedule = { key: null, index: null, abbrevs: null, state: 'idle' };
+    proSchedule = { key: null, index: null, abbrevs: null, proTeams: null, state: 'idle' };
     scoreboardOdds = { key: null, index: null, state: 'idle' };
     lastColumnFit = { key: null, player: 0, pos: 0, stat: 0 };
     // The widths live on the CONTAINER as inline custom properties, and the container outlives every render - innerHTML replaces what is inside it, never its own style attribute. Clearing the module's memory while leaving those behind is not a reload, which is what a league switch was getting: sizeRosterColumns returns early when it has no names, no width or no sample, and any of those on the first render after a switch left the previous league's column widths standing on screen. A fresh load starts with nothing set, so a switch has to as well (owner).
@@ -85,25 +98,28 @@ export function resetMyTeamView() {
 
 // The pro-team schedule is fetched once per sport+season and then held, which is why the Schedule tab never noticed a game finishing. Dropping the local key was NEVER enough on its own: ensureProSchedule refetches through fetchProTeamSchedules, which served its own AppState/storage.session copy - so the "refetch" was a cache read and the tab could run a whole browser session on one body. Both halves drop now, and the next render genuinely asks the network. The INDEX stays on screen until the new one lands, because ensureProSchedule replaces it wholesale rather than clearing it first.
 function invalidateProSchedule() {
-    proSchedule = { key: null, index: null, abbrevs: null, state: 'idle' };
+    proSchedule = { key: null, index: null, abbrevs: null, proTeams: null, state: 'idle' };
     invalidateStoredProSchedule();
 }
 
 // Fire-and-forget, guarded by league key and state so a tab switch or timeframe click never starts a second one. The index is built once here rather than per render, since it is 2456 games.
 function ensureProSchedule(key) {
     if (proSchedule.key === key && proSchedule.state !== 'idle') return;
-    proSchedule = { key, index: null, abbrevs: null, state: 'loading' };
+    proSchedule = { key, index: null, dates: null, abbrevs: null, proTeams: null, state: 'loading' };
     fetchProTeamSchedules().then(data => {
         if (proSchedule.key !== key) return;
         proSchedule = {
             key,
             index: data ? buildGamePeriodIndex(data) : null,
+            // Kept beside the index so the games column can NAME a day ("Tue") without walking the payload again - the same dates buildGamePeriodIndex already read on the way past.
+            dates: data ? datesByScoringPeriod(data) : null,
             abbrevs: data ? buildProTeamAbbrevs(data) : null,
+            proTeams: (data && data.settings && data.settings.proTeams) || null,
             state: 'done'
         };
         renderMyTeamTab();
     }).catch(() => {
-        if (proSchedule.key === key) { proSchedule = { key, index: null, abbrevs: null, state: 'done' }; }
+        if (proSchedule.key === key) { proSchedule = { key, index: null, dates: null, abbrevs: null, proTeams: null, state: 'done' }; }
     });
 }
 
@@ -145,19 +161,9 @@ function ensureFinalRosters(key, apiData) {
     });
 }
 
-// SWID comparison tolerant of the brace-wrapped and case forms ESPN uses in different places, the same rule recap.js matches on.
-function sameSwid(a, b) {
-    const norm = (s) => String(s || '').replace(/[{}]/g, '').toUpperCase();
-    return !!a && !!b && norm(a) === norm(b);
-}
-
-// VALIDATED against real captures. teams[].owners is an ARRAY of SWID strings in the brace-wrapped uppercase form the cookie also carries, and teams[].primaryOwner repeats the first of them. members[].id uses the same form. Matching the cookie against owners identifies the user's team; a league the user only spectates matches nothing, which is the switcher-only case the tab is built to handle.
-export function findOwnedTeamId(teams, swid) {
-    if (!swid) return null;
-    const owned = (teams || []).find(t =>
-        (t.owners || []).some(o => sameSwid(o, swid)) || sameSwid(t.primaryOwner, swid));
-    return owned ? owned.id : null;
-}
+// findOwnedTeamId moved to utils.js when the pre-draft face became its third caller - graphs.js could not import it from here without a cycle. Re-exported so this module stays the name every existing caller already knows it by.
+import { findOwnedTeamId, resolveMyTeamId } from './utils.js';
+export { findOwnedTeamId };
 
 // PURE. Splits a roster into the three bands the tab draws: starters in the league's own slot order, then bench, then IR. Slots the league does not roster are skipped, and a slot this app has no order for still renders, appended in id order, so an unfamiliar roster construction degrades to a sane list instead of dropping players. entries: [{ playerId, lineupSlotId }] counts: the league's rosterSettings.lineupSlotCounts
 export function buildRosterGroups(entries, sport, counts = {}) {
@@ -192,9 +198,11 @@ export function buildRosterGroups(entries, sport, counts = {}) {
     return { starters, bench: benched, injured, orphans };
 }
 
-// PURE. The current roster off the league payload itself, which carries it on each side of an in-progress matchup (VALIDATED: a live 2026 MLB capture covers all four teams at scoringPeriodId 104, while three completed-season captures carry none). Returns a Map of teamId to entries; an empty map means the season is over or the week has no games, and the caller falls back to one mRoster call.
+// PURE. The current roster off the league payload itself, which carries it on each side of an in-progress matchup (VALIDATED: a live 2026 MLB capture covers all four teams at scoringPeriodId 104, while three completed-season captures carry none). Returns a Map of teamId to entries; an empty map means the season is over or the week has no games, and the caller falls back to one mRoster call. TWO SOURCES, IN ORDER, AND A THIRD CASE THAT IS NEITHER. This read the schedule sides only, and MEASURED across the capture set that is a LIVE-SEASON dependency rather than the one-sport bug it was reported as: of four Download All sets, the ONE taken mid-season carries rosterForCurrentScoringPeriod on 4 schedule sides and nothing in teams[].roster, while all three FINISHED leagues - one per sport - carry 181, 113 and 80 entries in teams[].roster and nothing on any side. ESPN attaches the side roster to the period it is serving, and a season that has ended is serving none. So My Team lost its roster on every finished or past season in every sport, which is what "No roster available for this team" was. THE SIDES WIN WHERE THEY EXIST. They are the roster for the period being served, which is the one the tab is describing; teams[].roster is the mRoster view's shape and is a whole-team snapshot. AND A LEAGUE THAT HAS NOT DRAFTED SHOWS NOTHING FROM EITHER, which is the case an entry count cannot decide (R5). ESPN carries LAST season's final roster forward until the draft, in both fields - so a fallback that trusted whichever source had rows would answer a pre-draft league with last year's team and label it this year's. Only the season state can tell that apart, and this tab already reads it. Before a draft, "No roster available" is the correct answer, not a gap to be filled.
 export function rostersFromPayload(apiData) {
     const out = new Map();
+    if (seasonState(apiData) === SEASON_STATE.PRE_DRAFT) return out;
+
     ((apiData || {}).schedule || []).forEach(game => {
         ['home', 'away'].forEach(side => {
             const s = game[side];
@@ -204,19 +212,35 @@ export function rostersFromPayload(apiData) {
             out.set(s.teamId, entries.map(e => ({ playerId: e.playerId, lineupSlotId: e.lineupSlotId })));
         });
     });
+    if (out.size) return out;
+
+    ((apiData || {}).teams || []).forEach(team => {
+        const entries = ((team || {}).roster || {}).entries;
+        if (!team || !entries || !entries.length) return;
+        out.set(team.id, entries.map(e => ({ playerId: e.playerId, lineupSlotId: e.lineupSlotId })));
+    });
     return out;
 }
 
 function slotLabel(sport, slot) {
-    const bench = NON_STARTING_SLOTS[sport] || new Set();
-    const benchIds = [...bench].sort((a, b) => a - b);
-    if (slot === benchIds[0]) return 'BE';
-    if (benchIds.slice(1).includes(slot)) return sport === 'flb' ? 'IL' : 'IR';
+    // The shared convention (state.js nonStartingLabels), not a second copy of it - this tab and the pre-draft ground must not disagree about what seat 16 is called.
+    const nonStarting = nonStartingLabels(sport);
+    if (nonStarting[slot]) return nonStarting[slot];
+    // The ONE validated display-label catalog (state.js LINEUP_SLOT_LABELS) - it carries every starting slot including hockey's 0/1/2 (C/LW/RW, validated ) and the roster-status slots SLOT_POSITION_MAPS deliberately excludes (that map is an eligibility decoder, not a display table, and has no fhl key at all - the source of bug 2's raw-digit hockey slots). SLOT_POSITION_MAPS stays a fallback for any flb granularity LINEUP_SLOT_LABELS lacks.
+    const labels = LINEUP_SLOT_LABELS[sport] || {};
+    if (labels[slot]) return labels[slot];
     const map = SLOT_POSITION_MAPS[sport] || {};
-    if (map[slot]) return map[slot];
-    // SLOT_POSITION_MAPS deliberately omits the roster-status slots, because they are not real defensive positions and have no business in a player's eligibility list. A lineup VIEW is the one place they must read, so they are named here rather than by loosening that map.
-    const statusNames = { flb: { 6: 'MI', 7: 'CI', 12: 'UTIL', 19: 'IF' }, fhl: { 3: 'F', 4: 'D', 5: 'G', 6: 'UTIL' } };
-    return (statusNames[sport] || {})[slot] || String(slot);
+    return map[slot] || String(slot);
+}
+
+// WHICH FIGURES THIS TAB IS SHOWING. A league that has drafted but not played has no season line to show - every cell would read a dash - so the roster reads its PROJECTED line instead, under the same PRESEASON - PROJECTED tag Team Metrics wears. Every other state stays as it is: seasonState is the only thing that decides, and no surface re-derives it.
+function projectedBasis() {
+    return seasonState(AppState.apiData) === SEASON_STATE.PRESEASON;
+}
+
+function basisTotalsOf(player) {
+    if (!player) return {};
+    return (projectedBasis() ? player.projectedTotals : player.seasonTotals) || {};
 }
 
 function teamById(id) {
@@ -225,6 +249,8 @@ function teamById(id) {
 
 // The team's record or roto total, and where that places it. Same ordering the standings bars use, so the number here and the bar there can never disagree.
 function teamStandingLine(team) {
+    // NO GAMES, NO RECORD. This is derived from weekly results, and in preseason there are none - so every team summed to 0-0-0 and competition ranking, correctly, called them all T1 of 4. The band read "RECORD 0-0-0 T1 of 4" under a tag saying nobody has played, which is the surface asserting a result it has just finished denying. ABSENT, not zeroed, and not a projected placing either: the projected standing is computed by the Team Metrics view, and a view must never import another view. The tab that owns that number already prints it. Here the honest answer is to say nothing. isPreseason, not projectedBasis's own === PRESEASON (S5/R5): a league that has not drafted yet reaches this function too, and projectedBasis's narrower check let it fall through to the record math below, which read "0-0-0 T1 of 10" under a mast that had not even named a draft date yet - a result asserted before there was a team to post one.
+    if (isPreseason(seasonState(AppState.apiData))) return null;
     if (AppState.isRotoLeague) {
         const ranked = [...AppState.teamStats].sort((a, b) => b.rotoPoints - a.rotoPoints);
         // Through the shared convention, so two teams on the same points read T-N rather than being handed a first and a second by sort order.
@@ -241,7 +267,9 @@ function teamStandingLine(team) {
             if (AppState.isPointsLeague) pts += mw;
             // A playoff bye is not a game. Its points count, its non-result does not.
             if (t.weeklyBye?.[wk]) continue;
-            const result = AppState.isPointsLeague ? (t.weeklyMatchResult[wk] || 0) : mw;
+            // A WEEK WITH NO RESULT IS NOT A LOSS. In a points league weeklyMatchWins holds POINTS, so the undefined check above only skips a week with no points entry at all - the RESULT lives in weeklyMatchResult, and data.js withholds it for a week nobody has played. `|| 0` turned that absence into a 0, and 0 is the loss branch, so an unplayed league read 0-1-0 on its first week. graphs.js has skipped it correctly since (computeRecordByTier), which is why Team Rankings and this disagreed.
+            const result = AppState.isPointsLeague ? t.weeklyMatchResult[wk] : mw;
+            if (result === undefined) continue;
             if (result === 1) w++; else if (result === 0.5) ties++; else l++;
         }
         return { w, l, ties, pts, wins: w + ties * 0.5 };
@@ -294,12 +322,19 @@ export function renderMyTeamTab() {
     const key = `${sport}:${AppState.apiData.id}:${AppState.apiData.seasonId}`;
     if (viewedTeamKey !== key) {
         viewedTeamKey = key;
-        viewedTeamId = findOwnedTeamId(AppState.apiData.teams, AppState.userSwid);
+        viewedTeamId = null;
+        viewedTeamIsStandIn = false;
+        // A chosen opponent belongs to THIS league (S22) - carrying an id across a league switch would compare against a team id that means something else, or nothing, in the new one.
+        AppState.myTeamCompareOpponentId = null;
+        AppState.myTeamCompareDrawerOpen = false;
+        // R9/S57: a pinned schedule page names a period NUMBER, which is only ever meaningful against the matchup it was pinned in - carried into a new league it would either land on an unrelated week or miss every clamp outright and fall back to today anyway. Cleared here rather than relied on to fail safely, so the pin never has a chance to name the wrong days.
+        AppState.myTeamScheduleWindowStart = null;
     }
     if (viewedTeamId == null || !teamById(viewedTeamId)) {
-        // Whoever is first, because there is no SWID to match yet or it matched nothing. Marked as a stand-in so a SWID arriving later can correct it - a user who logs in mid-session otherwise sits on a stranger's roster on the tab called My Team, and never learns it is not theirs.
-        viewedTeamId = AppState.teamStats.length ? AppState.teamStats[0].id : null;
-        viewedTeamIsStandIn = true;
+        // resolveMyTeamId (utils.js, S14b) is now the ONE place this question is answered - a real SWID match wins, and a stand-in (whoever standings puts first) fills in otherwise, marked so a SWID arriving later can correct it. A user who logs in mid-session otherwise sits on a stranger's roster on the tab called My Team, and never learns it is not theirs.
+        const resolved = resolveMyTeamId(AppState.apiData.teams, AppState.userSwid, AppState.teamStats);
+        viewedTeamId = resolved.id;
+        viewedTeamIsStandIn = resolved.isStandIn;
     }
     if (viewedTeamIsStandIn && AppState.userSwid) {
         const owned = findOwnedTeamId(AppState.apiData.teams, AppState.userSwid);
@@ -316,6 +351,14 @@ export function renderMyTeamTab() {
     }
 
     const rosterMap = rostersFromPayload(AppState.apiData);
+    // The diagnostic panel's 'roster' kind used to fill only from the timeline snapshot (fetchRosterPeriod), which this tab's PRIMARY path never calls - a live season reads its roster straight off the league payload's own rosterForCurrentScoringPeriod, no separate request at all, so a capture running Download All on exactly that path got team.json (the whole payload) but no roster.json, because nothing had ever told the panel this tab was reading a roster out of it. rostersFromPayload stays pure (no side effects belong in a function documented as pure), so the capture happens here, in the caller, reshaped into the same {teams:[{id, roster:{entries}}]} shape a real mRoster response has, so roster.json reads the same way regardless of which path actually supplied the data.
+    if (rosterMap.size) {
+        setDebugContext('roster', {
+            teams: [...rosterMap].map(([id, es]) => ({
+                id, roster: { entries: es.map(e => ({ playerId: e.playerId, lineupSlotId: e.lineupSlotId })) }
+            }))
+        });
+    }
     let entries = rosterMap.get(team.id) || [];
     // A finished season carries no current roster, so fall back to the final period's lineup, which is the team as it stood for the last matchup.
     let awaitingFinal = false;
@@ -331,10 +374,13 @@ export function renderMyTeamTab() {
     const avgSet = AVERAGE_STATS[sport] || new Set();
     const scoredIds = [...AppState.scoredStatIds].filter(id => statMap[id]);
     // A points league is scored on one number, so that number leads its stat block. The individual stats behind it stay, but the column the league actually cares about reads first. "Starts" rather than the GS abbreviation (owner). GS is a real stat, and this column sits in a row of actual season totals (W, SV, K, ERA, QS), so the abbreviation would read as one.
-    const colLabel = (id) => (id === POINTS_COL ? 'PTS' : id === STARTS_COL ? 'Starts' : statMap[id]);
+    const colLabel = (id) => (id === POINTS_COL ? 'PTS' : id === STARTS_COL ? 'Starts' : id === GAMES_COL ? 'Games' : statMap[id]);
 
     const standing = teamStandingLine(team);
     const profile = teamCategoryProfile(team.id);
+    // S17b: the coverage strip/drawer's own "Losing"/"Winning" reads off the SAME rank the WINS/BLEEDS chips above them already show, not coverage-model.js's own share-based `weak` - the owner reads both as the same word, and only one of them is the band's actual position in the league. profile.worst IS the bleeding set (below the league's median); profile.all is every scored category's rank, keyed here by id for the drawer's per-card badge.
+    const coverageLosingIds = new Set((profile.worst || []).map(r => String(r.id)));
+    const coverageRankById = new Map((profile.all || []).map(r => [String(r.id), r]));
     const isOwn = AppState.userSwid && findOwnedTeamId(AppState.apiData.teams, AppState.userSwid) === team.id;
     ensureProSchedule(key);
     ensureScoreboardOdds(key);
@@ -350,7 +396,7 @@ export function renderMyTeamTab() {
     if (AppState.playerDataLoaded && parseTimeframe(AppState.timeframe).window !== null) {
         ensureWeeklyDataForTimeframe(sport);
     }
-    // A rostered player absent from the windowed pool has no weekly row cached, which means one of two very different things: his rows have not arrived yet, or they have and he did not play in this window. Saying "no games in this timeframe" while the fetch is still running asserts the second when the truth is the first.
+    // A rostered player absent from the windowed pool has no weekly row cached, which means one of two very different things: the rows have not arrived yet, or they have and nothing was played in this window. Saying "no games in this timeframe" while the fetch is still running asserts the second when the truth is the first.
     const windowedMissing = AppState.playerDataLoaded
         ? [...rosterIds].filter(id => !poolById.has(id) && AppState.playerData.some(p => p.id === id)).length
         : 0;
@@ -369,7 +415,7 @@ export function renderMyTeamTab() {
         }
         return `<span class="mt-rank" data-tooltip="Rank ${r.rank} of ${r.total} among ${escapeHtml(r.poolLabel)}">#${r.rank}</span>`;
     };
-    // Projected starts for the matchup being played, counted once and read by the pitcher column below. IR is excluded because those players cannot be started without a roster move, while the bench is INCLUDED. In a daily-lineup league a benched starter is routinely slotted in on the morning he pitches, so his turns are starts this roster can actually take.
+    // Projected starts for the matchup being played, counted once and read by the pitcher column below. IR is excluded because those players cannot be started without a roster move, while the bench is INCLUDED. In a daily-lineup league a benched starter is routinely slotted in on the morning of a start, so those turns are ones this roster can actually take.
     const projected = (() => {
         if (!proSchedule.index || !AppState.playerDataLoaded) return null;
         const win = currentMatchupWindow(matchupPeriodMap(), AppState.apiData.scoringPeriodId);
@@ -383,6 +429,291 @@ export function renderMyTeamTab() {
         return counts.total ? counts : null;
     })();
 
+    // The matchup's own days, off the league's real schedule (buildMatchupPeriodMap/periodsOfMatchup) and never off settings.scheduleSettings.matchupPeriods - that field maps a matchup to WEEK indices, not scoring periods, which is the schedule-insight contract's own measured trap (a factor-of-seven miscount). Shared by the two-start badges and the games-per-team note below, so both read the same days currentMatchupWindow itself pointed at.
+    const matchupDays = (() => {
+        if (!AppState.playerDataLoaded) return null;
+        const win = currentMatchupWindow(matchupPeriodMap(), AppState.apiData.scoringPeriodId);
+        if (!win) return null;
+        const periods = periodsOfMatchup(matchupPeriodMap(), win.matchup);
+        return periods.length ? { matchup: win.matchup, periods } : null;
+    })();
+
+    // GAMES THIS MATCHUP, per player. The same question the Starts column answers for pitchers, asked of everyone: how many of the club's games are still ahead in the matchup being played. A batter never had a column saying whether there is even a game this week, which is the first thing a start/sit decision needs. Memoised per player rather than precomputed for the roster, because the roster is assembled in four groups in three different places and a second list of who is on it is a second thing to keep in step. THE CATEGORY COVERAGE BAND. What this team is winning and losing against the rest of the league, who on the roster is carrying each category, and what a swap would cost. THE MODEL READS seasonTotals BY NAME, so every player handed to it is normalised to the basis this tab is already showing - season lines mid-season, projected lines before a game is played (basisTotalsOf, the same seasonState switch the roster tables make). Adapting the caller keeps coverage-model pure and unchanged; giving the model a value-accessor knob would have put the basis question inside the arithmetic, where every future reader has to answer it again.
+    const coverage = (() => {
+        // R6: hidden in every points league in every season state, not just pre-draft. A points league's scoredStatIds is every weighted stat (46 in the owner's own league, item 5) rather than the handful a category league counts standings by, and the band has no design for that shape - it has never shipped in a release, so nothing here is a regression.
+        if (AppState.isPointsLeague) return null;
+        const sport = AppState.loadedSport;
+        const categoryIds = [...(AppState.scoredStatIds || [])];
+        if (!AppState.playerDataLoaded || !categoryIds.length) return null;
+        const rosters = rostersFromPayload(AppState.apiData);
+        if (!rosters.size) return null;
+
+        const components = RATE_COMPONENTS[sport] || [];
+        const inverseIds = lowerIsBetterIds(INVERSE_STATS[sport], AppState.scoringWeights);
+        const rateIds = AVERAGE_STATS[sport] || new Set();
+        const ids = idsToSum(categoryIds, components);
+        const poolById = new Map((AppState.playerData || []).map(p => [p.id, p]));
+        const basisPlayer = (p) => ({ id: p.id, name: p.name, seasonTotals: basisTotalsOf(p) });
+        const todayPeriod = Number(AppState.apiData?.scoringPeriodId) || null;
+        // O28/S28c: a FINISHED season's projectedTotals is a remainder frozen at whatever day ESPN stopped updating it, not a real rest-of-season figure (seasonIsFinished's own comment measures it: 254 actual+projected against ~162 real games on a closed 2025 pool). The band refuses the projected basis entirely here rather than let a frozen number print as a confident "would add 135 the rest of the way" on a season with no rest of the way - the same refusal team-compare's own window-building already reaches naturally (no live/next matchup and no todayPeriod-to-final span survive a finished season's own numbers).
+        const finished = seasonIsFinished(AppState.apiData);
+
+        // R4/S28/O27-S30: the forward-looking half reads AppState.ahead now - REST OF SEASON AT REST (ahead null or 'rest', Q1's own ruling) costs nothing and needs no schedule, ESPN's projectedTotals (statSourceId 1) already IS the remainder; ahead:'next' rebuilds one from a per-game rate x the club's games in the NEXT matchup, the same O11 atoms team-compare's own projected branch reads (below), just pre-multiplied into a totals object here rather than kept as {rate, games} - this caller wants a total, not a rate.
+        const nextWindow = (() => {
+            if (finished || AppState.ahead !== 'next') return null;
+            const map = matchupPeriodMap();
+            const current = Number(AppState.currentMatchup) || (map && map.currentMatchup) || null;
+            if (current == null || !proSchedule.proTeams) return null;
+            const periods = periodsOfMatchup(map, current + 1);
+            if (!periods.length) return null;
+            return { matchup: current + 1, periods, byTeamGames: gamesByProTeamForMatchup(proSchedule.proTeams, periods) };
+        })();
+        // THE REST OF THE WAY IS A WINDOW TOO, today through the league's last day. It never was one: the forward basis handed ESPN's rest-of-season line straight to the model, which is how a free agent came to "add 29 home runs" over three weeks off a full-season projection ESPN had stopped refreshing. Both windows now go through the same remainderLine, so flipping the Next pill changes the SPAN and never the basis.
+        const restWindow = (() => {
+            if (finished || nextWindow || !proSchedule.proTeams || !todayPeriod) return null;
+            const final = finalScoringPeriodOf(AppState.apiData);
+            if (!final || final < todayPeriod) return null;
+            const periods = [];
+            for (let p = todayPeriod; p <= final; p++) periods.push(p);
+            return { matchup: null, periods, byTeamGames: gamesByProTeamForMatchup(proSchedule.proTeams, periods) };
+        })();
+        const forwardWindow = nextWindow || restWindow;
+        // THE DENOMINATOR THE REMAINDER IS PRICED ON: every game each club has already played this season. remainderLine divides by the CLUB's games rather than the player's, so a starting pitcher is not priced as though he pitched every night (see its own comment - the first version of this printed a starter's whole season as three weeks).
+        const clubGamesPlayed = (() => {
+            if (!forwardWindow || !todayPeriod || !proSchedule.proTeams) return null;
+            const periods = [];
+            for (let p = 1; p < todayPeriod; p++) periods.push(p);
+            return periods.length ? gamesByProTeamForMatchup(proSchedule.proTeams, periods) : null;
+        })();
+        // A STARTING PITCHER IS PRICED OVER HIS ROTATION TURN, not his club's schedule. Both facts come out of the pool's own probable listings: who is a starter (a probable anywhere this season - 351 of a 3,000-player pool, every reliever checked carrying none) and how far ahead ESPN has posted. The horizon is the second condition and it is not optional: the furthest probable in the live capture is scoring period 174 against a season running to 187, so a rest-of-the-way window counted in starts would find eleven days of twenty-four and price him on half a rotation.
+        const startsContext = (() => {
+            if (!forwardWindow || !proSchedule.index) return null;
+            const periods = forwardWindow.periods || [];
+            if (!periods.length) return null;
+            const pool = AppState.playerData || [];
+            const starterIds = new Set();
+            let horizonEnd = null;
+            pool.forEach(p => {
+                const listed = p && p.starterStatusByProGame;
+                if (!listed) return;
+                Object.keys(listed).forEach(gameId => {
+                    if (listed[gameId] !== 'PROBABLE') return;
+                    starterIds.add(p.id);
+                    const game = proSchedule.index.get(String(gameId));
+                    if (game && (horizonEnd === null || game.period > horizonEnd)) horizonEnd = game.period;
+                });
+            });
+            const window = { start: periods[0], end: periods[periods.length - 1] };
+            const byPlayer = countProjectedStarts(pool, proSchedule.index, window, todayPeriod).byPlayer;
+            return { starterIds, horizonEnd, byPlayer, windowEnd: window.end };
+        })();
+        // S54: `periods` rides on BOTH branches now (it used to be dropped outright on the rest-of-way one) - coverage-band.js's new strip/drawer caption names how many games are left in the window, and forwardWindow.periods (nextWindow's or restWindow's, whichever this branch is) is the same day list gamesByProTeamForMatchup already prices the remainder against, not a second figure computed here.
+        const coverageWindow = nextWindow
+            ? { kind: 'matchup', label: 'this matchup', matchup: nextWindow.matchup, periods: forwardWindow.periods, asOf: todayPeriod }
+            : { kind: 'rest', label: 'the rest of the way', matchup: null, periods: forwardWindow ? forwardWindow.periods : null, asOf: todayPeriod };
+
+        const projectedBasisPlayer = (p) => {
+            if (!forwardWindow) return { id: p.id, name: p.name, seasonTotals: {} };
+            const groups = playerRoleGroups(p, sport);
+            // Secondary ONLY for a player who is exclusively a pitcher/goalie - the same simplification the leaderboard's own Batters/Pitchers split already makes.
+            const secondaryOnly = groups.secondary && !groups.primary;
+            const gamesId = (GAMES_PLAYED_IDS[sport] || {})[secondaryOnly ? 'secondary' : 'primary'];
+            const gamesRemaining = matchupWindow(forwardWindow.byTeamGames, p.proTeamId, {
+                matchup: forwardWindow.matchup, periods: forwardWindow.periods, fromPeriod: todayPeriod
+            }).games;
+            // remainderLine refuses a player with no games played, which is a real answer and not a gap - an empty bag here reads through sumPlayers as "carries none of every category", exactly as a player who has produced nothing should.
+            const clubPlayed = clubGamesPlayed && clubGamesPlayed.get(Number(p.proTeamId));
+            // remainderLine reads expectedAppearances itself, so the unit is decided in one place for the band, the pacing card and the leaderboard column alike. `remaining` here is the count of the player's LISTED starts inside this window; without a listing it is undefined and the share answers instead.
+            const listing = startsContext && startsContext.byPlayer.get(p.id);
+            const line = remainderLine(p, {
+                gamesId, rateIds, gamesRemaining, clubGamesPlayed: clubPlayed ? clubPlayed.games : 0,
+                projectedStarts: listing ? listing.remaining : null,
+                startsScheduled: !!(startsContext && startsContext.starterIds.has(p.id)),
+                horizonEnd: startsContext ? startsContext.horizonEnd : null,
+                windowEnd: startsContext ? startsContext.windowEnd : null
+            });
+            return { id: p.id, name: p.name, seasonTotals: line || {} };
+        };
+
+        const sumsByTeam = {};
+        rosters.forEach((entries, tid) => {
+            const players = entries.map(e => poolById.get(e.playerId)).filter(Boolean).map(basisPlayer);
+            sumsByTeam[tid] = sumPlayers(players, ids);
+        });
+        if (!sumsByTeam[team.id]) return null;
+
+        // THE FREE AGENTS WORTH NAMING, not all of them. gainFrom re-sums the whole roster once per candidate per losing category, so the full pool would be tens of thousands of sums on every render of this tab. Ordered by how widely owned they are, because the shopping list exists to name someone a manager could plausibly add - nobody adds the two-thousandth best free agent, and a list that ranked them would still only ever show three. SIDELINED PLAYERS ARE NOT CANDIDATES. The owner's band named a closer on the fifteen-day list as the best add for saves, and it was not a modelling error: ESPN's rest-of-season projection does not discount an injured player at all - measured, that closer projects the same six saves over ten innings as four healthy ones, and the highest projected save-getter in the pool is on the SIXTY-day list. The remainder is untrue for them and no arithmetic here can recover it, so they are not named at all. isSidelined is matchup-difficulty.js's, not a second list written here: it already answers "can this player play" for the offence model, it covers OUT, SUSPENSION and every DL tier, and it deliberately keeps DAY_TO_DAY IN because a day-to-day player starts most days. Checked against ESPN's own `injured` boolean across all 3000 pool entries: they agree on every one, and isSidelined additionally catches the suspended, which that boolean does not. FILTERED BEFORE THE SLICE so the shortlist is 120 players a manager could actually add, rather than 120 minus however many are hurt. The rows are ALSO marked `out`, which is the rule coverage-model.js's contract states and enforces for any caller that marks instead.
+        const availableRaw = (AppState.playerData || [])
+            .filter(p => !p.teamId && !isSidelined(p.injuryStatus))
+            .sort((a, b) => (b.rosterPct || 0) - (a.rosterPct || 0))
+            .slice(0, 120);
+        const mark = (row, p) => (row ? { ...row, out: isSidelined(p.injuryStatus) } : row);
+        const available = availableRaw.map(p => mark(basisPlayer(p), p));
+        // NO WINDOW, NO PROJECTED BASIS. Without the pro schedule there are no club games to multiply a rate by, so the band is handed null and falls back to the actuals roster it already falls back to on a finished season - a real refusal rather than an empty bag that would render as a confident zero.
+        const forwardBasis = !finished && !!forwardWindow && !!clubGamesPlayed;
+        const projectedAvailable = forwardBasis ? availableRaw.map(p => mark(projectedBasisPlayer(p), p)) : null;
+
+        const rosterRaw = (rosters.get(team.id) || []).map(e => poolById.get(e.playerId)).filter(Boolean);
+        if (!rosterRaw.length) return null;
+        const roster = rosterRaw.map(basisPlayer);
+        const projectedRoster = forwardBasis ? rosterRaw.map(projectedBasisPlayer) : null;
+
+        return coverageBand({
+            sumsByTeam, teamId: team.id, roster, available, categoryIds, components, inverseIds,
+            projectedRoster, projectedAvailable, window: forwardBasis ? coverageWindow : null,
+            // SEARCH FOR AN ADD IN EVERY CATEGORY THIS TAB WILL CALL LOSING. The strip and the drawer both rank by coverageLosingIds, not by the model's share-based `weak`, and the two differ - so a category could be listed as losing while no add had ever been looked for, and the renderer would report a search that never ran. The model unions this with its own holes; it is not a replacement for them.
+            searchIds: coverageLosingIds
+        });
+    })();
+
+    // THE "AGAINST" COMPARISON. teamCompare's own frozen contract (tests/fixtures/team-compare.md) - this block only ASSEMBLES the ctx it asks for; every refusal (a points league, no opponent, a window with no days, a projected window with no roster) is the model's own to make, not re-derived here.
+    const compare = (() => {
+        if (AppState.isPointsLeague) return null;
+        const opponentId = AppState.myTeamCompareOpponentId;
+        if (opponentId == null) return null;
+        const opponent = teamById(opponentId);
+        if (!opponent || !AppState.playerDataLoaded) return null;
+        const sport = AppState.loadedSport;
+        const categoryIds = [...(AppState.scoredStatIds || [])];
+        if (!categoryIds.length) return null;
+
+        // THE WINDOW. "This matchup" reads as played once it has really started (readsAsPlayedMatchup, the same test data.js itself uses to decide whether weeklyCats gets a row at all) - a matchup that has not begun takes the projected path rather than a zeroed played one, same as the contract's own honest-limits section rules. "Next matchup" and "Rest of season" are ALWAYS projected.
+        const map = matchupPeriodMap();
+        const current = Number(AppState.currentMatchup) || (map && map.currentMatchup) || null;
+        const todayPeriod = Number(AppState.apiData?.scoringPeriodId) || null;
+        // O27/S30: the drawer's own window is gone - it reads the shared AppState.ahead now, the same field the tab bar's Next/Rest pills and the coverage band above both read. null means "this matchup" (windowKey 'window', unchanged meaning from the old default chip).
+        const windowKey = AppState.ahead || 'window';
+        let win = null;
+        if (windowKey === 'window' && current != null) {
+            const periods = periodsOfMatchup(map, current);
+            if (periods.length) {
+                const played = readsAsPlayedMatchup(current, AppState.maxCompletedWeek, AppState.currentMatchup);
+                win = { kind: played ? 'played' : 'projected', label: `Matchup ${current}`, matchup: current, periods, asOf: todayPeriod };
+            }
+        } else if (windowKey === 'next' && current != null) {
+            const next = current + 1;
+            const periods = periodsOfMatchup(map, next);
+            if (periods.length) win = { kind: 'projected', label: `Matchup ${next}`, matchup: next, periods, asOf: todayPeriod };
+        } else if (windowKey === 'rest' && todayPeriod != null) {
+            const final = finalScoringPeriodOf(AppState.apiData);
+            if (final && final >= todayPeriod) {
+                const periods = [];
+                for (let p = todayPeriod; p <= final; p++) periods.push(p);
+                if (periods.length) win = { kind: 'projected', label: 'Rest of Season', matchup: null, periods, asOf: todayPeriod };
+            }
+        }
+        if (!win) return null;
+
+        const ctx = {
+            window: win,
+            scoredIds: categoryIds,
+            statLabels: statMap,
+            lowerIsBetterIds: lowerIsBetterIds(INVERSE_STATS[sport], AppState.scoringWeights),
+            rateIds: AVERAGE_STATS[sport] || new Set(),
+            rateComponents: RATE_COMPONENTS[sport] || []
+        };
+
+        if (win.kind === 'played') {
+            // Zero requests: the team totals data.js already built off the league payload, per matchup - the exact atom the contract measures this window against.
+            const played = {};
+            (AppState.teamStats || []).forEach(t => { played[t.id] = t.weeklyCats || {}; });
+            ctx.played = played;
+        } else {
+            // PROJECTED: each rostered player's per-game rate times that club's games in the window, the same read the Player Metrics lens columns make for one player at a time, made here for a whole roster.
+            if (!proSchedule.proTeams) return null;
+            const byTeamGames = gamesByProTeamForMatchup(proSchedule.proTeams, win.periods);
+            const rostersMap = rostersFromPayload(AppState.apiData);
+            const poolById = new Map((AppState.playerData || []).map(p => [p.id, p]));
+            const projFor = (teamId) => (rostersMap.get(teamId) || [])
+                .map(e => poolById.get(e.playerId))
+                .filter(Boolean)
+                .map(p => {
+                    const groups = playerRoleGroups(p, sport);
+                    // Secondary ONLY for a player who is exclusively a pitcher/goalie - a two-way player is read off the primary role, the same simplification the leaderboard's own Batters/Pitchers split already makes rather than double-counting the row.
+                    const secondaryOnly = groups.secondary && !groups.primary;
+                    const gamesId = (GAMES_PLAYED_IDS[sport] || {})[secondaryOnly ? 'secondary' : 'primary'];
+                    const totals = p.projectedTotals;
+                    if (!totals || !gamesId) return null;
+                    const projGames = Number(totals[gamesId]);
+                    if (!Number.isFinite(projGames) || projGames <= 0) return null;
+                    const rates = {};
+                    Object.keys(totals).forEach(id => {
+                        const v = totals[id];
+                        if (v === null || v === undefined) return;
+                        const n = Number(v);
+                        if (!Number.isFinite(n)) return;
+                        rates[id] = ctx.rateIds.has(String(id)) ? n : n / projGames;
+                    });
+                    const games = matchupWindow(byTeamGames, p.proTeamId, {
+                        matchup: win.matchup, periods: win.periods, fromPeriod: todayPeriod
+                    }).games;
+                    return { rates, games };
+                })
+                .filter(Boolean);
+            ctx.projected = { [team.id]: projFor(team.id), [opponent.id]: projFor(opponent.id) };
+        }
+
+        return teamCompare({ teamId: team.id, name: team.name }, { teamId: opponent.id, name: opponent.name }, ctx);
+    })();
+
+    // THE NIGHTS BAND, one coverage per role group. HOCKEY ONLY, and not as a stylistic choice: the question is "which nights is my lineup empty", and it only has a question mark behind it in a sport whose clubs play on different nights. Baseball plays nearly every day and football once a week, so the band would draw a flat row of full nights in one and a single cell in the other. The same roster set the projected-starts block uses, and for the same reason: the bench is INCLUDED because a benched skater can be slotted in on the morning of a game, and IR is EXCLUDED because that seat cannot be filled without a roster move. A band that counted an injured player as covering a night would be describing a lineup nobody can field.
+    const nights = (() => {
+        if (sport !== 'fhl' || !proSchedule.proTeams || !matchupDays || !AppState.playerDataLoaded) return null;
+        // Capacity per group, off the league's own slot counts - the same split the draft board's replacement level is built from, so "how many seats" means one thing in both places.
+        const slots = startingSlotsByGroup(counts, {
+            nonStarting: NON_STARTING_SLOTS[sport],
+            secondary: SECONDARY_LINEUP_SLOTS[sport]
+        });
+        const labelOf = proSchedule.dates ? dayLabelerFor(proSchedule.dates) : null;
+        const rows = [...groups.starters, ...groups.bench, ...groups.orphans];
+        const forRole = (secondary) => rows
+            .map(r => poolById.get(r.playerId))
+            .filter(p => p && (secondary ? playerRoleGroups(p, sport).secondary : playerRoleGroups(p, sport).primary))
+            .map(p => ({ id: p.id, proTeamId: p.proTeamId }));
+        const cover = (secondary) => rosterNightCoverage(
+            forRole(secondary), proSchedule.proTeams, matchupDays.periods,
+            { slots: secondary ? slots.secondary : slots.primary }
+        );
+        return { labelOf, primary: cover(false), secondary: cover(true) };
+    })();
+
+    const hasGamesWindow = !!(proSchedule.proTeams && matchupDays && AppState.playerDataLoaded);
+    const windowCache = new Map();
+    let windowByTeam = null;
+    let windowLabelOf = null;
+    const gamesWindowFor = (playerId) => {
+        if (windowCache.has(playerId)) return windowCache.get(playerId);
+        let out = null;
+        if (proSchedule.proTeams && matchupDays && AppState.playerDataLoaded) {
+            if (!windowByTeam) {
+                windowByTeam = gamesByProTeamForMatchup(proSchedule.proTeams, matchupDays.periods);
+                windowLabelOf = proSchedule.dates ? dayLabelerFor(proSchedule.dates) : null;
+            }
+            const p = poolById.get(playerId);
+            if (p && p.proTeamId != null) {
+                out = matchupWindow(windowByTeam, p.proTeamId, {
+                    matchup: matchupDays.matchup,
+                    periods: matchupDays.periods,
+                    labelOf: windowLabelOf,
+                    fromPeriod: AppState.apiData.scoringPeriodId
+                });
+            }
+        }
+        windowCache.set(playerId, out);
+        return out;
+    };
+
+    // Two-start pitchers this matchup. Read off the same roster/eligibility filter projected above uses, so a player counted toward "starts still to come" is the same player who can earn the badge.
+    const twoStart = (() => {
+        if (!proSchedule.index || !matchupDays) return null;
+        const byId = new Map(AppState.playerData.map(p => [p.id, p]));
+        const available = [...groups.starters, ...groups.bench, ...groups.orphans]
+            .map(r => byId.get(r.playerId))
+            .filter(p => p && p.starterStatusByProGame);
+        if (!available.length) return null;
+        return twoStartPitchers(available, proSchedule.index, matchupDays.periods, { fromPeriod: AppState.apiData.scoringPeriodId });
+    })();
+
     // How hard each projected start looks. The opposing offence is measured over the WHOLE player pool rather than the league's rosters, because a pro team's lineup is mostly players nobody in a 10-team league has drafted, and grading an offence off the drafted half of it would say more about the league than about the opponent. Batting categories only, and the league's own. A difficulty read for a league that counts steals should move when the opponent steals bases, and one that does not should not. The categories the composite is built over, kept beside it so the lineup drill-in can rank the same ones in the same order rather than deriving its own list. A FIXED general-offence basket, not the league's own categories. The difficulty score answers "how hard will this real game be for my pitcher", and what hurts a pitcher is run production - not skill at whatever a fantasy league happens to count. This league scores fielding assists, errors and caught stealing among its batting categories, and the composite was weighting each of them equally with runs: a lineup's assists say nothing about facing it, and the quirkier the league the further the score drifted from the question it claims to answer. A start's difficulty now means the same thing in every league. Runs and home runs are the production; OBP and SLG are how often they get on and how far they go, rebuilt from the components validated. All four confirmed present on 400 of 400 sampled batters in a real pool, so no new data and no new call. Hockey keeps the league's own skater categories, because no general basket has been validated for it - the basket lives where the evidence does, not everywhere by analogy.
     const GENERAL_OFFENCE = { flb: ['20', '5', '17', '9'] };
     const battingIds = GENERAL_OFFENCE[sport] || splitStatIdsByRole(sport, scoredIds).primary || [];
@@ -390,7 +721,8 @@ export function renderMyTeamTab() {
     let offenceRaw = null;
     // The league's own lower-is-better ids, handed to the engine so a category it scores the other way is ranked the other way. One object, built once, shared by the composite and the drill-in so the two cannot be given different rules. rateSpecs/rateStatIds turn on the rule that a lineup rate is rebuilt from summed components. The tables are the league-agnostic ones the weekly pipeline already uses, so this adds no new knowledge - it stops the offence being the one place that ignored them. lineupSize/playingTimeOf are: a club contributes the bats that will be in the game, not every bat it has rights to. The sizes are rules of the sport rather than league settings - a baseball order is nine, a hockey club dresses eighteen skaters - so they live here beside the roles rather than being read from the payload, which does not carry them.
     const LINEUP_BATS = { flb: 9, fhl: 18 };
-    const gpId = (GAMES_PLAYED_IDS[sport] || GAMES_PLAYED_IDS.flb).primary;
+    // No baseball fallback: a sport with no games id has no playing-time measure, and borrowing one from another sport reads every player as zero games without saying so.
+    const gpId = (GAMES_PLAYED_IDS[sport] || {}).primary;
     const offenceCtx = {
         inverseStatIds: INVERSE_STATS[sport] || new Set(),
         rateStatIds: AVERAGE_STATS[sport] || new Set(),
@@ -405,7 +737,7 @@ export function renderMyTeamTab() {
         // Who counts as a bat is playerRoleGroups' question, not this file's. Absence of starterStatusByProGame looked like a cheap proxy for "not a pitcher" and is not one: measured on a real pool it kept 180 of 3000 players and every one of them had an empty stat line, because what it actually selects is players with no pro games at all.
         const hitters = AppState.playerData
             .filter(p => p && p.proTeamId != null && playerRoleGroups(p, sport).primary)
-            .map(p => ({ proTeamId: p.proTeamId, injuryStatus: p.injuryStatus, totals: p.seasonTotals || {} }));
+            .map(p => ({ proTeamId: p.proTeamId, injuryStatus: p.injuryStatus, totals: basisTotalsOf(p) }));
         if (!hitters.length) return null;
         const byTeam = teamOffence(hitters, battingIds, offenceCtx);
         const strength = offenceStrength(byTeam, battingIds, offenceCtx);
@@ -439,12 +771,22 @@ export function renderMyTeamTab() {
                 // The count is the answer; the hint is the working behind it, one line per start so the day and the opponent are readable rather than run together. Left of total, and nothing else. 2/2 with both still to come, 1/2 once one is thrown. The days, the opponents, the difficulty and how a completed start actually went all live in the Schedule view, where they can be read rather than hidden behind a hover that has to be discovered first.
                 return `<td class="${cls(id)}"><span class="mt-starts">${entry.remaining}<span class="mt-starts-of">/${entry.starts}</span></span></td>`;
             }
+            if (id === GAMES_COL) {
+                const w = gamesWindowFor(playerId);
+                if (!w) return `<td class="${cls(id)}"><span class="mt-starts-none">-</span></td>`;
+                // LEFT OF TOTAL, the same shape the Starts column uses, because it is the same question and a manager reading both should not have to change units between them. A club with no game this matchup reads 0/0 rather than a dash: it is playing none, which is an answer, where a dash means nobody knows. Reuses the Starts column's own classes deliberately - same figure, same treatment, and inventing a parallel set would be two things to restyle instead of one.
+                const days = w.byPeriod.filter(d => d.count).map(d => d.period).join(', ');
+                const tip = days
+                    ? `${w.remaining} of ${w.games} games left this ${axisUnit().long.toLowerCase()}. Plays ${escapeHtml(days)}.`
+                    : `No games this ${axisUnit().long.toLowerCase()}.`;
+                return `<td class="${cls(id)}"><span class="mt-starts" data-tooltip="${escapeHtml(tip)}">${w.remaining}<span class="mt-starts-of">/${w.games}</span></span></td>`;
+            }
             if (id === POINTS_COL) {
                 // The same windowed points the rank was computed from, so the column and the chip beside it can never tell different stories.
                 const score = ranks.get(playerId)?.score;
                 return `<td class="${cls(id)}">${score === undefined ? '-' : Number(score).toFixed(1)}</td>`;
             }
-            const v = p.seasonTotals?.[id];
+            const v = basisTotalsOf(p)[id];
             if (v === undefined) return `<td class="${cls(id)}">-</td>`;
             return `<td class="${cls(id)}">${avgSet.has(id) ? Number(v).toFixed(3) : Math.round(Number(v))}</td>`;
         }).join('');
@@ -468,7 +810,7 @@ export function renderMyTeamTab() {
     // Role-grouped, because a pitcher's line under batting headers says nothing and one header row cannot serve both. splitStatIdsByRole owns which categories belong to which group, the same split the heatmap and the recap already order by, so this adds no third opinion.
     const byRole = splitStatIdsByRole(sport, scoredIds);
     const pitcherSlots = new Set(sport === 'flb' ? [13, 14, 15] : [5]);
-    // A two-way player is eligible in both groups, so the SLOT he occupies decides which section he reads in. That is the role his team is actually using him in this week.
+    // A two-way player is eligible in both groups, so the SLOT occupied decides which section the row reads in. That is the role the team is actually using this week.
     const sectionFor = (row) => {
         const p = poolById.get(row.playerId) || AppState.playerData.find(x => x.id === row.playerId);
         if (!p) return pitcherSlots.has(row.slot) ? 'secondary' : 'primary';
@@ -478,7 +820,8 @@ export function renderMyTeamTab() {
         return pitcherSlots.has(row.slot) ? 'secondary' : 'primary';
     };
 
-    const groupLabel = { primary: sport === 'flb' ? 'Batters' : 'Skaters', secondary: sport === 'flb' ? 'Pitchers' : 'Goalies' };
+    // S13: this used to be its own flb/else table (Batters/Pitchers or Skaters/Goalies, nothing else), so a football roster's D/ST group inherited hockey's word - players.js's own GROUP_LABELS is the validated per-sport table, read through here rather than kept in a second copy that can drift from it.
+    const groupLabel = { primary: roleGroupLabel(sport, false), secondary: roleGroupLabel(sport, true) };
     const irLabel = sport === 'flb' ? 'Injured list' : 'Injured reserve';
 
     // What the layout is computed FROM: how many player rows each group draws, and how many band separators sit among them. Counted from the roster the same way renderGroup selects it, and counted BEFORE anything renders, because the whole point is that the layout never asks the DOM what it produced. A sorted group draws no band rows at all, which renderGroup decides and this has to agree with. It is the one place the two could drift, so the rule is stated once here and once there, and both read the same groupSort.
@@ -510,6 +853,8 @@ export function renderMyTeamTab() {
             ...(AppState.isPointsLeague ? [POINTS_COL] : []),
             // Pitchers only, and only when the probables feed actually produced starts for this roster. Hockey publishes none, so the column never appears there.
             ...(role === 'secondary' && projected ? [STARTS_COL] : []),
+            // EVERY role, not just pitchers: how many games a club has left this matchup is the question a batter's start/sit turns on too, and it is the one column that never existed.
+            ...(hasGamesWindow ? [GAMES_COL] : []),
             ...(role === 'primary' ? byRole.primary : byRole.secondary)
         ];
         const pick = (rows) => rows.filter(r => sectionFor(r) === role);
@@ -536,8 +881,12 @@ export function renderMyTeamTab() {
                     const s = projected && projected.byPlayer.get(r.playerId);
                     return s ? s.remaining : null;
                 }
+                if (sort.statId === GAMES_COL) {
+                    const w = gamesWindowFor(r.playerId);
+                    return w ? w.remaining : null;
+                }
                 const p = poolById.get(r.playerId);
-                const v = p && p.seasonTotals ? p.seasonTotals[sort.statId] : undefined;
+                const v = basisTotalsOf(p)[sort.statId];
                 return v === undefined ? null : Number(v);
             };
             // Rank counts UP toward worse, like an inverse category. "Descending" means best first everywhere in this table, which is what a fantasy manager means by it.
@@ -564,7 +913,9 @@ export function renderMyTeamTab() {
             const arrow = active ? (sort.dir === 'desc' ? '▼' : '▲') : '';
             const hint = id === STARTS_COL
                 ? ` data-hint="Projected starts this ${escapeHtml(axisUnit().long.toLowerCase())}, still to come out of the total. From ESPN's probable pitchers, so it moves with rotations and injuries. The Schedule view lays out which day each one falls on."`
-                : '';
+                : id === GAMES_COL
+                    ? ` data-hint="Games the club plays this ${escapeHtml(axisUnit().long.toLowerCase())}, still to come out of the total. Off the league's own matchup days and the pro schedule. Hover a figure for the days."`
+                    : '';
             return `<th class="mt-stat mt-sortable${active ? ' mt-sorted mt-sorted-col' : ''}" data-role="${role}" data-stat="${id}"${hint}
                         tabindex="0" role="button" title="Sort ${escapeHtml(colLabel(id))}">${escapeHtml(colLabel(id))}<span class="mt-arrow">${arrow}</span></th>`;
         };
@@ -603,6 +954,20 @@ export function renderMyTeamTab() {
         const win = currentMatchupWindow(matchupPeriodMap(), AppState.apiData.scoringPeriodId);
         if (!win) return '<div class="mt-note">No matchup is in progress, so there is nothing to lay out.</div>';
         const today = Number(AppState.apiData.scoringPeriodId) || win.start;
+        // The league's own matchup number (never a calendar week, per the schedule-insight contract's own rendering note), named once here and read by every start-count badge below.
+        const matchupLabel = win.matchup != null ? `Matchup ${win.matchup}` : '';
+
+        // R9/S57: SEVEN DAYS AT THE ONE-WEEK CARD SIZE, whatever the matchup's real length - a two-week playoff round used to squeeze fourteen columns into the same band, each scrolling inside itself to stay readable, which answered "what happens on Thursday" with a second scrollbar. `pageStart`/`pageEnd` bound only the GRID's own day columns; `byDay` and everything the two-start badges/drawer read (below, and the twoStart/matchupDays consts above this function) still walk the WHOLE matchup, per the ruling's own words.
+        const matchupSpan = win.end - win.start + 1;
+        const paged = matchupSpan > 7;
+        const maxPageStart = win.end - 6;
+        const storedStart = AppState.myTeamScheduleWindowStart;
+        // The stored start survives only while it still names a real page of THIS matchup - a fresh matchup (or a stale pin left over from a shorter one) falls back to the window that holds today, never a page that no longer exists.
+        const pinnedStart = (storedStart !== null && storedStart >= win.start && storedStart <= maxPageStart)
+            ? storedStart
+            : today;
+        const pageStart = paged ? Math.max(win.start, Math.min(maxPageStart, pinnedStart)) : win.start;
+        const pageEnd = paged ? pageStart + 6 : win.end;
 
         // period -> [{ playerId, name, game, difficulty }]
         const byDay = new Map();
@@ -642,7 +1007,7 @@ export function renderMyTeamTab() {
         };
 
         const cols = [];
-        for (let p = win.start; p <= win.end; p++) {
+        for (let p = pageStart; p <= pageEnd; p++) {
             const starts = byDay.get(p);
             // At a glance: who, against whom, and how hard as a COLOUR rather than a word. The word costs a line of type in every card and says less than the shade does at a glance; it is spelled out in the panel a click away, where there is room to justify it.
             const cards = starts.map(s => {
@@ -655,10 +1020,15 @@ export function renderMyTeamTab() {
                 // The market's number, one glance wide, and only when there IS one. Odds cover today's slate alone, so most cards on a matchup week carry nothing here and must read as though the line was never part of the design.
                 const line = s.game.played ? null : moneylineForStart(s);
                 const odds = line ? `<span class="mt-cal-ml">${escapeHtml(line.price)}</span>` : '';
+                // The two-start badge (schedule-insight contract, shortlist item 2). Every card belonging to a 2+ start pitcher carries it, not just the second one, since a manager looking at either day should learn the same fact. The contract requires a start count to name its matchup - matchupLabel below puts "Matchup N" on this same panel's header line, which is the context every card on this grid already sits inside.
+                const twoStartEntry = twoStart && twoStart.byPlayer.get(s.playerId);
+                const twoStartBadge = twoStartEntry && twoStartEntry.starts >= 2
+                    ? `<span class="mt-cal-2start" data-tooltip="${escapeHtml(matchupLabel)}">${twoStartEntry.starts} starts</span>`
+                    : '';
                 return `<button class="mt-cal-start${state}${openStartKey === key ? ' open' : ''}"
                             data-start="${escapeHtml(key)}"${tint}
                             title="${escapeHtml(s.name)}${opp ? ' ' + opp : ''}, ${escapeHtml(label)}">
-                            <span class="mt-cal-name">${escapeHtml(s.name)}</span>
+                            <span class="mt-cal-name">${escapeHtml(s.name)}${twoStartBadge}</span>
                             <span class="mt-cal-opp">${escapeHtml(opp)}${odds}</span>
                         </button>`;
             }).join('');
@@ -681,18 +1051,24 @@ export function renderMyTeamTab() {
             }
         }
 
-        const totals = projected
-            ? `${projected.remaining} of ${projected.total} start${projected.total === 1 ? '' : 's'} still to come`
+        // The way back has to be in the breakdown itself. The card that toggles it closed is one of the ones the grid just gave up its room for. The back control lives INSIDE the panel now. Three panels each stacking a button row of their own cost three rows of height to say one word; inline with the title it costs none, and the panel that owns it is the panel that knows where back leads. R9/S57: the step chevrons - the same.chrome-arrow the Category Rankings/H2H paging and the team switcher already use, one day at a time rather than a whole week, so the window can settle exactly on the matchup's own last day instead of overshooting it. Absent outright on a one-week matchup (the ruling's own words) - `paged` is false there, and an absent control is the honest answer, not one disabled and unable to ever do anything.
+        const prevArrow = paged
+            ? `<button type="button" class="chrome-arrow mt-cal-page-prev" data-cal-page-start="${pageStart}" data-cal-step="-1" aria-label="Earlier in the matchup"${pageStart <= win.start ? ' disabled' : ''}>&#8249;</button>`
             : '';
-        // The way back has to be in the breakdown itself. The card that toggles it closed is one of the ones the grid just gave up its room for. The back control lives INSIDE the panel now. Three panels each stacking a button row of their own cost three rows of height to say one word; inline with the title it costs none, and the panel that owns it is the panel that knows where back leads.
+        const nextArrow = paged
+            ? `<button type="button" class="chrome-arrow mt-cal-page-next" data-cal-page-start="${pageStart}" data-cal-step="1" aria-label="Later in the matchup"${pageEnd >= win.end ? ' disabled' : ''}>&#8250;</button>`
+            : '';
         return `<div class="mt-cal${reading ? ' mt-cal-reading' : ''}">
-                    <div class="mt-cal-grid">${cols.join('')}</div>
-                    <div class="mt-cal-total">${escapeHtml(totals)}</div>
+                    <div class="mt-cal-row">
+                        ${prevArrow}
+                        <div class="mt-cal-grid">${cols.join('')}</div>
+                        ${nextArrow}
+                    </div>
                     ${breakdown}
                 </div>`;
     }
 
-    // A start's own day, from the per-day buckets the bulk fetch keeps for pitchers. Null when the weekly data has not arrived, or when he recorded nothing that day, which is a start that was scratched after ESPN listed it rather than a start with a line of zeroes. The same rule the stat cells use, so a value reads identically wherever it appears.
+    // A start's own day, from the per-day buckets the bulk fetch keeps for pitchers. Null when the weekly data has not arrived, or when nothing was recorded that day, which is a start that was scratched after ESPN listed it rather than a start with a line of zeroes. The same rule the stat cells use, so a value reads identically wherever it appears.
     const formatStat = (id, v) => (avgSet.has(id) ? Number(v).toFixed(3) : String(Math.round(Number(v))));
 
     function actualLineFor(playerId, period) {
@@ -735,7 +1111,7 @@ export function renderMyTeamTab() {
                 : `<span class="mt-crumb-here">${escapeHtml(c.label)}</span>`}`).join('')}
         </div>`;
 
-    // What the card's own crumb says: the pitcher and who he faces, which is how a reader names the start they clicked. Shared so the trail reads the same from every panel below it.
+    // What the card's own crumb says: the pitcher and the opponent faced, which is how a reader names the start they clicked. Shared so the trail reads the same from every panel below it.
     const startCrumb = (s) => {
         const abbrev = s.game.opponentId != null ? proSchedule.abbrevs?.get(s.game.opponentId) : null;
         return `${s.name}${abbrev ? ` ${s.game.isHome ? 'vs' : 'at'} ${abbrev}` : ''}`;
@@ -949,7 +1325,19 @@ export function renderMyTeamTab() {
         ? list.map(c => `<span class="mt-cat ${cls}">${escapeHtml(c.name)}<span class="mt-cat-rank">#${c.rank}</span></span>`).join('')
         : '<span class="mt-cat-none">-</span>';
 
+    // THE "AGAINST" CONTROLS: an opponent picker, beside the switcher - absent entirely in a points league, which has no per-category standing to offer one against (teamCompare's own refusal 1; asking the question at all would be the lie). O27/S30: the drawer's own Window chips are gone - the tab bar's shared Current/Next/Rest pills drive it now (AppState.ahead), same as the leaderboard column and the coverage band above.
+    const otherTeams = AppState.isPointsLeague ? [] : (AppState.apiData.teams || []).filter(t => t.id !== team.id);
+    const compareControlsHtml = otherTeams.length ? `
+        <div class="mt-compare-controls">
+            <select id="mt-compare-opponent">
+                <option value="">Compare against...</option>
+                ${otherTeams.map(t => `<option value="${t.id}"${AppState.myTeamCompareOpponentId === t.id ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+        </div>` : '';
+
     container.innerHTML = `
+        ${projectedBasis() ? '<div class="pd-mast"><span class="pd-tag">PRESEASON &middot; PROJECTED</span>'
+            + '<span class="pd-mast-note">No games yet. Every figure below is a projection.</span></div>' : ''}
         <div class="mt-summary">
             <div class="mt-team">
                 <button type="button" class="chrome-arrow mt-prev" aria-label="Previous team">&#8249;</button>
@@ -957,35 +1345,88 @@ export function renderMyTeamTab() {
                 <button type="button" class="chrome-arrow mt-next" aria-label="Next team">&#8250;</button>
                 ${isOwn ? '<span class="mt-own">Your team</span>' : ''}
             </div>
-            <div class="mt-stand">
+            ${standing ? `<div class="mt-stand">
                 <span class="mt-stand-label">${escapeHtml(standing.label)}</span>
                 <span class="mt-stand-value">${escapeHtml(standing.value)}</span>
                 <span class="mt-stand-rank">${formatRank(standing.rank, standing.ranks)} of ${standing.of}</span>
-            </div>
+            </div>` : ''}
             <div class="mt-profile">
                 <span class="mt-profile-label">Wins</span>${profileChips(profile.best, 'mt-cat-best')}
                 <span class="mt-profile-label">Bleeds</span>${profileChips(profile.worst, 'mt-cat-worst')}
             </div>
+            ${compareControlsHtml}
         </div>
-        <div class="mt-roster">
-            ${poolFailed
-                ? `<div class="player-loading">${escapeHtml(playerPoolErrorText(AppState.playerDataError))}</div>`
-                : `${entries.length && !AppState.playerDataLoaded
-                    ? '<div class="mt-note">Player names, ranks and season lines fill in when the player pool finishes loading.</div>'
-                    : (weeklyStillArriving
-                        ? '<div class="mt-note">Loading the numbers for this timeframe...</div>'
-                        : (windowedMissing
-                            ? `<div class="mt-note">${windowedMissing} rostered ${windowedMissing === 1 ? 'player has' : 'players have'} no games in this timeframe, so their lines and ranks are blank.</div>`
-                            : ''))}
-            ${entries.length ? rosterBody
-                : (awaitingFinal
-                    ? '<div class="player-loading">Loading the final lineup of the season...</div>'
-                    : '<div class="player-loading">No roster available for this team.</div>')}`}
+        ${coverage ? buildCoverageStripHtml(coverage, statMap, {
+            escapeHtml,
+            // The same (id, value) formatter the roster tables use, so a figure in the strip/drawer and the same figure in the table below it can never be printed two different ways.
+            formatValue: (id, v) => (v === null || v === undefined ? '-' : formatStat(id, v)),
+            losingIds: coverageLosingIds,
+            rankOf: (id) => coverageRankById.get(String(id)) || null,
+            isOpen: AppState.myTeamCoverageDrawerOpen
+        }) : ''}
+        ${nights ? `<div class="mt-nights">`
+            + buildNightsBandHtml(nights.primary, groupLabel.primary, { escapeHtml, labelOf: nights.labelOf })
+            + buildNightsBandHtml(nights.secondary, groupLabel.secondary, { escapeHtml, labelOf: nights.labelOf })
+            + `</div>` : ''}
+        <div class="mt-roster-wrap">
+            <div class="mt-roster">
+                ${poolFailed
+                    ? `<div class="player-loading">${escapeHtml(playerPoolErrorText(AppState.playerDataError))}</div>`
+                    : `${entries.length && !AppState.playerDataLoaded
+                        ? '<div class="mt-note">Player names, ranks and season lines fill in when the player pool finishes loading.</div>'
+                        : (weeklyStillArriving
+                            ? '<div class="mt-note">Loading the numbers for this timeframe...</div>'
+                            : (windowedMissing
+                                ? `<div class="mt-note">${windowedMissing} rostered ${windowedMissing === 1 ? 'player has' : 'players have'} no games in this timeframe, so their lines and ranks are blank.</div>`
+                                : ''))}
+                ${entries.length ? rosterBody
+                    : (awaitingFinal
+                        ? '<div class="player-loading">Loading the final lineup of the season...</div>'
+                        // R5: a league that has not drafted has no roster BY DESIGN (rostersFromPayload's own refusal, above) - "No roster available" reads as a gap this tab failed to fill, where the honest sentence names the reason there is nothing to show yet.
+                        : (seasonState(AppState.apiData) === SEASON_STATE.PRE_DRAFT
+                            ? '<div class="player-loading">No roster until the draft.</div>'
+                            : '<div class="player-loading">No roster available for this team.</div>'))}`}
+            </div>
+            ${coverage ? `<div class="mt-coverage-drawer"${AppState.myTeamCoverageDrawerOpen ? '' : ' hidden'}>
+                <div class="mt-drawer-head">${buildCoverageDrawerHeadHtml(coverage, { escapeHtml })}</div>
+                <div class="mt-drawer-body">${buildCoverageDrawerHtml(coverage, statMap, {
+                    escapeHtml,
+                    formatValue: (id, v) => (v === null || v === undefined ? '-' : formatStat(id, v)),
+                    losingIds: coverageLosingIds,
+                    rankOf: (id) => coverageRankById.get(String(id)) || null
+                })}</div>
+            </div>` : ''}
+            ${compare ? `<div class="mt-compare-drawer"${AppState.myTeamCompareDrawerOpen ? '' : ' hidden'}>
+                <div class="mt-drawer-head">
+                    <span class="mt-drawer-title">Compare</span>
+                </div>
+                <div class="mt-drawer-body">${buildTeamCompareHtml(compare, {
+                    escapeHtml,
+                    rateComponents: RATE_COMPONENTS[sport] || [],
+                    statLabels: statMap
+                })}</div>
+            </div>` : ''}
         </div>`;
 
     attachDataTooltips(container);
     wirePlayerAvatars(container);
     wireTeamSwitcher(container);
+    wireCoverageDrawer(container);
+    fitCoverageStripChips(container);
+    wireScheduleCalendar(container);
+
+    // THE "AGAINST" CONTROLS. Choosing an opponent IS the open action - there is no separate "Open" button, since picking one is already one click, and both drawers share the roster's own right-hand slot, so opening this one closes the coverage drawer if it was showing (same rule in reverse, wireCoverageDrawer below).
+    const opponentSelect = container.querySelector('#mt-compare-opponent');
+    if (opponentSelect) {
+        opponentSelect.addEventListener('change', (e) => {
+            const v = e.target.value;
+            AppState.myTeamCompareOpponentId = v === '' ? null : Number(v);
+            AppState.myTeamCompareDrawerOpen = v !== '';
+            // The two drawers share the roster's one right-hand slot (same rule in reverse, wireCoverageDrawer above) - opening this one closes coverage rather than stacking.
+            if (AppState.myTeamCompareDrawerOpen) AppState.myTeamCoverageDrawerOpen = false;
+            renderMyTeamTab();
+        });
+    }
     // Three states per column, the same cycle the heatmap headers use, so slot order is always one more click away rather than something you have to re-render the tab to get back.
     container.querySelectorAll('th.mt-sortable').forEach(th => {
         const cycle = () => {
@@ -1046,7 +1487,7 @@ export function renderMyTeamTab() {
         tr.addEventListener('click', () => {
             const id = Number(tr.dataset.playerId);
             if (!AppState.playerData.some(p => p.id === id)) return;
-            // Hand the drill-down the role this row was read under, BEFORE the tab renders. Every pool the drill-down builds - rank chips, the breakdown's peer group, its categories, its workload measure - is scoped by AppState.playerGroup, and arriving from a roster row that state belongs to whichever tab the Player Metrics view happened to be left on. Clicking a closer while it sat on Batters ranked him against 454 batters over BATTING categories, where his every value is 0 and his batting games played are 0 too: seven real percentiles off an empty line, a 0% Playing-Time Factor, and a "Rank Score" of exactly 50 - which is the whole of the owner's report. The group is taken from the GROUP the row sits in rather than the player's primary role, so a two-way player opened from the pitching table is read as a pitcher.
+            // Hand the drill-down the role this row was read under, BEFORE the tab renders. Every pool the drill-down builds - rank chips, the breakdown's peer group, its categories, its workload measure - is scoped by AppState.playerGroup, and arriving from a roster row that state belongs to whichever tab the Player Metrics view happened to be left on. Clicking a closer while it sat on Batters ranked that pitcher against 454 batters over BATTING categories, where every value is 0 and the batting games played are 0 too: seven real percentiles off an empty line, a 0% Playing-Time Factor, and a "Rank Score" of exactly 50 - which is the whole of the owner's report. The group is taken from the GROUP the row sits in rather than the player's primary role, so a two-way player opened from the pitching table is read as a pitcher.
             const rowRole = tr.closest('.mt-group')?.dataset.role;
             if (rowRole === 'primary' || rowRole === 'secondary') AppState.playerGroup = rowRole;
             document.getElementById('tab-btn-player')?.click();
@@ -1150,6 +1591,8 @@ function sizeRosterColumns(container) {
 function layoutRosterBand(container, counts, budget, hasSchedule) {
     const band = container.querySelector('.mt-roster');
     if (!band) return;
+    // MOBILE DOES NOT RUN THIS ARITHMETIC AT ALL. Below 700px the tab inverts to one vertically-scrolling column (dashboard.css's own mobile block), so there is no fixed band height to divide among rows - the CSS gives every group its natural, full height instead. A real reason to skip, not the room===0 guard below: that guard cannot tell "not rendered yet" from "genuinely narrow", and on a phone viewport `room` is a real, small, non-zero number that the arithmetic would have divided anyway, computing a cramped fixed height for a layout CSS was about to override - the two fights being exactly what a Firefox-for-Android user actually saw ("BATTERS" over nothing,.mt-roster's own overflow:hidden clipping the rest).
+    if (window.matchMedia('(max-width: 700px)').matches) return;
     // A hidden tab measures zero for its own box too, and writing a layout computed against zero would be worse than writing none. Every path that shows this tab re-renders it, so the next render computes the real answer. Nothing is cached, so nothing stale can survive the wait.
     const room = band.clientHeight;
     if (!room) return;
@@ -1227,4 +1670,79 @@ function wireTeamSwitcher(container) {
     };
     container.querySelector('.mt-prev')?.addEventListener('click', () => step(-1));
     container.querySelector('.mt-next')?.addEventListener('click', () => step(1));
+}
+
+// R9/S57: the Schedule calendar's own seven-day step, one day at a time - each button carries the page it was rendered against (data-cal-page-start), so the click reads where it actually is rather than recomputing the whole window a second time in here. renderSchedule's own clamp (win. start..win.end-6) is what actually keeps a repeated click from stepping the window past either end - a disabled button already stops the click at the two true edges, this is the same guard for a change of matchup between one render and the next.
+function wireScheduleCalendar(container) {
+    container.querySelectorAll('.mt-cal-page-prev, .mt-cal-page-next').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const from = Number(btn.dataset.calPageStart);
+            const step = Number(btn.dataset.calStep);
+            AppState.myTeamScheduleWindowStart = from + step;
+            renderMyTeamTab();
+        });
+    });
+}
+
+// Q13/S54 (the owner's own correction): "the strip's chips sit on one line and '+N more' replaces whatever does not fit at the strip's width - measure, hide the overflow, count it." coverage-band.js has no DOM, so it renders EVERY chip plus one `.cvs-more` element (present, `hidden`) and leaves the real measurement to this function - re-run after every render, the same "re-wired on every render" idiom wireCoverageDrawer already follows below. The drawer's own chip rows are never touched here - the ruling's own words are "the drawer shows all".
+function fitCoverageStripChips(container) {
+    const row = container.querySelector('.cvs-chips');
+    if (!row) return;
+    const more = row.querySelector('.cvs-more');
+    const chips = Array.from(row.querySelectorAll('.cvs-chip'));
+    if (!more || !chips.length) return;
+
+    // MOBILE (golden rule 2's own breakpoint) wraps the whole chip row instead of truncating it (dashboard.css's own @media block) - every chip shows there, so this function's one-line math would only hide chips a wrapped row has real room for. Read off the row's own computed flex-wrap rather than a window-width literal, so this stays correct however the breakpoint itself is ever expressed.
+    if (getComputedStyle(row).flexWrap === 'wrap') {
+        chips.forEach(c => { c.hidden = false; });
+        more.hidden = true;
+        return;
+    }
+
+    // Each chip's own natural width, unaffected by the still-hidden indicator or by its siblings (flex-nowrap items keep their own content size regardless of what else is in the row).
+    more.hidden = true;
+    const gapPx = parseFloat(getComputedStyle(row).gap) || 0;
+    const available = row.clientWidth;
+    const widths = chips.map(c => c.offsetWidth);
+    const totalWidth = widths.reduce((s, w) => s + w, 0) + gapPx * Math.max(0, chips.length - 1);
+    if (totalWidth <= available) return; // every chip already fits - the indicator stays hidden
+
+    more.hidden = false;
+    const moreWidth = more.offsetWidth;
+    let used = 0;
+    let shown = 0;
+    for (; shown < chips.length; shown++) {
+        const next = used + widths[shown] + (shown > 0 ? gapPx : 0);
+        // The LAST chip needs no room reserved for the indicator beside it - only a chip with real overflow behind it does. Every earlier chip has to leave room for "+N more" in case this is where the row actually runs out.
+        const reserve = (shown === chips.length - 1) ? 0 : moreWidth + gapPx;
+        if (next + reserve > available) break;
+        used = next;
+    }
+    for (let i = shown; i < chips.length; i++) chips[i].hidden = true;
+    const hiddenCount = chips.length - shown;
+    if (hiddenCount > 0) more.textContent = `+${hiddenCount} more`;
+    else more.hidden = true;
+}
+
+// THE COVERAGE DRAWER. The open/close buttons are re-wired on every render, the same as every other control here - the drawer element itself is rebuilt each time, so there is nothing stale on THOSE to unwire. Escape is different: it has to reach a drawer no matter where focus sits, so it is bound on the DOCUMENT rather than the container - and bound ONCE EVER (the module-level flag setupHintTooltips/attachDataTooltips already use for the identical reason), querying the live DOM fresh on every keystroke rather than closing over one render's element, so a stacked listener per render was never a risk to begin with. R5/S29: the strip's OWN control is the toggle now - "Open" closed, "Close" open - and the drawer's own X is gone from both drawers. That label lives in the rendered HTML (buildCoverageStripHtml's own opts.isOpen), not just a DOM attribute, so both the click and Escape re-render the tab rather than only flipping `hidden` - the same reason the compare drawer's own open state already had to live in AppState instead of on the element alone.
+let coverageDrawerEscapeWired = false;
+function wireCoverageDrawer(container) {
+    // S54: TWO buttons now carry this class - the strip's own Open/Close toggle AND the drawer's own header Close (buildCoverageDrawerHeadHtml, coverage-band.js), added so the open drawer's caption row reads "the same caption with Close" per the ruling. Both flip the identical state the same way, so every match is wired rather than only the first querySelector would have found.
+    container.querySelectorAll('.mt-strip-open').forEach(openBtn => {
+        openBtn.addEventListener('click', () => {
+            AppState.myTeamCoverageDrawerOpen = !AppState.myTeamCoverageDrawerOpen;
+            // The two drawers share the roster's one right-hand slot - opening this one closes the other rather than stacking on top of it.
+            if (AppState.myTeamCoverageDrawerOpen) AppState.myTeamCompareDrawerOpen = false;
+            renderMyTeamTab();
+        });
+    });
+    if (coverageDrawerEscapeWired) return;
+    coverageDrawerEscapeWired = true;
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (!AppState.myTeamCoverageDrawerOpen && !AppState.myTeamCompareDrawerOpen) return;
+        AppState.myTeamCoverageDrawerOpen = false;
+        AppState.myTeamCompareDrawerOpen = false;
+        renderMyTeamTab();
+    });
 }

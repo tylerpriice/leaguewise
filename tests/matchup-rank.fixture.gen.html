@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>matchup-rank fixture generator</title>
+</head>
+
+<body>
+    <!-- Generates tests/fixtures/matchup-rank.json THROUGH THE MODEL ITSELF, from tests/sample-league.json and nothing else, so the fixture and the suite that reads it can both be published. THE MARGINS ARE REAL AND THE PLAYERS ARE NOT, and the split is the whole design. sample-league.json is a real league's real season - 6 teams, 72 decided pairings over 24 periods - with its team names removed. Its box scores are intact, and margins are read from box scores, so leagueMargins produces figures here that are IDENTICAL to the ones the same league's unanonymised capture produces: HR 4.5613, E 2.2016, OPS 0.1177, R 10.5600, RBI 9.6278, SB 4.5231, AVG 0.0388. Nothing about the margin half of this fixture is a reduced or stand-in version of anything. What the anonymised file does NOT carry is a player pool - it has no players key at all - so the players below are ARCHETYPES with round season totals, chosen to exercise the contract rather than to resemble anybody. That is stated in the fixture itself so no reader mistakes "Speed Only" for a measurement. Their OUTPUTS are still the model's own: each line goes through playerWinsPerWeek against the real margins above. THE O36 ACCEPTANCE CHECK IS NOT HERE. It needs the owner's own league and lives in tests/matchup-rank.private.gen.html, which is not published. This page cannot verify that the module still reproduces the figures the Q8 ruling was made on; that page can. -->
+    <pre id="out">running</pre>
+
+    <script type="module">
+        import { ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, PITCHING_IDS } from '../state.js';
+        import { leagueMargins, computeMatchupRanks } from '../matchup-rank.js';
+
+        const say = [];
+        const log = (s) => say.push(s === undefined ? '' : s);
+
+        const SPORT = 'flb';
+        const AB = '0', BB = '10', HBP = '12', SF = '13';
+        const weightIdsFor = (id) => (id === '2' ? [AB] : [AB, BB, HBP, SF]);
+
+        const league = await (await fetch('./sample-league.json')).json();
+        const MAP = ESPN_STAT_MAPS[SPORT];
+        const RATES = AVERAGE_STATS[SPORT] || new Set();
+        const INV = INVERSE_STATS[SPORT] || new Set();
+        const scored = (league?.settings?.scoringSettings?.scoringItems || []).map(i => String(i.statId));
+        const battingIds = scored.filter(id => !PITCHING_IDS.has(id));
+
+        // ARCHETYPES, not people. Totals are over the league's 24 matchup periods and are round on
+        // purpose: a reader checking one line by hand should be able to divide in their head. Each
+        // exists to pin one clause of the contract.
+        //
+        //   Balanced Bat    every category at once - the ordinary case
+        //   Power Only      home runs and RBI, nothing else - a narrow contributor
+        //   Speed Only      steals, against a margin of 4.52, which is the reach the whole model is about
+        //   Rate Only       a high average and OPS on few at-bats - the rate path with a small denominator
+        //   Error Prone     Balanced Bat's counting line with six times the errors - the inverse category
+        //   Half A Season   exactly half of Balanced Bat - the divisor's stated consequence, visible
+        //   Never Played    no totals at all - absent from byId rather than ranked last
+        const ARCHETYPES = [
+            { name: 'Balanced Bat', id: 9001, totals: { '5': 24, '72': 12, '20': 96, '21': 96, '23': 24, '2': 0.280, '18': 0.820, [AB]: 480, [BB]: 48, [HBP]: 0, [SF]: 0 } },
+            { name: 'Power Only', id: 9002, totals: { '5': 48, '72': 12, '20': 72, '21': 120, '23': 0, '2': 0.240, '18': 0.800, [AB]: 480, [BB]: 48, [HBP]: 0, [SF]: 0 } },
+            { name: 'Speed Only', id: 9003, totals: { '5': 0, '72': 12, '20': 72, '21': 24, '23': 72, '2': 0.270, '18': 0.680, [AB]: 480, [BB]: 48, [HBP]: 0, [SF]: 0 } },
+            { name: 'Rate Only', id: 9004, totals: { '5': 12, '72': 0, '20': 48, '21': 48, '23': 12, '2': 0.340, '18': 0.960, [AB]: 240, [BB]: 24, [HBP]: 0, [SF]: 0 } },
+            { name: 'Error Prone', id: 9005, totals: { '5': 24, '72': 72, '20': 96, '21': 96, '23': 24, '2': 0.280, '18': 0.820, [AB]: 480, [BB]: 48, [HBP]: 0, [SF]: 0 } },
+            { name: 'Half A Season', id: 9006, totals: { '5': 12, '72': 6, '20': 48, '21': 48, '23': 12, '2': 0.280, '18': 0.820, [AB]: 240, [BB]: 24, [HBP]: 0, [SF]: 0 } },
+            { name: 'Never Played', id: 9007, totals: {} }
+        ];
+
+        const ctx = { categoryIds: battingIds, rateStatIds: RATES, inverseStatIds: INV, weightIdsFor };
+        const { margins, reason } = leagueMargins(league, ctx);
+        if (!margins) { document.getElementById('out').textContent = `REFUSED: ${reason}`; throw new Error(reason); }
+
+        const pool = ARCHETYPES.map(a => ({ id: a.id, seasonTotals: a.totals }));
+        const ranks = computeMatchupRanks(pool, margins, ctx);
+
+        log(`sample-league.json: season ${league.seasonId}, ${margins.matchups} periods, ` +
+            `${margins.pairings} pairings, ${margins.teamWeeks} team-weeks`);
+        log(`categories (${battingIds.length}): ${battingIds.map(id => MAP[id] || id).join(', ')}`);
+        log(`${ARCHETYPES.length} archetypes handed in, ${ranks.of} measured`);
+        log('');
+        log('MARGINS - identical to the same league\'s unanonymised capture');
+        battingIds.forEach(id => {
+            const m = margins.byId[id];
+            log(`  ${(MAP[id] || id).padEnd(5)} ${id.padStart(3)}  sd ${m.marginSd.toFixed(4).padStart(9)}` +
+                (m.teamRate === null ? '' : `   team rate ${m.teamRate.toFixed(4)}   weight/wk ${m.teamWeight.toFixed(1)}`));
+        });
+        log('');
+        log('ARCHETYPES');
+        ARCHETYPES.forEach(a => {
+            const r = ranks.byId[a.id];
+            log(`  ${a.name.padEnd(16)} ${r ? `wins ${r.winsPerWeek.toFixed(4)}  #${r.rank} of ${r.of}` : 'not measured - absent from byId'}`);
+        });
+
+        const fixture = {
+            note: 'Generated by tests/matchup-rank.fixture.gen.html through matchup-rank.js. Do not hand-edit.',
+            source: 'tests/sample-league.json',
+            marginsAreReal: true,
+            playersAreArchetypes: 'Round season totals chosen to exercise the contract. They are not measurements of anyone; only their model OUTPUTS are recorded here.',
+            season: league.seasonId,
+            sport: SPORT,
+            categoryIds: battingIds,
+            rateStatIds: [...RATES].filter(id => battingIds.includes(id)),
+            inverseStatIds: [...INV].filter(id => battingIds.includes(id)),
+            margins,
+            of: ranks.of,
+            players: ARCHETYPES.map(a => ({
+                name: a.name, id: a.id, seasonTotals: a.totals,
+                ...(ranks.byId[a.id] || { measured: false })
+            }))
+        };
+        log('');
+        log('FIXTURE (save as tests/fixtures/matchup-rank.json)');
+        log(JSON.stringify(fixture, null, 2));
+        window.__FIXTURE = fixture;
+
+        document.getElementById('out').textContent = say.join('\n');
+    </script>
+</body>
+
+</html>

@@ -89,6 +89,10 @@ export function summarizeSeason(payload) {
             wins: counted ? (overall.wins || 0) : null,
             losses: counted ? (overall.losses || 0) : null,
             ties: counted ? (overall.ties || 0) : null,
+            // THE SEASON'S POINTS, WHERE THE FORMAT KEEPS THEM. Two formats do, and the condition is NOT "a points league" - measured on four finished seasons: points league 1204.8 to 1693.2 across eleven teams a real standing ROTO 27, 40.5, 55, 56.5, 61 across five also a real standing h2h categories 0 on every team of both measured seasons carries nothing The roto figures validate themselves: they sum to exactly 240, which is sixteen categories times (1+2+3+4+5). That IS the roto standings total, the thing a roto manager means by points, so excluding roto would drop the one number its season is actually decided by. NULL rather than 0 for h2h categories, because zero there is the absence of a measurement and not a team that scored nothing.
+            points: (format === 'points' || format === 'roto')
+                ? (Number.isFinite(team.points) ? team.points : null)
+                : null,
             finalRank: Number.isFinite(team.rankCalculatedFinal) && team.rankCalculatedFinal > 0
                 ? team.rankCalculatedFinal
                 : null
@@ -290,7 +294,7 @@ export function buildCareers(poolsByYear, seasonsByYear, ownersByYear) {
         const owners = (ownersByYear && ownersByYear[year]) || null;
         const franchiseOfTeam = new Map((season ? season.franchises : []).map(f => [f.teamId, f]));
         ((pool && pool.players) || []).forEach(entry => {
-            // WHO HELD HIM THAT SEASON, not who holds him now. onTeamId is the roster as of the moment the pool was fetched, so a player dropped before that read as never having been in the league - and the bug was bigger than the missing franchise: this early return dropped his STATS and the season itself too, so a drafted-and-dropped player lost a whole year of his career. Measured on a real capture: 138 of 1039 pool entries were rostered at fetch time, so the snapshot is the exception, not the rule. The transaction log answers it properly, and the owner's ruling is that any stint counts however short. onTeamId stays as the fallback for a season whose log could not be read, which is the golden rule 8 behaviour rather than a blank column.
+            // WHO HELD THE PLAYER THAT SEASON, not who holds them now. onTeamId is the roster as of the moment the pool was fetched, so a player dropped before that read as never having been in the league - and the bug was bigger than the missing franchise: this early return dropped the STATS and the season itself too, so a drafted-and-dropped player lost a whole year of a career. Measured on a real capture: 138 of 1039 pool entries were rostered at fetch time, so the snapshot is the exception, not the rule. The transaction log answers it properly, and the owner's ruling is that any stint counts however short. onTeamId stays as the fallback for a season whose log could not be read, which is the golden rule 8 behaviour rather than a blank column.
             const entryId = entry.id || (entry.player || {}).id;
             const held = (owners && owners.get(entryId)) || [];
             const teamIds = held.length ? held : (entry.onTeamId ? [entry.onTeamId] : []);
@@ -305,7 +309,7 @@ export function buildCareers(poolsByYear, seasonsByYear, ownersByYear) {
                 players.set(id, { id, name: '', eligibleSlots: [], defaultPositionId: null, seasons: [], franchiseKeys: [], totals: {} });
             }
             const row = players.get(id);
-            // Years ascend, so the last write is the most recent name. Eligibility rides along for the same reason and gets the same treatment: a player who moved from the outfield to first base is grouped by where he plays NOW, not by where he started.
+            // Years ascend, so the last write is the most recent name. Eligibility rides along for the same reason and gets the same treatment: a player who moved from the outfield to first base is grouped by the position played NOW, not by where that career started.
             if (info.fullName) row.name = info.fullName;
             // The pool carries eligibleSlots, not eligiblePositions - measured on all three captures, every rostered player had the slots and none had the positions. Decoding is the caller's job, since the slot map is per sport and this file stays pure.
             if (Array.isArray(info.eligibleSlots)) row.eligibleSlots = info.eligibleSlots;
@@ -344,7 +348,7 @@ export function careerValue(row, statId, rateSpecs) {
     return careerRate(row.totals, { numerator: spec.num, denominator: spec.den, scale: spec.scale });
 }
 
-// Sorting the career table. Pure, and separate from careerValue, because the two rules that make this easy to get wrong by hand are both about what is NOT a number. A BLANK IS NOT A SMALL NUMBER. A skater has no GAA at all, and sorting him to the bottom of a descending column and the top of an ascending one would make him the league's best goalie on the second click. Blanks sort last whichever way the column points, and hold their own alphabetical order among themselves. Ties break by name rather than by whatever order the rows arrived in, so a column with many equal values is stable to read and does not reshuffle when the same sort is applied twice.
+// Sorting the career table. Pure, and separate from careerValue, because the two rules that make this easy to get wrong by hand are both about what is NOT a number. A BLANK IS NOT A SMALL NUMBER. A skater has no GAA at all, and sorting that row to the bottom of a descending column and the top of an ascending one would make the skater the best goalie on the second click. Blanks sort last whichever way the column points, and hold their own alphabetical order among themselves. Ties break by name rather than by whatever order the rows arrived in, so a column with many equal values is stable to read and does not reshuffle when the same sort is applied twice.
 export function sortCareers(rows, spec) {
     const list = [...(rows || [])];
     if (!spec || !spec.key) return list;
