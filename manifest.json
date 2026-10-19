@@ -1,20 +1,25 @@
 {
   "manifest_version": 3,
   "name": "Leaguewise",
-  "version": "1.6.0",
-  "description": "Advanced analytics, trends, and category visualization for ESPN Fantasy Baseball and Hockey.",
+  "version": "1.7.0",
+  "description": "League analytics for ESPN Fantasy Baseball, Football and Hockey. A browser extension with no backend.",
   "browser_specific_settings": {
     "gecko": {
       "id": "extension@leaguewise.net",
-      "strict_min_version": "115.0",
+      "strict_min_version": "121.0",
       "data_collection_permissions": {
         "required": ["none"]
       }
+    },
+    "gecko_android": {
+      "strict_min_version": "121.0"
     }
   },
   "icons": {
-    "48": "icon.svg",
-    "96": "icon.svg"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
   },
   "permissions": [
     "cookies",
@@ -26,6 +31,33 @@
   ],
   "action": {
     "default_title": "Open Leaguewise",
-    "default_popup": "dashboard.html"
-  }
+    "default_popup": "dashboard.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    },
+    "theme_icons": [
+      { "dark": "icons/toolbar-light-16.png", "light": "icons/toolbar-dark-16.png", "size": 16 },
+      { "dark": "icons/toolbar-light-32.png", "light": "icons/toolbar-dark-32.png", "size": 32 }
+    ]
+  },
+  "sidebar_action": {
+    "default_panel": "dashboard.html?surface=sidebar",
+    "default_title": "Leaguewise",
+    "default_icon": "icons/icon.svg",
+    "open_at_install": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://fantasy.espn.com/*/draft*"],
+      "js": ["src/data/room-reader.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/data/room-hook.js", "src/data/room-feed.js", "src/engines/draft-plan.js", "src/engines/draft-engine.js", "src/engines/mock-lineup.js"],
+      "matches": ["*://fantasy.espn.com/*"]
+    }
+  ]
 }

@@ -7,17 +7,17 @@
 </head>
 
 <body>
-    <!-- THE GENERATOR FOR tests/fixtures/team-compare.json. Run it through the static server and read the <pre>: chrome --headless=new --dump-dom http://localhost:8123/tests/team-compare.fixture.gen.html It imports the REAL team-compare.js and drives it with REAL captured leagues, so the instance cannot drift from what the module emits. TWO CAPTURES, BECAUSE NO SINGLE ONE ANSWERS BOTH WINDOWS - measured, not assumed: full-mlb-2025 a FINISHED 2025 baseball season (latestScoringPeriod 196 past the final 195), 6 teams, all 24 matchups carrying cumulativeScore.scoreByStat. It is the PLAYED window's fixture and the only capture whose every matchup is complete. It carries no roster and no pro schedule, so it cannot answer a projected window at all. full-nhl-2 the only capture holding a pro schedule BESIDE a pool whose entries carry onTeamId, which together are the two halves a projected window needs - each rostered player's per-game line and his club's games in the stretch. Team rosters come from the POOL's onTeamId, not from team.json: no capture in the tree carries teams[].roster, which is why this generator reads the pool for the projected side and not the league payload. THE MULTI-MATCHUP PLAYED WINDOW IS THE INTERESTING ONE. Its rates cannot use ESPN's own per-matchup figures - averaging two matchups' batting averages is not the batting average of the two - so they are rebuilt from RATE_COMPONENTS. In this league AVG, ERA, WHIP and K/9 rebuild, and OPS reads null: OPS is OBP + SLG, and neither component appears in scoreByStat. That null is not a defect to fix, it is the refusal the contract asks for, arising here on real data rather than being staged. -->
+    <!-- The generator for tests/fixtures/team-compare.json. It drives the real team-compare.js with captured leagues, so the instance cannot drift from the module. Two captures, since no one answers both windows: a finished season for the played window, and one holding a pro schedule beside a pool with onTeamId for the projected window. A multi-matchup window's rates are rebuilt from components, and OPS reads null there. -->
     <pre id="out"></pre>
 
     <script type="module">
-        import { teamCompare } from '../team-compare.js';
-        import { gamesByProTeamForMatchup } from '../schedule-insight.js';
+        import { teamCompare } from '../src/engines/team-compare.js';
+        import { gamesByProTeamForMatchup } from '../src/engines/schedule-insight.js';
         // The stat map, the rate set, the inverse set and the component table come from the app's
         // OWN validated tables rather than copies kept here - a generator that spells its own stat
         // ids is a second, unvalidated stat map (golden rule 4).
-        import { ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, lowerIsBetterIds } from '../state.js';
-        import { GAMES_PLAYED_IDS } from '../rank-engine.js';
+        import { ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, RATE_COMPONENTS, lowerIsBetterIds } from '../src/data/state.js';
+        import { GAMES_PLAYED_IDS } from '../src/engines/rank-engine.js';
 
         const DIR = 'JSON_debug';
         const grab = (cap, file) => fetch(`../${DIR}/${cap}/${file}`).then(r => r.json());

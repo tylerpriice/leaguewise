@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>graphs.js bar-column unit tests</title>
+    <style>
+        body { font-family: monospace; padding: 20px; font-size: 13px; }
+        h1 { font-size: 16px; }
+        .pass { color: #2e7d32; }
+        .fail { color: #c62828; font-weight: bold; }
+        #summary { font-size: 15px; font-weight: bold; margin-bottom: 12px; }
+
+        /* THE TWO RULES sizeBarTitles IS WRITTEN AGAINST, and only those two. dashboard.css is not
+           loaded here: a test that loaded the whole stylesheet would be testing the stylesheet, and
+           these are the rules that make the measurement a question worth asking - each column takes
+           its width from the property the function publishes, so a function that measured the
+           column rather than its contents would grow it on every render. Copied from
+           dashboard.css's own .bar-title and .bar-value, fallbacks included. */
+        #sandbox { position: absolute; left: -9999px; top: 0; width: 420px; }
+        #sandbox .bar-row { display: flex; align-items: center; font-size: 12px; }
+        #sandbox .bar-title { flex: 0 0 var(--bar-title-w, 74px); width: var(--bar-title-w, 74px); }
+        #sandbox .bar-title-full { display: none; }
+        #sandbox .bar-title-abbr { display: inline; }
+        #sandbox .bar-track { flex: 1 1 auto; height: 12px; }
+        #sandbox .bar-value { flex: 0 0 var(--bar-value-w, 52px); width: var(--bar-value-w, 52px); margin-left: 6px; }
+    </style>
+</head>
+
+<body>
+    <h1>graphs.js bar-column unit tests</h1>
+    <div id="summary">Running...</div>
+    <div id="results"></div>
+    <div id="sandbox"></div>
+    <script type="module" src="graphs.test.js"></script>
+</body>
+
+</html>

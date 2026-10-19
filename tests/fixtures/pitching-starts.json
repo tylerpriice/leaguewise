@@ -1,0 +1,28 @@
+{
+ "_synthetic": "Hand-written for B193. Every start is invented, one per boundary of the definition in pitching-starts.md, and every answer is computed there by hand, never by running the module.",
+ "starts": [
+  { "outs": 18, "earnedRuns": 3, "quality": true, "blown": null },
+  { "outs": 18, "earnedRuns": 4, "quality": false, "blown": null },
+  { "outs": 17, "earnedRuns": 3, "quality": false, "blown": "hook" },
+  { "outs": 17, "earnedRuns": 4, "quality": false, "blown": "runs" },
+  { "outs": 15, "earnedRuns": 0, "quality": false, "blown": "hook" },
+  { "outs": 15, "earnedRuns": 4, "quality": false, "blown": "runs" },
+  { "outs": 14, "earnedRuns": 0, "quality": false, "blown": null },
+  { "outs": 16, "earnedRuns": 5, "quality": false, "blown": null },
+  { "outs": 27, "earnedRuns": 0, "quality": true, "blown": null },
+  { "outs": 21, "earnedRuns": 3, "quality": true, "blown": null },
+  { "outs": 0, "earnedRuns": 4, "quality": false, "blown": null },
+  { "outs": 19, "earnedRuns": 4, "quality": false, "blown": null },
+  { "outs": 16, "earnedRuns": 3, "quality": false, "blown": "hook" },
+  { "outs": 16, "earnedRuns": 4, "quality": false, "blown": "runs" }
+ ],
+ "unreadable": [
+  { "outs": 18 },
+  { "earnedRuns": 2 },
+  { "outs": -1, "earnedRuns": 0 },
+  { "outs": "18", "earnedRuns": 2 },
+  null
+ ],
+ "summary": { "starts": 14, "quality": 3, "blown": 6, "blownHook": 3, "blownRuns": 3, "neither": 2, "unread": 0 },
+ "summaryWithUnreadable": { "starts": 20, "quality": 3, "blown": 6, "blownHook": 3, "blownRuns": 3, "neither": 2, "unread": 6 }
+}

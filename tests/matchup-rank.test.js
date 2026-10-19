@@ -1,6 +1,6 @@
-// Unit tests for the pure matchup rank (matchup-rank.js, Q8 / O38). Open tests/matchup-rank.test.html through any static server - green means every assertion held. Every expected value is hand-computed from tests/fixtures/matchup-rank.md, except the fixture section, which asserts against two recorded instances. Two kinds of evidence on purpose: the synthetic cases prove the formulas, and the fixture proves the module still says what the owner's ruling was made on (the live league, against O36's published figures) and that it does not assume a category count (the finished league, which scores seven and not nine).
-import { leagueMargins, playerWinsPerWeek, computeMatchupRanks, MIN_DECIDED_MATCHUPS } from '../matchup-rank.js';
-import { MEDIAN_Z, normalCdf } from '../leverage-engine.js';
+// Unit tests for the pure matchup rank (matchup-rank.js). Open tests/matchup-rank.test.html through any static server; green means every assertion held. Every expected value is hand-computed from tests/fixtures/matchup-rank.md, except the fixture section, which asserts against recorded instances. The synthetic cases prove the formulas, and the fixtures prove the module on real margins.
+import { leagueMargins, playerWinsPerWeek, computeMatchupRanks, MIN_DECIDED_MATCHUPS } from '../src/engines/matchup-rank.js';
+import { MEDIAN_Z, normalCdf } from '../src/engines/leverage-engine.js';
 
 const results = [];
 function test(name, fn) {
@@ -16,7 +16,7 @@ function close(a, b, msg, tol = 1e-12) {
     if (!(Math.abs(a - b) <= tol)) throw new Error(`${msg}: expected ${b}, got ${a}`);
 }
 
-// ==== THE TWO EXACT FLIPS EVERY SYNTHETIC CASE BELOW IS BUILT ON. flip = normalCdf(|shift| / sd) - 0.5, signed. So a shift of exactly one MEDIAN_Z is a flip of exactly 0.25 - half the margins fall within one median-z by that constant's definition - and a shift of one whole sd is normalCdf(1) - 0.5. Both are read off the documented formula rather than off a run of the code. ====
+// The two exact flips every synthetic case below is built on. A flip is normalCdf(|shift| / sd) - 0.5, signed. So a shift of exactly one MEDIAN_Z is a flip of exactly 0.25, since half the margins fall within one median-z by that constant's definition, and a shift of one whole sd is normalCdf(1) - 0.5. Both are read off the documented formula and not off a run of the code.
 const FLIP_AT_MEDIAN_Z = 0.25;
 const FLIP_AT_ONE_SD = normalCdf(1) - 0.5;
 
@@ -59,7 +59,7 @@ test('periods, pairings and team-weeks are three different counts', () => {
 test('two pairings in one period is one period, two margins, four team-weeks', () => {
     const league = { ...LEAGUE, schedule: [pairing(1, 2), pairing(1, -2)] };
     const { margins, reason } = leagueMargins(league, { ...CTX });
-    // Only ONE decided period, so the floor refuses - which is itself the point: the counts do not agree, and it is the period count the floor is written against.
+    // Only one decided period, so the floor refuses. The counts do not agree, and it is the period count the floor is written against.
     assert(margins === null && reason === 'too-few-matchups', 'one period refuses');
 });
 
@@ -117,7 +117,7 @@ test('a refused league ranks nothing rather than ranking on no margins', () => {
     assertEq(computeMatchupRanks([{ id: 1, seasonTotals: { '5': 8 } }], null, CTX), null, 'null in, null out');
 });
 
-// ==== playerWinsPerWeek - the counting case ====
+// ==== playerWinsPerWeek: the counting case ====
 
 const M = leagueMargins(LEAGUE, CTX).margins;
 
@@ -131,7 +131,7 @@ test('a counting shift of one whole sd is normalCdf(1) - 0.5', () => {
 });
 
 test('a shift of one median-z is a flip of a quarter, to normalCdf\'s own accuracy', () => {
-    // The identity is exact; the arithmetic is not. normalCdf is Abramowitz & Stegun 26.2.17, whose documented bound is |error| < 7.5e-8, so a quarter is what this can be asserted to and no tighter. Measured here at 6.7e-8, inside the bound - a tighter tolerance would be a test of the approximation rather than of this module.
+    // The identity is exact and the arithmetic is not. normalCdf is Abramowitz and Stegun 26.2.17, whose documented bound is an error under 7.5e-8, so a quarter is asserted to that bound and no tighter. A tighter tolerance would test the approximation and not this module.
     const w = playerWinsPerWeek({ id: 1, seasonTotals: { '5': 4 * 2 * MEDIAN_Z } }, M, CTX);
     close(w.byCategory[0].wins, FLIP_AT_MEDIAN_Z, 'half the margins fall inside one median-z', 7.5e-8);
 });
@@ -170,7 +170,7 @@ test('a category with no measured margin is skipped', () => {
     assertEq(playerWinsPerWeek({ id: 1, seasonTotals: { '5': 8 } }, thin, CTX), null, 'a zero margin measures nothing');
 });
 
-// ==== playerWinsPerWeek - the rate case ====
+// ==== playerWinsPerWeek: the rate case ====
 
 test('a rate shift uses the COMBINED denominator, team plus the player', () => {
     const rates = (h, a) => ({ home: { '2': { score: h }, '0': { score: 100 } }, away: { '2': { score: a }, '0': { score: 100 } } });
@@ -242,9 +242,9 @@ test('the module does no qualifying of its own - the pool handed in is the pool 
     assertEq(computeMatchupRanks(pool, M, CTX).of, 2, 'a marginal player is still ranked if handed in');
 });
 
-// ==== The fixture - the O36 figures the owner's ruling was made on, reproduced ====
+// The fixtures: recorded figures, reproduced.
 
-// ==== THE PUBLISHED FIXTURE: real margins from tests/sample-league.json, archetype players. The margins here are not a stand-in. sample-league.json is a real league's real season with its team names removed, and margins are read from box scores, so these figures are IDENTICAL to the ones the same league's private capture produces. What the anonymised file has no room for is a player pool, so the players are archetypes with round totals - and only their model OUTPUTS are asserted, never a claim about anybody's season. ====
+// The published fixture: real margins from tests/sample-league.json, with archetype players. The margins are not a stand-in: the file is a real league's real season with its team names removed, and margins are read from box scores. The file holds no player pool, so the players are archetypes with round totals, and only their model outputs are asserted.
 const FIX = await (await fetch('./fixtures/matchup-rank.json')).json();
 const arch = (name) => FIX.players.find(p => p.name === name);
 const RATE_CTX = {
@@ -295,7 +295,7 @@ test('the ranking is the one the fixture records, and the unmeasurable player is
 });
 
 test('a heavy inverse line is what sinks a player', () => {
-    // Error Prone is Balanced Bat with six times the errors and nothing else changed, so the whole gap between them is one category - the clearest statement in the fixture that an inverse category subtracts rather than being ignored.
+    // Error Prone is Balanced Bat with six times the errors and nothing else changed, so the whole gap between them is one category. It is the clearest statement in the fixture that a lower-is-better category subtracts and is not ignored.
     const b = arch('Balanced Bat'), e = arch('Error Prone');
     assertEq([b.rank, e.rank], [1, 6], 'first and last');
     ['5', '20', '21', '23', '2', '18'].forEach(id => close(
@@ -305,7 +305,7 @@ test('a heavy inverse line is what sinks a player', () => {
 });
 
 test('half a season reads as half a line, and the rates do NOT halve with it', () => {
-    // The divisor's stated consequence, made visible: Half A Season is Balanced Bat's counting line halved, so its counting wins halve - but AVG and OPS are rates and stay where they are, which is why the total is not half the total.
+    // The divisor's stated consequence, made visible: Half A Season is Balanced Bat's counting line halved, so its counting wins halve, but AVG and OPS are rates and stay where they are, which is why the total is not half the total.
     const b = arch('Balanced Bat'), h = arch('Half A Season');
     close(h.byCategory.find(c => c.id === '20').perWeek, 2, 'runs halve');
     close(b.byCategory.find(c => c.id === '20').perWeek, 4, 'from four');
@@ -313,7 +313,7 @@ test('half a season reads as half a line, and the rates do NOT halve with it', (
     assert(h.winsPerWeek > b.winsPerWeek / 2, 'so the total is MORE than half, not exactly half');
 });
 
-// ==== THE PRIVATE FIXTURE: the owner's own leagues, and the O36 figures the Q8 ruling was made on. It is not published, so a copy of this repository that lacks it cannot run these. They are REPORTED ABSENT rather than skipped silently - the same rule tests/run-all.html applies to a missing suite, for the same reason: a check that quietly disappears is worse than one that says it is not here. Regenerate it with tests/matchup-rank.private.gen.html. ====
+// The private fixture: recorded leagues that are not published, so a copy of this repository without it cannot run these cases. They are reported absent and not skipped without a word, the same rule tests/run-all.html applies to a missing suite. It is regenerated with tests/matchup-rank.private.gen.html.
 const PRIV = await fetch('./fixtures/matchup-rank.private.json')
     .then(r => (r.ok ? r.json() : null))
     .catch(() => null);

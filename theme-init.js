@@ -1,4 +1,13 @@
-// Applies the saved STYLE and theme synchronously, before the stylesheet paints, so there's no flash of one into the other. Only an explicit light/dark choice sets data-theme; "auto" leaves it unset so the prefers-color-scheme media query drives it. Style is not optional in the same way: one of the two always applies, and Boxscore is what a new install gets. This lives in its own file (not inline in dashboard.html) because extension pages run under a CSP that blocks inline scripts entirely - as an inline snippet this never executed in the installed extension, only in dev-preview. It must stay a plain synchronous script loaded BEFORE the stylesheet link; making it a module or moving it after the CSS reintroduces the flash it exists to prevent.
+/**
+ * Applies the saved style and theme synchronously, before the stylesheet paints, so there is no
+ * flash of one into the other. Only an explicit light or dark choice sets `data-theme`; "auto"
+ * leaves it unset so the color-scheme media query drives it, and one of the two styles always applies.
+ *
+ * This is a plain synchronous script in its own file, loaded before the stylesheet link. Extension
+ * pages block inline scripts, and making it a module or loading it later brings the flash back.
+ *
+ * @module theme-init
+ */
 (function () {
     try {
         // Anything unrecognised, including a first run with nothing stored, is Boxscore.

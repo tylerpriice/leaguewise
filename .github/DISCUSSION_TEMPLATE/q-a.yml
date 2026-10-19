@@ -1,0 +1,42 @@
+title: "Question: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask anything about using Leaguewise. Please don't attach a Diagnostic export or a league payload: those hold your league's data. A screenshot with names cropped out is plenty.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What you're looking at, and what you want to know about it.
+    validations:
+      required: true
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Sport
+      options:
+        - Baseball
+        - Hockey
+        - Football
+        - Not about one sport
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: League format
+      options:
+        - Head-to-head categories
+        - Head-to-head points
+        - Rotisserie
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and Leaguewise version
+      placeholder: Firefox 131, Leaguewise 1.7.0
+    validations:
+      required: true

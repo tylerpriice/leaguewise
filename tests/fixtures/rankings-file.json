@@ -1,0 +1,270 @@
+{
+ "_synthetic": "Hand-written for B256. No capture is involved: twelve invented players in the ESPN pool's row shape, and three files over them. 1005 and 1006 share the full name 'Sam Twin' on different clubs and positions, which is the ambiguity the contract must report rather than resolve. Row 2 of the full file MISSPELLS a name and carries an ESPN ID, so the id path is provably preferred rather than merely agreeing.",
+ "pool": [
+  {
+   "player": {
+    "id": 1001,
+    "fullName": "Alma Rook",
+    "proTeamId": 1
+   }
+  },
+  {
+   "player": {
+    "id": 1002,
+    "fullName": "Bo Quillan",
+    "proTeamId": 2
+   }
+  },
+  {
+   "player": {
+    "id": 1003,
+    "fullName": "Cy Marchand",
+    "proTeamId": 3
+   }
+  },
+  {
+   "player": {
+    "id": 1004,
+    "fullName": "Dara Vale",
+    "proTeamId": 4
+   }
+  },
+  {
+   "player": {
+    "id": 1005,
+    "fullName": "Sam Twin",
+    "proTeamId": 5
+   }
+  },
+  {
+   "player": {
+    "id": 1006,
+    "fullName": "Sam Twin",
+    "proTeamId": 6
+   }
+  },
+  {
+   "player": {
+    "id": 1007,
+    "fullName": "Eli Frost",
+    "proTeamId": 7
+   }
+  },
+  {
+   "player": {
+    "id": 1008,
+    "fullName": "Fern Oakes",
+    "proTeamId": 8
+   }
+  },
+  {
+   "player": {
+    "id": 1009,
+    "fullName": "Gus Pike",
+    "proTeamId": 9
+   }
+  },
+  {
+   "player": {
+    "id": 1010,
+    "fullName": "Hana Reed",
+    "proTeamId": 10
+   }
+  },
+  {
+   "player": {
+    "id": 1011,
+    "fullName": "Ivo Sand",
+    "proTeamId": 11
+   }
+  },
+  {
+   "player": {
+    "id": 1012,
+    "fullName": "Jo Wren",
+    "proTeamId": 12
+   }
+  }
+ ],
+ "positionsOf": {
+  "1001": [
+   "C"
+  ],
+  "1002": [
+   "LW"
+  ],
+  "1003": [
+   "RW"
+  ],
+  "1004": [
+   "D"
+  ],
+  "1005": [
+   "C"
+  ],
+  "1006": [
+   "D"
+  ],
+  "1007": [
+   "G"
+  ],
+  "1008": [
+   "D"
+  ],
+  "1009": [
+   "C"
+  ],
+  "1010": [
+   "LW"
+  ],
+  "1011": [
+   "RW"
+  ],
+  "1012": [
+   "G"
+  ]
+ },
+ "files": {
+  "full": "Player,Team,Pos,Rank,Tier,ESPN ID\r\nAlma Rook,1,C,1,1,\r\nBo Quillian,2,LW,2,1,1002\r\nSam Twin,5,C,3,1,\r\nSam Twin,,,4,2,\r\nCy Marchand,3,RW,5,2,\r\nZeb Nobody,,,6,2,\r\nDara Vale,4,D,x,3,\r\nEli Frost,7,G,8,3,\r\nFern Oakes,8,D,9,3,\r\nGus Pike,9,C,10,4,\r\nHana Reed,10,LW,11,4,\r\nJo Wren,12,G,12,4,\r\n",
+  "tierOnly": "Name,Tier\r\nAlma Rook,1\r\nCy Marchand,2\r\nJo Wren,3\r\n",
+  "rankOnly": "Player,Rk\r\nGus Pike,1\r\nAlma Rook,2\r\n"
+ },
+ "board": [
+  1003,
+  1001,
+  1005,
+  1009,
+  1002
+ ],
+ "_expected": "Hand-computed from the three files above.",
+ "expected": {
+  "columnsFound": {
+   "name": "Player",
+   "club": "Team",
+   "position": "Pos",
+   "rank": "Rank",
+   "tier": "Tier",
+   "espnId": "ESPN ID"
+  },
+  "fullRowCount": 12,
+  "issueCount": 1,
+  "_issue": "Dara Vale's rank cell is 'x', which is an issue and a null rank rather than a NaN.",
+  "byPlayerId": {
+   "1001": {
+    "rank": 1,
+    "tier": 1
+   },
+   "1002": {
+    "rank": 2,
+    "tier": 1
+   },
+   "1005": {
+    "rank": 3,
+    "tier": 1
+   },
+   "1003": {
+    "rank": 5,
+    "tier": 2
+   },
+   "1004": {
+    "rank": null,
+    "tier": 3
+   },
+   "1007": {
+    "rank": 8,
+    "tier": 3
+   },
+   "1008": {
+    "rank": 9,
+    "tier": 3
+   },
+   "1009": {
+    "rank": 10,
+    "tier": 4
+   },
+   "1010": {
+    "rank": 11,
+    "tier": 4
+   },
+   "1012": {
+    "rank": 12,
+    "tier": 4
+   }
+  },
+  "unmatchedNames": [
+   "Zeb Nobody"
+  ],
+  "ambiguous": [
+   {
+    "name": "Sam Twin",
+    "rank": 4,
+    "candidates": [
+     1005,
+     1006
+    ]
+   }
+  ],
+  "_column": "The board is 1003, 1001, 1005, 1009, 1002 - so board ranks 1 to 5. delta is the file's rank minus the board's: 1003 is 5-1=+4 (the reader rates it LOWER), 1001 is 1-2=-1 (higher), 1005 is 3-3=0, 1009 is 10-4=+6, 1002 is 2-5=-3.",
+  "column": [
+   {
+    "playerId": 1003,
+    "myRank": 5,
+    "myTier": 2,
+    "boardRank": 1,
+    "deltaVsBoard": 4
+   },
+   {
+    "playerId": 1001,
+    "myRank": 1,
+    "myTier": 1,
+    "boardRank": 2,
+    "deltaVsBoard": -1
+   },
+   {
+    "playerId": 1005,
+    "myRank": 3,
+    "myTier": 1,
+    "boardRank": 3,
+    "deltaVsBoard": 0
+   },
+   {
+    "playerId": 1009,
+    "myRank": 10,
+    "myTier": 4,
+    "boardRank": 4,
+    "deltaVsBoard": 6
+   },
+   {
+    "playerId": 1002,
+    "myRank": 2,
+    "myTier": 1,
+    "boardRank": 5,
+    "deltaVsBoard": -3
+   }
+  ],
+  "tierOnlyByPlayerId": {
+   "1001": {
+    "rank": null,
+    "tier": 1
+   },
+   "1003": {
+    "rank": null,
+    "tier": 2
+   },
+   "1012": {
+    "rank": null,
+    "tier": 3
+   }
+  },
+  "rankOnlyByPlayerId": {
+   "1009": {
+    "rank": 1,
+    "tier": null
+   },
+   "1001": {
+    "rank": 2,
+    "tier": null
+   }
+  }
+ }
+}

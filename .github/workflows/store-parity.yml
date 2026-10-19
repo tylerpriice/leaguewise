@@ -1,0 +1,126 @@
+# Checks that the package each store SERVES is the tag its own manifest names, on GitHub's own runner.
+# For each store:
+#
+#   1. download the file the store hands a browser - the signed .xpi from addons.mozilla.org, the CRX
+#      from the Chrome Web Store's update endpoint
+#   2. read the version from the package's own manifest and check out that version's tag
+#   3. compare every entry with the tag's file by name, size and SHA-256, through
+#      .github/scripts/store-parity.ps1
+#
+# The only entries left out are each store's own signature files, and the manifest is compared as
+# parsed JSON. A missing, extra, duplicated or differing entry fails the run, and the table of every
+# entry is written to the run's summary. The script's header says exactly what is and is not allowed.
+#
+# verify-release.yml proves a release's assets are its tag. This proves the same of what a store is
+# serving today, which is a different file: each store signs what it was sent and serves its own.
+#
+# IT RUNS once a week, on every published release, and by hand from the Actions tab. A release's own
+# run can report the version before it: a store reviews a submission before serving it, and until
+# then it still serves the last one. That is the true answer, and the weekly run reports the new
+# version once the store does.
+#
+# NO THIRD-PARTY ACTION IS USED. Every step is a tool the hosted Ubuntu runner already carries - git,
+# curl, jq, sha256sum and PowerShell 7 - so there is no action to pin to a commit and none that
+# could change underneath this check.
+#
+# The badge for a README:
+#   https://github.com/OWNER/REPO/actions/workflows/store-parity.yml/badge.svg
+#
+# This file is generated: the mirror's build copies it here from its source, so an edit made in this
+# repository is overwritten by the next build.
+
+name: Store parity
+
+on:
+  schedule:
+    - cron: "43 7 * * 3"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    name: ${{ matrix.store }}
+    runs-on: ubuntu-latest
+    strategy:
+      # One store failing must not stop the other from being checked.
+      fail-fast: false
+      matrix:
+        store: [amo, chrome]
+    env:
+      STORE: ${{ matrix.store }}
+      # The extension's id at the Chrome Web Store, from its listing's address. The id at
+      # addons.mozilla.org is not written here: it is read from the manifest.
+      CHROME_ID: emnepcdlpnnphjgfiajhkciijciifdoj
+      # The update endpoint answers for the browser version it is told. Any version at or above the
+      # manifest's minimum_chrome_version gets the current package.
+      CHROME_VERSION: "131.0"
+    steps:
+      # This repository at the commit the run is for, to get the script and the manifest. Line-end
+      # conversion is turned off, as it is for the tag below.
+      - name: Fetch this repository
+        shell: bash
+        run: |
+          git init --quiet repo
+          cd repo
+          git config core.autocrlf false
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --quiet --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+
+      # addons.mozilla.org publishes the file's address and its SHA-256 through its API; the download
+      # is checked against that hash before it is read at all.
+      - name: Download what addons.mozilla.org serves
+        if: matrix.store == 'amo'
+        shell: bash
+        run: |
+          id="$(jq -r '.browser_specific_settings.gecko.id' repo/manifest.json)"
+          if [ -z "$id" ] || [ "$id" = "null" ]; then echo "::error::the manifest names no add-on id"; exit 1; fi
+          api="https://addons.mozilla.org/api/v5/addons/addon/$(jq -rn --arg v "$id" '$v|@uri')/"
+          curl --fail --silent --show-error --location "$api" --output addon.json
+          url="$(jq -r '.current_version.file.url' addon.json)"
+          hash="$(jq -r '.current_version.file.hash' addon.json)"
+          if [ -z "$url" ] || [ "$url" = "null" ]; then echo "::error::the API names no file for the current version"; exit 1; fi
+          curl --fail --silent --show-error --location "$url" --output package.bin
+          case "$hash" in
+            sha256:*) echo "${hash#sha256:}  package.bin" | sha256sum --check --strict ;;
+            *) echo "::error::the API gave no SHA-256 for the file ($hash)"; exit 1 ;;
+          esac
+
+      - name: Download what the Chrome Web Store serves
+        if: matrix.store == 'chrome'
+        shell: bash
+        run: |
+          url="https://clients2.google.com/service/update2/crx?response=redirect&prodversion=${CHROME_VERSION}&acceptformat=crx3&x=id%3D${CHROME_ID}%26installsource%3Dondemand%26uc"
+          curl --fail --silent --show-error --location "$url" --output package.bin
+          if [ ! -s package.bin ]; then echo "::error::the update endpoint answered with no package"; exit 1; fi
+
+      # The TAG the package names is checked out, not the default branch: a package is compared with
+      # its own version's code.
+      - name: Fetch the tag the package names
+        shell: bash
+        run: |
+          version="$(pwsh -NoProfile -File repo/.github/scripts/store-parity.ps1 -Package package.bin -PrintVersion)"
+          case "$version" in
+            ''|*[!0-9.]*) echo "::error::the package named no version ($version)"; exit 1 ;;
+          esac
+          echo "The $STORE package is version $version."
+          git init --quiet tag
+          cd tag
+          git config core.autocrlf false
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          if ! git fetch --quiet --no-tags --depth=1 origin "refs/tags/v$version:refs/tags/v$version"; then
+            echo "::error::this repository has no tag v$version, the version the $STORE package names"
+            exit 1
+          fi
+          git checkout --quiet --detach "refs/tags/v$version"
+
+      # The script is this repository's, at the commit the run is for; the files it compares against
+      # are the tag's.
+      - name: Compare the package with the tag, entry by entry
+        shell: bash
+        run: |
+          pwsh -NoProfile -File repo/.github/scripts/store-parity.ps1 -Package package.bin -Store "$STORE" -TagDir tag -Summary "$GITHUB_STEP_SUMMARY"

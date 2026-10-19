@@ -1,0 +1,44 @@
+{
+ "_synthetic": "Hand-written for B254 item 5. Every id and figure is invented. The expected values are computed in odds-runner.md by an implementation independent of the module, never by running it.",
+ "oddsSeed": [
+  { "leagueId": "1001", "period": 8, "seed": 3481858173 },
+  { "leagueId": "1001", "period": 9, "seed": 3465080554 },
+  { "leagueId": "2002", "period": 8, "seed": 3390947463 },
+  { "leagueId": 3003, "period": 23, "seed": 202331928 }
+ ],
+ "batchFor": [
+  { "work": { "path": "h2h", "matchups": 39 }, "batch": 1794 },
+  { "work": { "path": "h2h", "matchups": 60 }, "batch": 1166 },
+  { "work": { "path": "h2h", "matchups": 2 }, "batch": 35000 },
+  { "work": { "path": "h2h", "matchups": 0 }, "batch": 35000 },
+  { "work": { "path": "roto", "periodsLeft": 88, "teams": 5 }, "batch": 84 },
+  { "work": { "path": "roto", "periodsLeft": 176, "teams": 5 }, "batch": 45 },
+  { "work": { "path": "roto", "periodsLeft": 22, "teams": 5 }, "batch": 236 },
+  { "work": { "path": "roto", "periodsLeft": 2, "teams": 4 }, "batch": 643 }
+ ],
+ "batchSeeds": [
+  { "seed": 20260922, "batches": 4, "seeds": [3633253010, 2404511664, 3799962360, 1660672668] },
+  { "seed": 1, "batches": 3, "seeds": [2693262067, 11749833, 2265367787] }
+ ],
+ "teamStats": [
+  { "id": 1, "weeklyCats": { "1": { "10": 5, "20": 3 }, "2": { "10": 4, "20": 2.5 }, "3": { "10": 1, "20": 1 } }, "weeklyMatchWins": { "1": 1, "2": 0.5 } },
+  { "id": 2, "weeklyCats": { "1": { "10": 2, "20": 6 }, "2": { "10": 7, "20": 0 }, "3": { "10": 9, "20": 9 } }, "weeklyMatchWins": { "1": 0, "2": 0.5 } },
+  { "id": 10, "weeklyCats": { "1": { "10": 3, "20": 3 }, "2": { "10": 3, "20": 1 } }, "weeklyMatchWins": { "1": 1, "2": 0 } }
+ ],
+ "teamStatsFingerprints": [
+  { "through": 1, "fingerprint": "1@1#59ce05b6" },
+  { "through": 2, "fingerprint": "2@2#98710fd6" },
+  { "through": 3, "fingerprint": "3@3#7b8b056d" },
+  { "through": null, "fingerprint": "3@3#7b8b056d" },
+  { "through": 0, "fingerprint": "0@0#811c9dc5" }
+ ],
+ "series": {
+  "1": { "1": { "sums": { "10": 2, "20": 1 }, "games": 3 }, "2": { "sums": { "10": 1.5, "20": 4 }, "games": 2 } },
+  "2": { "1": { "sums": { "10": 0, "20": 2 }, "games": 1 } }
+ },
+ "seriesFingerprints": [
+  { "through": 1, "fingerprint": "1@1#2e5b773c" },
+  { "through": 2, "fingerprint": "2@2#bde4f075" },
+  { "through": null, "fingerprint": "2@2#bde4f075" }
+ ]
+}

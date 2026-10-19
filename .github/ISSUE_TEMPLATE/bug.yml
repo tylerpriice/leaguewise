@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in Leaguewise is wrong, broken, or missing.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. The more of this you can fill in, the faster it gets fixed.
+
+        **Please don't attach a Diagnostic export or a league payload.** Those files hold your league's data: team names, owners, rosters. Screenshots are welcome, with names cropped out if you prefer.
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Firefox 131, Chrome 129, Edge 129
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Leaguewise version
+      description: It's on the browser's extensions page, beside the name.
+      placeholder: "1.7.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Sport
+      options:
+        - Baseball
+        - Hockey
+        - Football
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: League format
+      options:
+        - Head-to-head categories
+        - Head-to-head points
+        - Rotisserie
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: tab
+    attributes:
+      label: Where it happens
+      options:
+        - Team Metrics
+        - Player Metrics
+        - My Team
+        - Draft
+        - League History
+        - The popup, or before a league loads
+        - Somewhere else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: Press F12 on the Leaguewise tab, open the Console, and paste any red lines. Leave it empty if there are none.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have not pasted a Diagnostic export here. It contains my league's data.
+          required: true

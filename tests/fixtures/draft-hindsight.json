@@ -1,0 +1,70 @@
+{
+ "_synthetic": "Hand-written for B265 item 1 M2. Twelve invented picks over three rounds and four teams, plus a thirteenth at playerId -1 (the pre-draft grid's placeholder) that is dropped. Every value, rank and pace is invented; the expectations are computed by hand in draft-hindsight.md, never by running the module. -16033 stands for a football D/ST, whose ids are negative by ESPN's own convention.",
+ "drafted": true,
+ "played": true,
+ "teams": [
+  { "id": 1, "name": "Alpha" },
+  { "id": 2, "name": "Bravo" },
+  { "id": 3, "name": "Charlie" },
+  { "id": 4, "name": "Delta" }
+ ],
+ "picks": [
+  { "playerId": 9001, "teamId": 1, "roundId": 1, "roundPickNumber": 1, "overallPickNumber": 1, "keeper": false },
+  { "playerId": 9002, "teamId": 2, "roundId": 1, "roundPickNumber": 2, "overallPickNumber": 2, "keeper": false },
+  { "playerId": 9003, "teamId": 3, "roundId": 1, "roundPickNumber": 3, "overallPickNumber": 3, "keeper": true },
+  { "playerId": 9004, "teamId": 4, "roundId": 1, "roundPickNumber": 4, "overallPickNumber": 4, "keeper": false },
+  { "playerId": 9005, "teamId": 1, "roundId": 2, "roundPickNumber": 1, "overallPickNumber": 5, "keeper": false },
+  { "playerId": 9006, "teamId": 2, "roundId": 2, "roundPickNumber": 2, "overallPickNumber": 6, "keeper": false },
+  { "playerId": 9007, "teamId": 3, "roundId": 2, "roundPickNumber": 3, "overallPickNumber": 7, "keeper": false },
+  { "playerId": 9008, "teamId": 4, "roundId": 2, "roundPickNumber": 4, "overallPickNumber": 8, "keeper": false },
+  { "playerId": -16033, "teamId": 1, "roundId": 3, "roundPickNumber": 1, "overallPickNumber": 9, "keeper": false },
+  { "playerId": 9010, "teamId": 2, "roundId": 3, "roundPickNumber": 2, "overallPickNumber": 10, "keeper": false },
+  { "playerId": 9011, "teamId": 3, "roundId": 3, "roundPickNumber": 3, "overallPickNumber": 11, "keeper": false },
+  { "playerId": 9012, "teamId": 4, "roundId": 3, "roundPickNumber": 4, "overallPickNumber": 12, "keeper": false },
+  { "playerId": -1, "teamId": 4, "roundId": 4, "roundPickNumber": 1, "overallPickNumber": 13, "keeper": false }
+ ],
+ "_values": "9004 is deliberately absent: the pick outside the pool. 9010 carries a value with no rank: ranked by nothing, the minimum-games rule having excluded it.",
+ "values": {
+  "9001": { "value": 92.5, "rank": 1, "total": 120, "tied": false, "games": 60 },
+  "9002": { "value": 71, "rank": 7, "total": 120, "tied": false, "games": 58 },
+  "9003": { "value": 88, "rank": 2, "total": 120, "tied": false, "games": 61 },
+  "9005": { "value": 84.5, "rank": 3, "total": 120, "tied": false, "games": 55 },
+  "9006": { "value": 60, "rank": 12, "total": 120, "tied": false, "games": 40 },
+  "9007": { "value": 41, "rank": 20, "total": 120, "tied": false, "games": 12 },
+  "9008": { "value": 80, "rank": 4, "total": 120, "tied": true, "games": 59 },
+  "-16033": { "value": 64, "rank": 9, "total": 120, "tied": false, "games": 17 },
+  "9010": { "value": 12, "rank": null, "total": 120, "tied": false, "games": 3 },
+  "9011": { "value": 74, "rank": 6, "total": 120, "tied": false, "games": 57 },
+  "9012": { "value": 52, "rank": 15, "total": 120, "tied": false, "games": 44 }
+ },
+ "_pace": "What the caller's pacingFor closure answers, projection-pacing.js's own shape cut to what this module reads. A player absent here is a null pace: 9005 has no snapshot line, 9007 is under the games floor, -16033 is football, 9010 has neither.",
+ "pace": {
+  "9001": { "dir": "over", "pct": 12.4 },
+  "9002": { "dir": "under", "pct": -8.1 },
+  "9003": { "dir": "over", "pct": 4.6 },
+  "9006": { "dir": "under", "pct": -15.2 },
+  "9008": { "dir": "even", "pct": 0 },
+  "9011": { "dir": "over", "pct": 9.9 },
+  "9012": { "dir": "under", "pct": -3.4 }
+ },
+ "rows": [
+  { "playerId": 9001, "teamId": 1, "round": 1, "roundPick": 1, "overall": 1, "keeper": false, "inPool": true, "value": 92.5, "rank": 1, "total": 120, "tied": false, "games": 60, "slotGap": 0, "ungraded": false, "pace": { "dir": "over", "pct": 12.4 } },
+  { "playerId": 9002, "teamId": 2, "round": 1, "roundPick": 2, "overall": 2, "keeper": false, "inPool": true, "value": 71, "rank": 7, "total": 120, "tied": false, "games": 58, "slotGap": -5, "ungraded": false, "pace": { "dir": "under", "pct": -8.1 } },
+  { "playerId": 9003, "teamId": 3, "round": 1, "roundPick": 3, "overall": 3, "keeper": true, "inPool": true, "value": 88, "rank": 2, "total": 120, "tied": false, "games": 61, "slotGap": null, "ungraded": false, "pace": { "dir": "over", "pct": 4.6 } },
+  { "playerId": 9004, "teamId": 4, "round": 1, "roundPick": 4, "overall": 4, "keeper": false, "inPool": false, "value": null, "rank": null, "total": null, "tied": false, "games": null, "slotGap": null, "ungraded": false, "pace": null },
+  { "playerId": 9005, "teamId": 1, "round": 2, "roundPick": 1, "overall": 5, "keeper": false, "inPool": true, "value": 84.5, "rank": 3, "total": 120, "tied": false, "games": 55, "slotGap": 2, "ungraded": false, "pace": null },
+  { "playerId": 9006, "teamId": 2, "round": 2, "roundPick": 2, "overall": 6, "keeper": false, "inPool": true, "value": 60, "rank": 12, "total": 120, "tied": false, "games": 40, "slotGap": -6, "ungraded": false, "pace": { "dir": "under", "pct": -15.2 } },
+  { "playerId": 9007, "teamId": 3, "round": 2, "roundPick": 3, "overall": 7, "keeper": false, "inPool": true, "value": 41, "rank": 20, "total": 120, "tied": false, "games": 12, "slotGap": -13, "ungraded": false, "pace": null },
+  { "playerId": 9008, "teamId": 4, "round": 2, "roundPick": 4, "overall": 8, "keeper": false, "inPool": true, "value": 80, "rank": 4, "total": 120, "tied": true, "games": 59, "slotGap": 4, "ungraded": false, "pace": { "dir": "even", "pct": 0 } },
+  { "playerId": -16033, "teamId": 1, "round": 3, "roundPick": 1, "overall": 9, "keeper": false, "inPool": true, "value": 64, "rank": 9, "total": 120, "tied": false, "games": 17, "slotGap": 0, "ungraded": false, "pace": null },
+  { "playerId": 9010, "teamId": 2, "round": 3, "roundPick": 2, "overall": 10, "keeper": false, "inPool": true, "value": 12, "rank": null, "total": 120, "tied": false, "games": 3, "slotGap": null, "ungraded": true, "pace": null },
+  { "playerId": 9011, "teamId": 3, "round": 3, "roundPick": 3, "overall": 11, "keeper": false, "inPool": true, "value": 74, "rank": 6, "total": 120, "tied": false, "games": 57, "slotGap": 5, "ungraded": false, "pace": { "dir": "over", "pct": 9.9 } },
+  { "playerId": 9012, "teamId": 4, "round": 3, "roundPick": 4, "overall": 12, "keeper": false, "inPool": true, "value": 52, "rank": 15, "total": 120, "tied": false, "games": 44, "slotGap": -3, "ungraded": false, "pace": { "dir": "under", "pct": -3.4 } }
+ ],
+ "teamRows": [
+  { "teamId": 1, "name": "Alpha", "picks": 3, "graded": 3, "slotGapTotal": 2, "best": { "playerId": 9005, "slotGap": 2 }, "worst": { "playerId": 9001, "slotGap": 0 }, "over": 1, "under": 0, "even": 0 },
+  { "teamId": 2, "name": "Bravo", "picks": 3, "graded": 2, "slotGapTotal": -11, "best": { "playerId": 9002, "slotGap": -5 }, "worst": { "playerId": 9006, "slotGap": -6 }, "over": 0, "under": 2, "even": 0 },
+  { "teamId": 3, "name": "Charlie", "picks": 3, "graded": 2, "slotGapTotal": -8, "best": { "playerId": 9011, "slotGap": 5 }, "worst": { "playerId": 9007, "slotGap": -13 }, "over": 2, "under": 0, "even": 0 },
+  { "teamId": 4, "name": "Delta", "picks": 3, "graded": 2, "slotGapTotal": 1, "best": { "playerId": 9008, "slotGap": 4 }, "worst": { "playerId": 9012, "slotGap": -3 }, "over": 0, "under": 1, "even": 1 }
+ ]
+}

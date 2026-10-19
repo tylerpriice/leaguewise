@@ -1,5 +1,5 @@
-// Unit tests for the pure Team Rankings donut renderer (rankings-donut.js). Open tests/rankings-donut.test.html through any static server - green means every assertion held. See tests/fixtures/rankings-donut.md for the frozen contract these values are computed against.
-import { buildRankingsDonutHtml, escapeHtmlLocal } from '../rankings-donut.js';
+// Unit tests for the pure Team Rankings donut renderer (rankings-donut.js). Open tests/rankings-donut.test.html through any static server; green means every assertion held. See tests/fixtures/rankings-donut.md for the frozen contract these values are computed against.
+import { buildRankingsDonutHtml, escapeHtmlLocal } from '../src/views/rankings-donut.js';
 
 const results = [];
 function test(name, fn) {
@@ -40,7 +40,7 @@ test('empty rows render nothing at all', () => {
 
 test('4 teams: a single-column table, the dots column rendered as dots, not text', () => {
     const html = buildRankingsDonutHtml({ rows: TEAMS_4, columns: MATCH_COLUMNS, dotsColumnIndex: 2, centerSubtitle: '11-8-1 · leads' }, {});
-    assert(!html.includes('rkd-side-two'), 'one column under eleven teams');
+    assert(!html.includes('rkd-side-two'), 'one table, never a two-column wrapper');
     assert((html.match(/class="rkd-table"/g) || []).length === 1, 'exactly one table');
     assert((html.match(/rkd-dot /g) || []).length === 20, '5 dots x 4 teams = 20 dot spans');
     assert(!html.includes('rkd-legend'), 'no legend at this scale');
@@ -96,7 +96,7 @@ test('a slice at exactly a twentieth of the ring (18 degrees) still carries its 
     assert(html.includes('class="rkd-slice-label">Exact<'), '5% of 360 = 18deg exactly - not narrower than the floor, so it still gets a label');
 });
 
-// ==== R6/S52b (the owner's live measurement on full-mlb): full names overflowed the ring, the centre and the table (truncating "Bristling Badgers" to "Bristling B") - the abbreviation the legend and the bars already print is what actually fits everywhere, the full name moving to a hover. ====
+// Full names overflowed the ring, the centre and the table (truncating "Bristling Badgers" to "Bristling B"), so the abbreviation the legend and the bars already print is used, with the full name moving to a hover.
 
 const NAME_VS_ABBREV = [
     { id: 1, name: 'Bristling Badgers', abbrev: 'BRYCE', color: '#e63946', share: 0.6, cells: ['1'] },
@@ -126,24 +126,24 @@ test('B221 R6/S52b: a row with no real abbreviation falls back to its full name 
 });
 
 test('B221 R6/S52b: the leader\'s own slice pulls 4px outward along its own mid-angle; no other slice moves', () => {
-    // Two equal-share (half each) rows starting at 12 o'clock: the leader (rows[0]) spans -90deg to 90deg, mid exactly 0deg (due east) - its own pull is (cos(0)*4, sin(0)*4) = (4, 0), a pure horizontal shift with no vertical component at all.
+    // Two equal-share (half each) rows start at 12 o'clock. The leader (rows[0]) spans -90deg to 90deg, mid exactly 0deg (due east), so its own pull is (cos(0)*4, sin(0)*4) = (4, 0), a pure horizontal shift with no vertical component at all.
     const rows = [
         { id: 1, name: 'Leader', abbrev: 'LEAD', color: '#e63946', share: 0.5, cells: ['1'] },
         { id: 2, name: 'Second', abbrev: 'SECOND', color: '#3a86ff', share: 0.5, cells: ['2'] },
     ];
     const html = buildRankingsDonutHtml({ rows, columns: [{ label: 'X', align: 'right' }], dotsColumnIndex: -1, size: 132 }, {});
-    // size=132: shared centre (66, 66), rOuter=64. The leader's own arc starts at angle -90deg (12 o'clock) from its OWN pulled centre (66+4, 66) = (70, 66): x=70+64*cos(-90)=70, y=66+64*sin(-90)=2 - "M 70.0 2.0", not the shared-centre "M 66.0 2.0".
+    // size=132 gives a shared centre (66, 66) and rOuter=64. The leader's own arc starts at angle -90deg (12 o'clock) from its own pulled centre (66+4, 66) = (70, 66), so x=70+64*cos(-90)=70 and y=66+64*sin(-90)=2, giving "M 70.0 2.0" and not the shared-centre "M 66.0 2.0".
     assert(html.includes('M 70.0 2.0'), `the leader's own arc starts from the pulled centre (70, 66), got: ${html.slice(0, 400)}`);
     assert(!html.includes('M 66.0 2.0'), 'the leader does NOT start from the un-pulled shared centre');
-    // The second slice keeps the ORIGINAL, shared centre - its own arc starts at angle 90deg (6 o'clock) from (66, 66): x=66+64*cos(90)=66, y=66+64*sin(90)=130 - "M 66.0 130.0".
+    // The second slice keeps the original, shared centre. Its own arc starts at angle 90deg (6 o'clock) from (66, 66), so x=66+64*cos(90)=66 and y=66+64*sin(90)=130, giving "M 66.0 130.0".
     assert(html.includes('M 66.0 130.0'), 'the non-leader slice starts from the shared, un-pulled centre');
 });
 
-test('11 teams: the table splits into two columns of up to ten, the dots column dropped', () => {
+test('11 teams: still ONE table (B283 item 2), the dots column dropped', () => {
     const rows = makeTeams(11);
     const html = buildRankingsDonutHtml({ rows, columns: MATCH_COLUMNS, dotsColumnIndex: 2, centerSubtitle: 'leads' }, {});
-    assert(html.includes('rkd-side-two'), 'the two-column wrapper renders past ten teams');
-    assert((html.match(/class="rkd-table"/g) || []).length === 2, 'exactly two tables');
+    assert(!html.includes('rkd-side-two'), 'no two-column wrapper: two tables never fit the box beside the ring');
+    assert((html.match(/class="rkd-table"/g) || []).length === 1, 'exactly one table');
     assert(!html.includes('rkd-dot '), 'no dots column at this scale, even though dotsColumnIndex was passed - the caller\'s own contract note');
     assert(!html.includes('rkd-legend'), 'still a table, not a legend, at eleven teams');
 });
@@ -155,26 +155,19 @@ test('11 teams: the dropped dots column takes its own header with it, not just i
     assert(html.includes('>Record<') && html.includes('>Win %<') && html.includes('>Behind<'), 'the other three headers still render');
 });
 
-test('11 teams: the first column holds ceil(n/2), the second the rest', () => {
+test('11 teams: every team is a row of the one table', () => {
     const rows = makeTeams(11);
     const html = buildRankingsDonutHtml({ rows, columns: MATCH_COLUMNS, dotsColumnIndex: 2 }, {});
-    const tableStarts = [];
-    let idx = html.indexOf('<table');
-    while (idx !== -1) { tableStarts.push(idx); idx = html.indexOf('<table', idx + 1); }
-    assert(tableStarts.length === 2, 'two <table> elements');
-    const firstTableHtml = html.slice(tableStarts[0], tableStarts[1]);
-    const secondTableHtml = html.slice(tableStarts[1]);
-    const rowCount = (h) => (h.match(/<tr>/g) || []).length - 1; // minus the header row
-    assert(rowCount(firstTableHtml) === 6, 'ceil(11/2) = 6 teams in the first column');
-    assert(rowCount(secondTableHtml) === 5, 'the remaining 5 in the second');
+    const rowCount = (html.match(/<tr>/g) || []).length - 1; // minus the header row
+    assert(rowCount === 11, 'all eleven teams in one table');
 });
 
-test('20 teams: still a table (two columns), not yet a legend', () => {
+test('20 teams: still a table (one column), not yet a legend', () => {
     const rows = makeTeams(20);
     const html = buildRankingsDonutHtml({ rows, columns: MATCH_COLUMNS, dotsColumnIndex: 2 }, {});
-    assert(html.includes('rkd-side-two'), 'two columns at twenty');
+    assert(!html.includes('rkd-side-two'), 'one table at twenty');
     assert(!html.includes('rkd-legend'), 'twenty teams is still inside the table\'s own range');
-    assert((html.match(/<tr>/g) || []).length === 22, '20 body rows + 2 header rows (one per column)');
+    assert((html.match(/<tr>/g) || []).length === 21, '20 body rows + 1 header row');
 });
 
 test('21 teams: past the table\'s own range, a plain legend instead', () => {

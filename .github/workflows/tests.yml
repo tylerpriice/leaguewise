@@ -1,0 +1,138 @@
+# Runs this repository's own checks on GitHub's runner, in public, on every push and pull request.
+#
+#   suites  opens tests/run-all.html - the page a person opens to run the tests - in Chromium and in
+#           Firefox, waits for every suite to report, and fails on any that is not green. The row
+#           for every suite is written to the run's summary.
+#   lint    builds the Firefox package with scripts/package.ps1, exactly as a release does, and runs
+#           Mozilla's addons-linter over it.
+#
+# The extension has no build step and no dependencies, and this workflow does not give it any. The
+# two tools below are installed on the runner, for the length of the run, outside the checkout:
+# nothing is added to the repository and nothing they install is shipped.
+#
+# NO THIRD-PARTY ACTION IS USED, so there is no action to pin to a commit. The two npm packages are
+# pinned to an exact version each, in the env block below. That fixes which release runs; it does
+# not fix its bytes the way a commit hash fixes an action's, and neither tool can change what is
+# published: both jobs read the repository and hold no write permission.
+#
+# This file is generated: the mirror's build copies it here from its source, so an edit made in this
+# repository is overwritten by the next build.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PLAYWRIGHT_VERSION: "1.64.0"
+  ADDONS_LINTER_VERSION: "10.14.0"
+
+jobs:
+  suites:
+    name: suites in ${{ matrix.browser }}
+    runs-on: ubuntu-latest
+    strategy:
+      # A failure in one browser must not hide the other's result.
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    env:
+      BROWSER: ${{ matrix.browser }}
+      SUITES_URL: http://127.0.0.1:8123/tests/run-all.html
+      # The suites this repository does not carry. An absent suite is listed in the summary and never
+      # counted as passed; one that is absent without being named here fails the run.
+      ALLOWED_ABSENT: scout.test.html
+    steps:
+      - name: Fetch this repository
+        shell: bash
+        run: |
+          git init --quiet repo
+          cd repo
+          git config core.autocrlf false
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --quiet --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+
+      # Installed under the runner's temp directory, not in the checkout. Only the one browser this
+      # job runs is downloaded, with the system libraries it needs.
+      - name: Install Playwright and the browser, on the runner only
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          cd "$RUNNER_TEMP/tools"
+          npm install --no-save --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          npx --no-install playwright install --with-deps "$BROWSER"
+
+      # The suites are pages, and a page loads modules, so the tree is served rather than opened from
+      # disk. The server is the runner's own Python, bound to this machine only.
+      - name: Serve the repository
+        shell: bash
+        run: |
+          python3 -m http.server 8123 --bind 127.0.0.1 --directory repo > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 1 30); do
+            if curl --silent --fail --output /dev/null "$SUITES_URL"; then exit 0; fi
+            sleep 1
+          done
+          echo "::error::the server never answered for $SUITES_URL"
+          cat "$RUNNER_TEMP/server.log"
+          exit 1
+
+      - name: Run every suite
+        shell: bash
+        env:
+          NODE_PATH: ${{ runner.temp }}/tools/node_modules
+        run: node repo/.github/scripts/run-suites.cjs
+
+  lint:
+    name: addons-linter over the built package
+    # The packer decodes every packaged image before it will build, through a Windows library, so
+    # the build runs where a release's does.
+    runs-on: windows-latest
+    steps:
+      - name: Fetch this repository
+        shell: bash
+        run: |
+          git init --quiet repo
+          cd repo
+          git config core.autocrlf false
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --quiet --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Build the packages with the repository's own packer
+        shell: powershell
+        working-directory: repo
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $xpi = @(Get-ChildItem -Path dist -Filter '*-firefox.xpi')
+          if ($xpi.Count -ne 1) { Write-Output "::error::expected one Firefox package in dist, found $($xpi.Count)"; exit 1 }
+          "XPI=$($xpi[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # The linter's own exit code decides the job: it is non-zero when it reports an error, and
+      # warnings and notices do not fail it. Its report goes to the summary either way.
+      - name: Lint the Firefox package
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          cd "$RUNNER_TEMP/tools"
+          npm install --no-save --no-audit --no-fund "addons-linter@$ADDONS_LINTER_VERSION"
+          set +e
+          npx --no-install addons-linter "$XPI" > "$RUNNER_TEMP/lint.txt" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/lint.txt"
+          {
+            echo "### addons-linter $ADDONS_LINTER_VERSION over the built Firefox package"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/lint.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"

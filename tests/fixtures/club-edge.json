@@ -1,0 +1,61 @@
+{
+  "note": "Synthetic. Three clubs, four games, eight players; no real league, club or player. Hand-computed in club-edge.md.",
+  "ids": { "played": "30", "goals": "13", "shots": "29", "ppGoals": "18", "starts": "0", "wins": "1", "saves": "6", "shotsFaced": "3", "goalsAllowed": "4" },
+  "games": {
+    "101": { "home": 1, "away": 2, "period": 1, "date": 1000 },
+    "102": { "home": 2, "away": 3, "period": 2, "date": 2000 },
+    "103": { "home": 3, "away": 1, "period": 3, "date": 3000 },
+    "104": { "home": 1, "away": 2, "period": 4, "date": 4000 }
+  },
+  "lines": [
+    { "playerId": 11, "isGoalie": false, "proTeamId": 1, "externalId": "101", "totals": { "30": 1, "13": 2, "29": 5, "18": 1 } },
+    { "playerId": 12, "isGoalie": false, "proTeamId": 1, "externalId": "101", "totals": { "30": 1, "13": 0, "29": 3 } },
+    { "playerId": 13, "isGoalie": false, "proTeamId": 1, "externalId": "101", "totals": { "30": 0 } },
+    { "playerId": 91, "isGoalie": true, "proTeamId": 1, "externalId": "101", "totals": { "30": 1, "0": 1, "1": 1, "6": 6, "3": 7, "4": 1 } },
+    { "playerId": 21, "isGoalie": false, "proTeamId": 2, "externalId": "101", "totals": { "30": 1, "13": 1, "29": 4 } },
+    { "playerId": 77, "isGoalie": false, "proTeamId": 2, "externalId": "101", "totals": { "30": 1, "13": 0, "29": 3 } },
+    { "playerId": 92, "isGoalie": true, "proTeamId": 2, "externalId": "101", "totals": { "30": 1, "0": 1, "6": 7, "3": 8, "4": 1 } },
+
+    { "playerId": 21, "isGoalie": false, "proTeamId": 2, "externalId": "102", "totals": { "30": 1, "13": 3, "29": 6, "18": 2 } },
+    { "playerId": 92, "isGoalie": true, "proTeamId": 2, "externalId": "102", "totals": { "30": 1, "0": 1, "1": 1, "6": 4, "3": 5, "4": 1 } },
+    { "playerId": 31, "isGoalie": false, "proTeamId": 3, "externalId": "102", "totals": { "30": 1, "13": 1, "29": 5 } },
+    { "playerId": 93, "isGoalie": true, "proTeamId": 3, "externalId": "102", "totals": { "30": 1, "0": 1, "6": 3, "3": 6, "4": 3 } },
+
+    { "playerId": 31, "isGoalie": false, "proTeamId": 3, "externalId": "103", "totals": { "30": 1, "13": 0, "29": 4 } },
+    { "playerId": 77, "isGoalie": false, "proTeamId": 3, "externalId": "103", "totals": { "30": 1, "13": 1, "29": 4 } },
+    { "playerId": 93, "isGoalie": true, "proTeamId": 3, "externalId": "103", "totals": { "30": 1, "0": 1, "1": 1, "6": 8, "3": 8, "4": 0 } },
+    { "playerId": 11, "isGoalie": false, "proTeamId": 1, "externalId": "103", "totals": { "30": 1, "13": 0, "29": 6 } },
+    { "playerId": 12, "isGoalie": false, "proTeamId": 1, "externalId": "103", "totals": { "30": 1, "13": 0, "29": 2 } },
+    { "playerId": 91, "isGoalie": true, "proTeamId": 1, "externalId": "103", "totals": { "30": 1, "0": 1, "6": 7, "3": 8, "4": 1 } },
+
+    { "playerId": 11, "isGoalie": false, "proTeamId": 1, "externalId": "104", "totals": { "30": 1, "13": 1, "29": 2 } },
+    { "playerId": 91, "isGoalie": true, "proTeamId": 1, "externalId": "104", "totals": { "30": 1, "0": 1, "1": 1, "6": 1, "3": 1, "4": 0 } },
+    { "playerId": 21, "isGoalie": false, "proTeamId": 2, "externalId": "104", "totals": { "30": 1, "13": 0, "29": 1 } },
+    { "playerId": 92, "isGoalie": true, "proTeamId": 2, "externalId": "104", "totals": { "30": 1, "0": 1, "6": 1, "3": 2, "4": 1 } }
+  ],
+  "expected": {
+    "rowsClub1": [
+      { "gameId": "101", "period": 1, "date": 1000, "clubId": 1, "opponentId": 2, "isHome": true, "dressed": 2, "goalsFor": 2, "shotsFor": 8, "ppGoalsFor": 1, "goalsAgainst": 1, "shotsAgainst": 7, "ppGoalsAgainst": 0, "saves": 6, "shotsFaced": 7, "goalsAllowed": 1, "starterId": 91, "won": true },
+      { "gameId": "103", "period": 3, "date": 3000, "clubId": 1, "opponentId": 3, "isHome": false, "dressed": 2, "goalsFor": 0, "shotsFor": 8, "ppGoalsFor": 0, "goalsAgainst": 1, "shotsAgainst": 8, "ppGoalsAgainst": 0, "saves": 7, "shotsFaced": 8, "goalsAllowed": 1, "starterId": 91, "won": false },
+      { "gameId": "104", "period": 4, "date": 4000, "clubId": 1, "opponentId": 2, "isHome": true, "dressed": 1, "goalsFor": 1, "shotsFor": 2, "ppGoalsFor": 0, "goalsAgainst": 0, "shotsAgainst": 1, "ppGoalsAgainst": 0, "saves": 1, "shotsFaced": 1, "goalsAllowed": 0, "starterId": 91, "won": true }
+    ],
+    "tableThrough3": {
+      "league": { "ranked": 3, "shots": 7, "goals": 1.3333333333333333 },
+      "1": { "games": 2, "shotsFor": [8, 1], "shotsAgainst": [7.5, 3], "shotDiff": [0.5, 1], "goalsFor": [1, 2], "goalsAgainst": [1, 1], "goalDiff": [0, 2], "ppGoalsFor": [0.5, 2], "ppGoalsAgainst": [0, 1] },
+      "2": { "games": 2, "shotsFor": [6.5, 2], "shotsAgainst": [6.5, 1], "shotDiff": [0, 2], "goalsFor": [2, 1], "goalsAgainst": [1.5, 2], "goalDiff": [0.5, 1], "ppGoalsFor": [1, 1], "ppGoalsAgainst": [0.5, 2] },
+      "3": { "games": 2, "shotsFor": [6.5, 2], "shotsAgainst": [7, 2], "shotDiff": [-0.5, 3], "goalsFor": [1, 2], "goalsAgainst": [1.5, 2], "goalDiff": [-0.5, 3], "ppGoalsFor": [0, 3], "ppGoalsAgainst": [1, 3] }
+    },
+    "edgesGame104Through3": {
+      "home": [
+        { "key": "shots", "mine": { "figure": "shotsFor", "value": 8, "rank": 1 }, "theirs": { "figure": "shotsAgainst", "value": 6.5, "rank": 1 }, "gap": 0.5, "ahead": "mine" },
+        { "key": "goals", "mine": { "figure": "goalDiff", "value": 0, "rank": 2 }, "theirs": { "figure": "goalDiff", "value": 0.5, "rank": 1 }, "gap": -0.5, "ahead": "theirs" },
+        { "key": "shotsFaced", "mine": { "figure": "shotsAgainst", "value": 7.5, "rank": 3 }, "theirs": { "figure": "shotsFor", "value": 6.5, "rank": 2 }, "gap": 0, "ahead": null }
+      ],
+      "away": [
+        { "key": "shots", "mine": { "figure": "shotsFor", "value": 6.5, "rank": 2 }, "theirs": { "figure": "shotsAgainst", "value": 7.5, "rank": 3 }, "gap": 0, "ahead": null },
+        { "key": "goals", "mine": { "figure": "goalDiff", "value": 0.5, "rank": 1 }, "theirs": { "figure": "goalDiff", "value": 0, "rank": 2 }, "gap": 0.5, "ahead": "mine" },
+        { "key": "shotsFaced", "mine": { "figure": "shotsAgainst", "value": 6.5, "rank": 1 }, "theirs": { "figure": "shotsFor", "value": 8, "rank": 1 }, "gap": -0.5, "ahead": "theirs" }
+      ]
+    }
+  }
+}

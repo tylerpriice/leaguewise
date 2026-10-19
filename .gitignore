@@ -2,7 +2,9 @@
 # dev-preview.html (see tests/browser-stub.js), but never committed.
 JSON_debug/
 
-# Packaged extension builds
+# Packaged extension builds, the hash file and the release notes beside them. They ship as
+# release assets, never as tracked files.
 *.xpi
 *.zip
+dist/
 

@@ -1,0 +1,29 @@
+{
+  "_synthetic": "Hand-written for B280 item 5.2 (team-compare.md amendment 4). Every id's value, name and figure is invented; no capture and no account is involved. The expectation is computed by hand in the contract's table, never by running the module.",
+  "mine": { "teamId": 3, "name": "Fixture Eleven" },
+  "theirs": { "teamId": 7, "name": "Rival Eleven" },
+  "ctx": {
+    "window": { "kind": "played", "label": "Matchup 2", "matchup": 2, "periods": [2], "asOf": 2 },
+    "scoredIds": ["3", "25", "20", "53", "91", "60"],
+    "statLabels": { "3": "PYDS", "25": "RTD", "20": "INT", "53": "REC", "91": "DPA0", "60": "X" },
+    "weights": { "3": 0.25, "25": 6, "20": -2, "53": 0.5, "91": 3, "60": null },
+    "played": {
+      "3": { "2": { "3": 240, "25": 3, "20": 1, "53": 21, "91": 1, "60": 4 } },
+      "7": { "2": { "3": 300, "25": 1, "20": 2, "53": 14, "91": 0, "60": 9 } }
+    }
+  },
+  "expected": {
+    "points": { "mine": { "total": 89.5, "missing": 1 }, "theirs": { "total": 84, "missing": 1 }, "edge": 5.5 },
+    "window": { "kind": "played", "label": "Matchup 2", "matchup": 2, "periods": [2], "asOf": 2, "dates": null },
+    "mine": { "teamId": 3, "name": "Fixture Eleven", "workload": null },
+    "theirs": { "teamId": 7, "name": "Rival Eleven", "workload": null },
+    "rows": [
+      { "id": "3", "label": "PYDS", "group": null, "mine": 240, "theirs": 300, "edge": -60, "leader": "theirs", "lowerIsBetter": false, "rate": false, "projected": false, "swing": null, "weight": 0.25, "minePoints": 60, "theirPoints": 75, "pointsEdge": -15 },
+      { "id": "25", "label": "RTD", "group": null, "mine": 3, "theirs": 1, "edge": 2, "leader": "mine", "lowerIsBetter": false, "rate": false, "projected": false, "swing": null, "weight": 6, "minePoints": 18, "theirPoints": 6, "pointsEdge": 12 },
+      { "id": "20", "label": "INT", "group": null, "mine": 1, "theirs": 2, "edge": -1, "leader": "mine", "lowerIsBetter": true, "rate": false, "projected": false, "swing": null, "weight": -2, "minePoints": -2, "theirPoints": -4, "pointsEdge": 2 },
+      { "id": "53", "label": "REC", "group": null, "mine": 21, "theirs": 14, "edge": 7, "leader": "mine", "lowerIsBetter": false, "rate": false, "projected": false, "swing": null, "weight": 0.5, "minePoints": 10.5, "theirPoints": 7, "pointsEdge": 3.5 },
+      { "id": "91", "label": "DPA0", "group": null, "mine": 1, "theirs": 0, "edge": 1, "leader": "mine", "lowerIsBetter": false, "rate": false, "projected": false, "swing": null, "weight": 3, "minePoints": 3, "theirPoints": 0, "pointsEdge": 3 },
+      { "id": "60", "label": "X", "group": null, "mine": 4, "theirs": 9, "edge": -5, "leader": null, "lowerIsBetter": false, "rate": false, "projected": false, "swing": null, "weight": null, "minePoints": null, "theirPoints": null, "pointsEdge": null }
+    ]
+  }
+}

@@ -1,0 +1,528 @@
+{
+ "_synthetic": "Hand-written for B252 item 1a, and KEPT synthetic after the real capture landed (see `capture` below). Six invented teams, twelve invented player ids, 24 lines of which 20 parse to facts. It carries a duplicate SELECTED, a reconnect replay and a hand-versus-room correction - three scenarios the practice-room capture does not contain, because nothing went wrong in it. The enumerated merge cases in room-feed.md are computed on THIS feed, and they stay where they are; `capture` covers the vocabulary and this covers the arithmetic.",
+ "_at": "Every `at` is ms since epoch, as the reader would stamp it on arrival. The base is 2026-09-26T18:00:00Z, the hockey league's own draft night, which is a date and nothing more - no capture of that draft exists.",
+ "teams": [
+  101,
+  102,
+  103,
+  104,
+  105,
+  106
+ ],
+ "rounds": 4,
+ "order": [
+  101,
+  102,
+  103,
+  104,
+  105,
+  106,
+  106,
+  105,
+  104,
+  103,
+  102,
+  101,
+  101,
+  102,
+  103,
+  104,
+  105,
+  106,
+  106,
+  105,
+  104,
+  103,
+  102,
+  101
+ ],
+ "players": [
+  9001,
+  9002,
+  9003,
+  9004,
+  9005,
+  9006,
+  9007,
+  9008,
+  9009,
+  9010,
+  9011,
+  9012
+ ],
+ "feed": [
+  {
+   "line": "TOKEN 4:1234:101:{A1B2C3D4-0000-0000-0000-00000000E5F6}:792151115",
+   "at": 1790445600000
+  },
+  {
+   "line": "STATE 1",
+   "at": 1790445600400
+  },
+  {
+   "line": "SELECTING 101 60000",
+   "at": 1790445601000
+  },
+  {
+   "line": "CLOCK 1 45000",
+   "at": 1790445616000
+  },
+  {
+   "line": "SELECTED 101 9001 C",
+   "at": 1790445631000
+  },
+  {
+   "line": "SELECTING 102 60000",
+   "at": 1790445632000
+  },
+  {
+   "line": "SELECTED 102 9002",
+   "at": 1790445651000
+  },
+  {
+   "line": "PING 1790445652000",
+   "at": 1790445652000
+  },
+  {
+   "line": "PONG",
+   "at": 1790445652100
+  },
+  {
+   "line": "SELECTING 103 60000",
+   "at": 1790445653000
+  },
+  {
+   "line": "SELECTED 103 9003 LW",
+   "at": 1790445674000
+  },
+  {
+   "line": "SELECTED 103 9003 LW",
+   "at": 1790445674200
+  },
+  {
+   "line": "AUTOSUGGEST 9007",
+   "at": 1790445675000
+  },
+  {
+   "line": "AUTODRAFT 104 true",
+   "at": 1790445675500
+  },
+  {
+   "line": "SELECTED 104 9004 D",
+   "at": 1790445676000
+  },
+  {
+   "line": "STATE 1",
+   "at": 1790445690000
+  },
+  {
+   "line": "SELECTED 101 9001 C",
+   "at": 1790445690100
+  },
+  {
+   "line": "SELECTED 102 9002",
+   "at": 1790445690200
+  },
+  {
+   "line": "SELECTED 103 9003 LW",
+   "at": 1790445690300
+  },
+  {
+   "line": "SELECTED 104 9004 D",
+   "at": 1790445690400
+  },
+  {
+   "line": "SELECTING 105 60000",
+   "at": 1790445691000
+  },
+  {
+   "line": "CLOCK 2 12000",
+   "at": 1790445703000
+  },
+  {
+   "line": "SELECTED 105 9005 RW",
+   "at": 1790445712000
+  },
+  {
+   "line": "SELECTING 106 60000",
+   "at": 1790445713000
+  }
+ ],
+ "logs": {
+  "empty": {
+   "picks": []
+  },
+  "handThree": {
+   "_why": "Three picks logged by hand, the third naming the wrong player: the reader heard 9009 where the room says 9003.",
+   "picks": [
+    {
+     "overall": 1,
+     "teamId": 101,
+     "playerId": 9001
+    },
+    {
+     "overall": 2,
+     "teamId": 102,
+     "playerId": 9002
+    },
+    {
+     "overall": 3,
+     "teamId": 103,
+     "playerId": 9009
+    }
+   ]
+  }
+ },
+ "_capture": "THE REAL FRAMES, from the owner's own practice draft room (Q26, captured 2026-09-23 in Chrome, 472 frames on one JOIN socket). A contiguous 33-line slice from the first frame through the reader's own pick. THE CLOCK FIGURES, THE PLAYER IDS AND THE ARRIVAL TIMES ARE REAL - a room answers a Draft press in 0.18 s and runs a 30-second clock - and the league id, the SWID, the token and the INIT blob are INVENTED here. `sent` marks the four frames the CLIENT wrote; a reader mirroring its own socket sees those go out. Provenance: tests/fixtures/room-feed.md.",
+ "capture": {
+  "league": 4242424,
+  "season": 2027,
+  "readerTeamId": 2,
+  "firstFrameAt": 1790124607829,
+  "feed": [
+   {
+    "line": "INIT AAAAAQAAAAEvaOJ2AAAAAgAAAAEAAAABL0lOVkVOVEVE",
+    "at": 1790124607829
+   },
+   {
+    "line": "TOKEN 4:4242424:2:{A1B2C3D4-0000-0000-0000-00000000E5F6}:792151115",
+    "at": 1790124608089
+   },
+   {
+    "line": "CLOCK 0 17731",
+    "at": 1790124608089
+   },
+   {
+    "line": "AUTOSUGGEST 2563060",
+    "at": 1790124608089
+   },
+   {
+    "line": "JOINED 2 {A1B2C3D4-0000-0000-0000-00000000E5F6}",
+    "at": 1790124608089
+   },
+   {
+    "line": "PING PING%201790124608713",
+    "at": 1790124608709,
+    "sent": true
+   },
+   {
+    "line": "PONG PING%201790124608713",
+    "at": 1790124608799
+   },
+   {
+    "line": "CLOCK 0 14982",
+    "at": 1790124610449
+   },
+   {
+    "line": "CLOCK 0 9979",
+    "at": 1790124615449
+   },
+   {
+    "line": "CLOCK 0 4976",
+    "at": 1790124620449
+   },
+   {
+    "line": "STATE 1",
+    "at": 1790124625459
+   },
+   {
+    "line": "SELECTING 4 30000",
+    "at": 1790124625709
+   },
+   {
+    "line": "SELECTED 4 3895074 7",
+    "at": 1790124625959
+   },
+   {
+    "line": "AUTOSUGGEST 3041969",
+    "at": 1790124626049
+   },
+   {
+    "line": "SELECTING 8 30000",
+    "at": 1790124626209
+   },
+   {
+    "line": "SELECTED 8 4233875 1",
+    "at": 1790124627459
+   },
+   {
+    "line": "SELECTING 1 30000",
+    "at": 1790124627719
+   },
+   {
+    "line": "SELECTED 1 3041969 7",
+    "at": 1790124628969
+   },
+   {
+    "line": "SELECTING 7 30000",
+    "at": 1790124629219
+   },
+   {
+    "line": "SELECTED 7 2563060 1",
+    "at": 1790124630469
+   },
+   {
+    "line": "SELECTING 2 30000",
+    "at": 1790124630719
+   },
+   {
+    "line": "CLOCK 6 25248 2",
+    "at": 1790124635469
+   },
+   {
+    "line": "PING PING%201790124637715",
+    "at": 1790124637719,
+    "sent": true
+   },
+   {
+    "line": "PONG PING%201790124637715",
+    "at": 1790124637799
+   },
+   {
+    "line": "CLOCK 6 20246 2",
+    "at": 1790124640479
+   },
+   {
+    "line": "AUTODRAFT true",
+    "at": 1790124644029,
+    "sent": true
+   },
+   {
+    "line": "AUTODRAFT 2 true",
+    "at": 1790124644119
+   },
+   {
+    "line": "CLOCK 6 23498 2",
+    "at": 1790124685509
+   },
+   {
+    "line": "CLOCK 6 18495 2",
+    "at": 1790124690509
+   },
+   {
+    "line": "SELECT 4565227",
+    "at": 1790124694829,
+    "sent": true
+   },
+   {
+    "line": "SELECTED 2 4565227 10 {A1B2C3D4-0000-0000-0000-00000000E5F6}",
+    "at": 1790124695009
+   },
+   {
+    "line": "AUTOSUGGEST 5509",
+    "at": 1790124695079
+   },
+   {
+    "line": "SELECTING 5 30000",
+    "at": 1790124695269
+   }
+  ]
+ },
+ "_grid": "ESPN's own draft grid in the shape measured on a LIVE draft: every slot carries overallPickNumber, roundId, roundPickNumber and a real teamId while playerId is the -1 placeholder. Four invented teams, three rounds, snake order. The results are not published live; the ORDER is, completely, which is what gridOverallFor reads.",
+ "grid": [
+  {
+   "overallPickNumber": 1,
+   "roundId": 1,
+   "roundPickNumber": 1,
+   "teamId": 101,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 2,
+   "roundId": 1,
+   "roundPickNumber": 2,
+   "teamId": 102,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 3,
+   "roundId": 1,
+   "roundPickNumber": 3,
+   "teamId": 103,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 4,
+   "roundId": 1,
+   "roundPickNumber": 4,
+   "teamId": 104,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 5,
+   "roundId": 2,
+   "roundPickNumber": 1,
+   "teamId": 104,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 6,
+   "roundId": 2,
+   "roundPickNumber": 2,
+   "teamId": 103,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 7,
+   "roundId": 2,
+   "roundPickNumber": 3,
+   "teamId": 102,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 8,
+   "roundId": 2,
+   "roundPickNumber": 4,
+   "teamId": 101,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 9,
+   "roundId": 3,
+   "roundPickNumber": 1,
+   "teamId": 101,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 10,
+   "roundId": 3,
+   "roundPickNumber": 2,
+   "teamId": 102,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 11,
+   "roundId": 3,
+   "roundPickNumber": 3,
+   "teamId": 103,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  },
+  {
+   "overallPickNumber": 12,
+   "roundId": 3,
+   "roundPickNumber": 4,
+   "teamId": 104,
+   "playerId": -1,
+   "lineupSlotId": 0,
+   "keeper": false
+  }
+ ],
+ "_boardDom": "THE ROOM'S OWN BOARD, invented (B267 item 4, Amendment 6). Three teams, three rounds, a snake, nine cells and five bad ones; the names are invented and so are the ids. The owner's saved room page was measured for the STRUCTURE only - class names, the grid-area shape, which attributes exist - and nothing from it is reproduced here.",
+ "boardDom": {
+  "columns": 3,
+  "headers": [
+   { "column": 1, "label": "AAA", "mine": true },
+   { "column": 2, "label": "BBB", "mine": false },
+   { "column": 3, "label": "CCC", "mine": false }
+  ],
+  "teamIdByColumn": { "1": 101, "2": 102, "3": 103 },
+  "grid": {
+   "_why": "ESPN's own published order for the same three teams and three rounds, in the live measured shape - every slot carrying overallPickNumber, roundId, roundPickNumber and a real teamId while playerId is the -1 placeholder. The slot at overall 5 names team 199, a team no column maps to, so the grid-versus-column disagreement has something to report.",
+   "slots": [
+    { "overallPickNumber": 1, "roundId": 1, "roundPickNumber": 1, "teamId": 101, "playerId": -1 },
+    { "overallPickNumber": 2, "roundId": 1, "roundPickNumber": 2, "teamId": 102, "playerId": -1 },
+    { "overallPickNumber": 3, "roundId": 1, "roundPickNumber": 3, "teamId": 103, "playerId": -1 },
+    { "overallPickNumber": 4, "roundId": 2, "roundPickNumber": 1, "teamId": 103, "playerId": -1 },
+    { "overallPickNumber": 5, "roundId": 2, "roundPickNumber": 2, "teamId": 199, "playerId": -1 },
+    { "overallPickNumber": 6, "roundId": 2, "roundPickNumber": 3, "teamId": 101, "playerId": -1 },
+    { "overallPickNumber": 7, "roundId": 3, "roundPickNumber": 1, "teamId": 101, "playerId": -1 },
+    { "overallPickNumber": 8, "roundId": 3, "roundPickNumber": 2, "teamId": 102, "playerId": -1 },
+    { "overallPickNumber": 9, "roundId": 3, "roundPickNumber": 3, "teamId": 103, "playerId": -1 }
+   ]
+  },
+  "cells": [
+   { "round": 1, "pickInRound": 1, "column": 1, "row": 1, "mine": true,  "firstName": "Ada",  "lastName": "Lovel",   "proTeam": "AAA", "position": "C" },
+   { "round": 1, "pickInRound": 2, "column": 2, "row": 1, "mine": false, "firstName": "Bea",  "lastName": "Turing",  "proTeam": "BBB", "position": "LW" },
+   { "round": 1, "pickInRound": 3, "column": 3, "row": 1, "mine": false, "firstName": "Cyd",  "lastName": "Hopper",  "proTeam": "CCC", "position": "RW" },
+   { "round": 2, "pickInRound": 1, "column": 3, "row": 2, "mine": false, "firstName": "Dee",  "lastName": "Knuth",   "proTeam": "CCC", "position": "D" },
+   { "round": 2, "pickInRound": 2, "column": 2, "row": 2, "mine": false, "firstName": "Eli",  "lastName": "Church",  "proTeam": "BBB", "position": "G" },
+   { "round": 2, "pickInRound": 3, "column": 1, "row": 2, "mine": true,  "firstName": "Fay",  "lastName": "Dijkst",  "proTeam": "AAA", "position": "D" },
+   { "round": 3, "pickInRound": 1, "column": 1, "row": 3, "mine": true,  "firstName": "Gus",  "lastName": "Backus",  "proTeam": "AAA", "position": "C" },
+   { "round": 3, "pickInRound": 2, "column": 2, "row": 3, "mine": false, "firstName": "Hal",  "lastName": "Ritchie", "proTeam": "BBB", "position": "LW" },
+   { "round": 3, "pickInRound": 3, "column": 3, "row": 3, "mine": false, "firstName": "Ivy",  "lastName": "Lamport", "proTeam": "CCC", "position": "G" }
+  ],
+  "badCells": {
+   "_why": "One a refusal reason, kept out of the good list so the nine-pick case reads clean.",
+   "roundDisagrees": { "round": 2, "pickInRound": 2, "column": 2, "row": 3, "mine": false, "firstName": "Jo", "lastName": "Wirth", "proTeam": "BBB", "position": "C" },
+   "pickOutOfRange": { "round": 1, "pickInRound": 4, "column": 3, "row": 1, "mine": false, "firstName": "Kim", "lastName": "Thomps", "proTeam": "CCC", "position": "D" },
+   "duplicateOverall": { "round": 1, "pickInRound": 2, "column": 3, "row": 1, "mine": false, "firstName": "Lou", "lastName": "Perlis", "proTeam": "CCC", "position": "RW" },
+   "noPickInRound": { "round": 1, "pickInRound": null, "column": 2, "row": 1, "mine": false, "firstName": "Mae", "lastName": "Codd", "proTeam": "BBB", "position": "G" },
+   "noName": { "round": 3, "pickInRound": 3, "column": 3, "row": 3, "mine": false, "firstName": "", "lastName": "", "proTeam": "", "position": "" }
+  },
+  "pool": {
+   "_why": "name -> invented playerId. Overall 6's name is deliberately absent, so the prefix rule has something to stop at.",
+   "Ada Lovel": 9001,
+   "Bea Turing": 9002,
+   "Cyd Hopper": 9003,
+   "Dee Knuth": 9004,
+   "Eli Church": 9005,
+   "Gus Backus": 9007,
+   "Hal Ritchie": 9008,
+   "Ivy Lamport": 9009
+  },
+  "poolWhole": {
+   "_why": "The same pool with overall 6's name in it, for the complete-board case.",
+   "Ada Lovel": 9001,
+   "Bea Turing": 9002,
+   "Cyd Hopper": 9003,
+   "Dee Knuth": 9004,
+   "Eli Church": 9005,
+   "Fay Dijkst": 9006,
+   "Gus Backus": 9007,
+   "Hal Ritchie": 9008,
+   "Ivy Lamport": 9009
+  }
+ },
+ "_snapshotExport": "THE READER'S OWN SNAPSHOT as the Diagnostic ZIP would carry it (B267 item 11, Amendment 7). Invented throughout: the league id, the season, the team ids and the player ids are made up, and so is the GUID inside the TOKEN-shaped unknown frame - it is there to prove the redactor removes it, not because any real one was read.",
+ "snapshotExport": {
+  "snapshot": {
+   "leagueId": 4242424,
+   "seasonId": 2027,
+   "sport": "hockey",
+   "status": "open",
+   "at": 1790124707829,
+   "myTeamId": 2,
+   "onClock": 103,
+   "msRemaining": 17731,
+   "lastPickAt": 1790124700000,
+   "picks": [
+    { "overall": 1, "teamId": 101, "playerId": 9001, "at": 1790124610000 },
+    { "overall": 2, "teamId": 102, "playerId": 9002, "at": 1790124640000 }
+   ],
+   "transports": [
+    { "transport": "ws", "endpoint": "fantasydraft.espn.com/game-<n>/league-<id>/JOIN", "isRoom": false, "openedAt": 1790124600000, "firstFrameAt": null, "frames": 0, "event": null, "lastErrorAt": 1790124604000, "lastReadyState": 3 },
+    { "transport": "sse", "endpoint": "fantasydraft.espn.com/game-<n>/league-<id>/sse/JOIN", "isRoom": true, "openedAt": 1790124607000, "firstFrameAt": 1790124607829, "frames": 130, "event": "message", "lastErrorAt": null, "lastReadyState": null }
+   ],
+   "unknownFrames": [
+    { "transport": "sse", "event": "message", "at": 1790124607900, "data": "TOKEN 4:4242424:2:{A1B2C3D4-0000-0000-0000-00000000E5F6}:792151115" },
+    { "transport": "sse", "event": "message", "at": 1790124607901, "data": "PING" },
+    { "transport": "sse", "event": "draft", "at": 1790124607902, "data": "{\"type\":\"SELECTED\",\"swid\":\"{A1B2C3D4-0000-0000-0000-00000000E5F6}\",\"playerId\":9003}" },
+    { "transport": "sse", "event": "message", "at": 1790124607903, "data": "WELCOME abcdefghijklmnopqrstuvwxyz012345 7 lobby" }
+   ]
+  },
+  "loadedSame": { "leagueId": 4242424, "seasonId": 2027 },
+  "loadedOther": { "leagueId": 7777777, "seasonId": 2027 }
+ }
+}

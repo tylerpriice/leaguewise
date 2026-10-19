@@ -1,0 +1,93 @@
+{
+    "small": {
+        "of": 10,
+        "categories": [
+            { "id": "5", "label": "HR", "rank": 1, "value": 214, "median": 168, "inverse": false },
+            { "id": "20", "label": "R", "rank": 1, "value": 812, "median": 740, "inverse": false },
+            { "id": "12", "label": "RBI", "rank": 3, "value": 745, "median": 700, "inverse": false },
+            { "id": "23", "label": "SB", "rank": 4, "value": 88, "median": 95, "inverse": false },
+            { "id": "2", "label": "AVG", "rank": 5, "value": 0.261, "median": 0.258, "inverse": false },
+            { "id": "55", "label": "OPS", "rank": 6, "value": 0.742, "median": 0.751, "inverse": false },
+            { "id": "6", "label": "E", "rank": 7, "value": 61, "median": 54, "inverse": true },
+            { "id": "35", "label": "CS", "rank": 8, "value": 22, "median": 18, "inverse": true },
+            { "id": "48", "label": "K", "rank": 9, "value": 1180, "median": 1240, "inverse": false },
+            { "id": "47", "label": "ERA", "rank": 10, "value": 4.62, "median": 3.98, "inverse": true }
+        ]
+    },
+    "large": {
+        "of": 11,
+        "categories": [
+            { "id": "reyds", "label": "REYDS", "rank": 1, "value": 1536, "median": 980, "inverse": false },
+            { "id": "retd", "label": "RETD", "rank": 1, "value": 12, "median": 7, "inverse": false },
+            { "id": "2ptre", "label": "2PTRE", "rank": 1, "value": 3, "median": 1, "inverse": false },
+            { "id": "rec", "label": "REC", "rank": 1, "value": 411, "median": 320, "inverse": false },
+            { "id": "fgmiss", "label": "FGMISS", "rank": 1, "value": 2, "median": 5, "inverse": true },
+            { "id": "xp", "label": "XP", "rank": 1, "value": 44, "median": 33, "inverse": false },
+            { "id": "fg40", "label": "FG40-49", "rank": 3, "value": 9, "median": 7, "inverse": false },
+            { "id": "fg0", "label": "FG0-39", "rank": 3, "value": 14, "median": 12, "inverse": false },
+            { "id": "fg50", "label": "FG50-59", "rank": 3, "value": 2, "median": 1, "inverse": false },
+            { "id": "ryds", "label": "RYDS", "rank": 5, "value": 1780, "median": 1820, "inverse": false },
+            { "id": "pa0", "label": "PA0", "rank": 5, "value": 4, "median": 5, "inverse": true },
+            { "id": "pa7", "label": "PA7-13", "rank": 5, "value": 5, "median": 6, "inverse": true },
+            { "id": "pa14", "label": "PA14-17", "rank": 5, "value": 4, "median": 5, "inverse": true },
+            { "id": "fr", "label": "FR", "rank": 5, "value": 6, "median": 5, "inverse": false },
+            { "id": "sfty", "label": "SFTY", "rank": 5, "value": 0, "median": 0, "inverse": false },
+            { "id": "ya100", "label": "YA100-199", "rank": 5, "value": 6, "median": 6, "inverse": true },
+            { "id": "ya200", "label": "YA200-299", "rank": 6, "value": 4, "median": 4, "inverse": true },
+            { "id": "sack", "label": "SACK", "rank": 6, "value": 30, "median": 32, "inverse": false },
+            { "id": "dint", "label": "DINT", "rank": 7, "value": 12, "median": 14, "inverse": false },
+            { "id": "fuml", "label": "FUML", "rank": 7, "value": 9, "median": 8, "inverse": true },
+            { "id": "rtd", "label": "RTD", "rank": 8, "value": 31, "median": 28, "inverse": true },
+            { "id": "2ptr", "label": "2PTR", "rank": 8, "value": 2, "median": 1, "inverse": true },
+            { "id": "pa28", "label": "PA28-34", "rank": 10, "value": 5, "median": 3, "inverse": true },
+            { "id": "ya350", "label": "YA350-399", "rank": 10, "value": 4, "median": 2, "inverse": true },
+            { "id": "pyds", "label": "PYDS", "rank": 10, "value": 4392, "median": 4100, "inverse": true },
+            { "id": "ptd", "label": "PTD", "rank": 11, "value": 51, "median": 40, "inverse": true },
+            { "id": "2ptp", "label": "2PTP", "rank": 11, "value": 3, "median": 2, "inverse": true },
+            { "id": "int", "label": "INT", "rank": 11, "value": 28, "median": 20, "inverse": false }
+        ]
+    },
+    "tieTop": {
+        "of": 4,
+        "categories": [
+            { "id": "a", "label": "AAA", "rank": 1, "value": 10, "median": 5, "inverse": false },
+            { "id": "b", "label": "BBB", "rank": 1, "value": 11, "median": 6, "inverse": false },
+            { "id": "c", "label": "CCC", "rank": 1, "value": 12, "median": 7, "inverse": false },
+            { "id": "d", "label": "DDD", "rank": 4, "value": 1, "median": 8, "inverse": false }
+        ]
+    },
+    "noBottom": {
+        "of": 5,
+        "categories": [
+            { "id": "a", "label": "AAA", "rank": 1, "value": 10, "median": 5, "inverse": false },
+            { "id": "b", "label": "BBB", "rank": 2, "value": 9, "median": 5, "inverse": false },
+            { "id": "c", "label": "CCC", "rank": 3, "value": 8, "median": 5, "inverse": false },
+            { "id": "d", "label": "DDD", "rank": 4, "value": 7, "median": 5, "inverse": false }
+        ]
+    },
+    "outOfOrder": {
+        "of": 3,
+        "categories": [
+            { "id": "third", "label": "THIRD", "rank": 3, "value": 1, "median": 5, "inverse": false },
+            { "id": "first", "label": "FIRST", "rank": 1, "value": 9, "median": 5, "inverse": false },
+            { "id": "second", "label": "SECOND", "rank": 2, "value": 5, "median": 5, "inverse": false }
+        ]
+    },
+    "xss": {
+        "of": 2,
+        "categories": [
+            { "id": "x", "label": "<img src=x onerror=alert(1)>", "rank": 1, "value": 1, "median": 1, "inverse": false },
+            { "id": "y", "label": "Y", "rank": 2, "value": 2, "median": 2, "inverse": false }
+        ]
+    },
+    "empty": {
+        "of": 8,
+        "categories": []
+    },
+    "single": {
+        "of": 1,
+        "categories": [
+            { "id": "only", "label": "ONLY", "rank": 1, "value": 5, "median": 5, "inverse": false }
+        ]
+    }
+}

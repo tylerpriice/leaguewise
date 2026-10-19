@@ -1,5 +1,5 @@
-// Unit tests for the leaderboard ROW MODEL - the data lane's half of items 4-5. The renderer (leaderboard-row.js) has its own suite; this one asserts the facts that reach it. Every input arrives through a hand-built ctx, which is the whole reason buildLeaderboardRowModel takes one instead of reading AppState: the states that matter here - a football league with no games statistic, a points league with no per-category percentiles, a filler-collapsed rostered column, an unranked player - are all awkward to reach on a real capture and trivial to state.
-import { buildLeaderboardRowModel, rosteredFillerFor, preseasonBasisOf } from '../players.js';
+// Unit tests for the leaderboard row model. The renderer (leaderboard-row.js) has its own suite, and this one asserts the facts that reach it. Every input arrives through a hand-built ctx, since states such as a football league with no games statistic, a points league with no per-category percentiles, a collapsed rostered column or an unranked player are awkward to reach on a real capture and trivial to state.
+import { buildLeaderboardRowModel, rosteredFillerFor, preseasonBasisOf } from '../src/views/players.js';
 
 const results = [];
 function test(name, fn) {
@@ -29,7 +29,7 @@ function ctxFor(over = {}) {
             ranks: new Map([[41, 1]]), total: 10,
             byCategory: new Map([[41, new Map([['5', 84]])]])
         },
-        // R4/S34: the tint's own source, separate from rotoRanks - real callers hand cellsFor categoryTintRanks.byCategory here, a roto-style map computed for the tint alone (even in a points league, where rotoRanks itself is computePointsRanks' output and has no byCategory to give). Mirrors rotoRanks.byCategory's shape by default so every existing test above this comment keeps reading the engine's 84 for id '5' unchanged.
+        // The tint's own source, separate from rotoRanks. Real callers hand cellsFor categoryTintRanks.byCategory, a roto-style map computed for the tint alone (even in a points league, where rotoRanks has no byCategory). It mirrors rotoRanks.byCategory's shape by default, so every test above this comment keeps reading the engine's 84 for id '5' unchanged.
         categoryPct: new Map([[41, new Map([['5', 84]])]]),
         rosteredFiller: null,
         ...over
@@ -48,7 +48,7 @@ test('identity: club from the abbrev map, position and a formatted GP label', ()
 });
 
 test('identity: proAbbrev is NULL when the schedule payload is not in session', () => {
-    // Ruled: the segment drops rather than a club being guessed from an id.
+    // The segment drops rather than a club being guessed from an id.
     assertEq(buildLeaderboardRowModel(PLAYER, ctxFor({ abbrevs: null })).proAbbrev, null, 'no map');
     assertEq(buildLeaderboardRowModel(PLAYER, ctxFor({ abbrevs: new Map() })).proAbbrev, null, 'map without this club');
     assertEq(buildLeaderboardRowModel({ ...PLAYER, proTeamId: null }, ctxFor()).proAbbrev, null, 'player with no club');
@@ -76,7 +76,7 @@ test('rank: gold on first, and tied is always false from this surface', () => {
 });
 
 test('rank: NULL for a player the engine will not rank', () => {
-    // The majority state with Minimum Games Played off - 882 of 1,487 rows on the real capture.
+    // The majority state with Minimum Games Played off, 882 of 1,487 rows on the real capture.
     const m = buildLeaderboardRowModel(PLAYER, ctxFor({ rotoRanks: { ranks: new Map(), total: 0, byCategory: new Map() } }));
     assertEq(m.rank, null, 'unranked');
 });
@@ -138,7 +138,7 @@ test('cells: percentiles come from the engine map and are passed through untouch
 });
 
 test('cells: B218 R4/S34 - a POINTS league tints too, off categoryPct rather than rotoRanks', () => {
-    // rotoRanks here is bare computePointsRanks-shaped output (no byCategory at all) - the row's own rank/score reads that, unaffected; the tint reads the SEPARATE categoryPct map the real caller computes with a second, roto-style pass just for this. Both are real facts about the same points league at once.
+    // rotoRanks here is bare computePointsRanks-shaped output (no byCategory at all), so the row's own rank/score reads that, unaffected. The tint reads the separate categoryPct map the real caller computes with a second, roto-style pass just for this. Both are real facts about the same points league at once.
     const m = buildLeaderboardRowModel(PLAYER, ctxFor({
         isPointsLeague: true,
         rotoRanks: { ranks: new Map([[41, 1]]), total: 10 }
@@ -156,6 +156,24 @@ test('cells: inverse is documentation and follows the sport own set', () => {
         ctxFor({ statIds: ['47'], statMap: { '47': 'ERA' } }));
     assertEq(m.cells[0].inverse, true, 'ERA is inverse');
     assertEq(buildLeaderboardRowModel(PLAYER, ctxFor()).cells[0].inverse, false, 'HR is not');
+});
+
+// ==== team ====
+
+test('team: the fantasy team mark for a rostered player, the logo only through the host rule', () => {
+    const marks = new Map([[3, { name: 'Walk Off Warriors', color: '#e6194b', logo: 'https://g.espncdn.com/t.png' }]]);
+    const t = buildLeaderboardRowModel(PLAYER, ctxFor({ teamMarks: marks })).team;
+    assertEq(t.name, 'Walk Off Warriors', 'name');
+    assertEq(t.color, '#e6194b', 'colour');
+    assertEq(t.logo, 'https://g.espncdn.com/t.png', 'an ESPN-hosted logo is kept');
+    const evil = new Map([[3, { name: 'X', color: '#111111', logo: 'https://i.ytimg.com/vi/x.jpg' }]]);
+    assertEq(buildLeaderboardRowModel(PLAYER, ctxFor({ teamMarks: evil })).team.logo, null, 'a logo off the allowlist becomes null, the ring alone');
+});
+
+test('team: NULL for a free agent and for a caller that wires no teams', () => {
+    const marks = new Map([[3, { name: 'Walk Off Warriors', color: '#e6194b', logo: null }]]);
+    assertEq(buildLeaderboardRowModel({ ...PLAYER, teamId: null }, ctxFor({ teamMarks: marks })).team, null, 'a free agent');
+    assertEq(buildLeaderboardRowModel(PLAYER, ctxFor()).team, null, 'no teamMarks in the ctx');
 });
 
 // ==== rostered ====
@@ -185,7 +203,7 @@ test('rostered: a non-numeric share is null, never zero', () => {
     assertEq(buildLeaderboardRowModel({ ...PLAYER, rosterPct: undefined }, ctxFor()).rostered, null, 'absent');
 });
 
-// THE PRESEASON BASIS. The states that matter are a projected player, an unprojected one, and a league that is not in preseason at all - each trivial to state here and awkward to reach on a capture, which is why the function takes a ctx instead of reading AppState. The numbers are hand-computed: estimateUnprojected leaves an id ESPN forecasts alone, so a projected line passes through unchanged when nothing needs estimating.
+// The preseason basis. The states that matter are a projected player, an unprojected one, and a league that is not in preseason at all, each trivial to state here and awkward to reach on a capture, which is why the function takes a ctx instead of reading AppState. The numbers are hand-computed, and estimateUnprojected leaves an id ESPN forecasts alone, so a projected line passes through unchanged.
 const PROJECTED = { id: 7, name: 'Projected', projectedTotals: { '5': 30, '20': 90 }, lastSeasonTotals: { '5': 22 }, seasonTotals: { '5': 31, '20': 88 } };
 const UNPROJECTED = { id: 8, name: 'No projection', projectedTotals: {}, lastSeasonTotals: { '5': 12 }, seasonTotals: { '5': 40, '20': 99 } };
 

@@ -7,11 +7,11 @@
 </head>
 
 <body>
-    <!-- THE GENERATOR FOR tests/fixtures/projection-pacing.json. Run it through the static server and read the <pre>: chrome --headless=new --dump-dom http://localhost:8123/tests/projection-pacing.fixture.gen.html It imports the REAL projection-pacing.js and drives it with a REAL captured league - the live 2026 baseball league in full-mlb, which is the only capture carrying actual season lines BESIDE projections (a finished season's projection is spent, and a pre-draft league has no actuals at all). So the instance cannot drift from what the module emits, and the numbers in it are a real player's. Both league types are emitted from the SAME player: the capture is a CATEGORY league, so the roto shape is its natural answer and the points shape is produced by also passing isPointsLeague. This category league's scoringItems DO carry point values, which is why the model keys on the flag and never on whether weights are present, and why this generator is what caught that. The refusals are emitted as an explicit block rather than omitted, because "null, never a zeroed shape" is the part of the contract a renderer is most likely to get wrong. -->
+    <!-- The generator for tests/fixtures/projection-pacing.json. It imports the real projection-pacing.js and drives it with a captured league that carries season lines beside projections, so the instance cannot drift from what the module emits. Both league types come from one player, and the refusals are emitted as an explicit block, since null and never a zeroed shape is the part a renderer is most likely to get wrong. -->
     <pre id="out"></pre>
 
     <script type="module">
-        import { projectionPacing } from '../projection-pacing.js';
+        import { projectionPacing } from '../src/engines/projection-pacing.js';
 
         const CAP = 'JSON_debug/full-mlb';
         const league = await fetch(`../${CAP}/team.json`).then(r => r.json());
@@ -32,7 +32,7 @@
         const INVERSE_IDS = new Set(['24', '39', '37', '46']);
         // The labels come from the app's OWN validated map rather than a copy kept here - a
         // generator that spells its own stat names is a second, unvalidated stat map (golden rule 4).
-        const { ESPN_STAT_MAPS } = await import('../state.js');
+        const { ESPN_STAT_MAPS } = await import('../src/data/state.js');
         const LABELS = ESPN_STAT_MAPS.flb;
 
         const unwrap = (line) => (line && line.stats) || {};

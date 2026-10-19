@@ -1,0 +1,207 @@
+{
+ "_synthetic": "Hand-written for B254 item 3. No capture is involved. Three categories with HAND-SET win and tie chances in tenths, so the matchup chance is the exact sum over all 27 outcome combinations and every product is a fraction a reader can check. The enumeration is worked in tests/fixtures/matchup-odds.md.",
+ "_categories": "'30' is INVERSE (lower wins). It carries a zero tie chance so the fixture has one category that cannot tie, which is what a continuous category looks like.",
+ "scoredStatIds": [
+  "10",
+  "20",
+  "30"
+ ],
+ "inverseStatIds": [
+  "30"
+ ],
+ "_perCategory": "What matchupTally is handed: one row a category, each summing to 1.",
+ "perCategory": [
+  {
+   "statId": "10",
+   "chanceWin": 0.6,
+   "chanceTie": 0.1,
+   "chanceLose": 0.3
+  },
+  {
+   "statId": "20",
+   "chanceWin": 0.5,
+   "chanceTie": 0.2,
+   "chanceLose": 0.3
+  },
+  {
+   "statId": "30",
+   "chanceWin": 0.4,
+   "chanceTie": 0.0,
+   "chanceLose": 0.6
+  }
+ ],
+ "_tallied": "The hand sum over the 27 combinations, as exact fractions: 127/250, 69/500, 177/500. More category wins than losses takes the matchup; an equal count is a tie unless the league breaks it.",
+ "tallied": {
+  "chance": 0.508,
+  "tie": 0.138,
+  "lose": 0.354
+ },
+ "_byCount": "Every combination grouped by (wins, ties, losses), which is how the enumeration is checked by hand.",
+ "byCount": [
+  {
+   "w": 3,
+   "t": 0,
+   "l": 0,
+   "p": 0.12,
+   "result": "win"
+  },
+  {
+   "w": 2,
+   "t": 1,
+   "l": 0,
+   "p": 0.068,
+   "result": "win"
+  },
+  {
+   "w": 2,
+   "t": 0,
+   "l": 1,
+   "p": 0.312,
+   "result": "win"
+  },
+  {
+   "w": 1,
+   "t": 2,
+   "l": 0,
+   "p": 0.008,
+   "result": "win"
+  },
+  {
+   "w": 1,
+   "t": 1,
+   "l": 1,
+   "p": 0.138,
+   "result": "tie"
+  },
+  {
+   "w": 1,
+   "t": 0,
+   "l": 2,
+   "p": 0.234,
+   "result": "lose"
+  },
+  {
+   "w": 0,
+   "t": 3,
+   "l": 0,
+   "p": 0,
+   "result": "tie"
+  },
+  {
+   "w": 0,
+   "t": 2,
+   "l": 1,
+   "p": 0.012,
+   "result": "lose"
+  },
+  {
+   "w": 0,
+   "t": 1,
+   "l": 2,
+   "p": 0.054,
+   "result": "lose"
+  },
+  {
+   "w": 0,
+   "t": 0,
+   "l": 3,
+   "p": 0.054,
+   "result": "lose"
+  }
+ ],
+ "_statPoints": "The same three categories under a STAT_POINTS tie rule on '10' (the shape full-nhl-fgb carries, on its stat 28). The tied-count mass of 0.138 splits by what '10' itself did: won 0.072, tied 0.042, lost 0.024.",
+ "statPoints": {
+  "tieStatId": "10",
+  "chance": 0.58,
+  "tie": 0.042,
+  "lose": 0.378
+ },
+ "_points": "The points sibling: one normal margin, no categories. gap = (40 + 60) - (52 + 55) = -7; sd = sqrt(12^2 + 9^2) = 15; z = -0.46666...; chance = normalCdf(z).",
+ "points": {
+  "mine": {
+   "current": 40,
+   "expectedRemaining": 60,
+   "sd": 12
+  },
+  "theirs": {
+   "current": 52,
+   "expectedRemaining": 55,
+   "sd": 9
+  },
+  "gap": -7,
+  "sd": 15,
+  "chance": 0.3203691909012704
+ },
+ "_sides": "A three-category side pair for matchupOdds, where the gaps and sds are chosen so each category's chance is readable: '10' is 6 ahead on sd 10, '20' is level, '30' is INVERSE and 5 ahead (lower), all on sd 10.",
+ "sides": {
+  "mine": {
+   "10": {
+    "current": 30,
+    "expectedRemaining": 20,
+    "sd": 6
+   },
+   "20": {
+    "current": 10,
+    "expectedRemaining": 15,
+    "sd": 6
+   },
+   "30": {
+    "current": 8,
+    "expectedRemaining": 4,
+    "sd": 6
+   }
+  },
+  "theirs": {
+   "10": {
+    "current": 26,
+    "expectedRemaining": 18,
+    "sd": 8
+   },
+   "20": {
+    "current": 12,
+    "expectedRemaining": 13,
+    "sd": 8
+   },
+   "30": {
+    "current": 11,
+    "expectedRemaining": 6,
+    "sd": 8
+   }
+  }
+ },
+ "_sidesExpected": "What matchupOdds must return on `sides`. categoryChance models no tie - a counting category's discreteness is stated, not modelled - so every chanceTie is 0 and the three-category tally is over 8 combinations rather than 27. '10': gap +6 on sd sqrt(36+64)=10, z 0.6. '20': level, z 0, exactly half. '30' is INVERSE so the gap is theirs minus mine, +5, z 0.5.",
+ "sidesExpected": {
+  "perCategory": [
+   {
+    "statId": "10",
+    "gap": 6,
+    "sd": 10,
+    "projectedMine": 50,
+    "projectedTheirs": 44,
+    "chanceWin": 0.7257468822499265,
+    "chanceTie": 0
+   },
+   {
+    "statId": "20",
+    "gap": 0,
+    "sd": 10,
+    "projectedMine": 25,
+    "projectedTheirs": 25,
+    "chanceWin": 0.5,
+    "chanceTie": 0
+   },
+   {
+    "statId": "30",
+    "gap": 5,
+    "sd": 10,
+    "projectedMine": 12,
+    "projectedTheirs": 17,
+    "chanceWin": 0.691462461274013,
+    "chanceTie": 0
+   }
+  ],
+  "chance": 0.7086046717619696,
+  "tie": 0,
+  "lose": 0.29139532823803027
+ }
+}

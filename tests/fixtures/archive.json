@@ -1,0 +1,1032 @@
+{
+ "_synthetic": "Hand-written for B230 M2.1. No capture is involved: one invented league (4242424), six teams named after the phonetic alphabet, two seasons of one played week each. `input` is what buildArchive is handed; `expected` is what the contract says it must derive, computed by hand. The 1 v 2 matchup carries a cumulativeScoreLive that DIFFERS from its rollup on purpose - that is the case which proves the live block wins. Team 5's week is a BYE, one side only, which writes no matchup.",
+ "input": {
+  "provenance": {
+   "extensionVersion": "1.6.0",
+   "sport": "fhl",
+   "leagueId": 4242424,
+   "sources": [
+    "mTeam+mSettings+mMatchup",
+    "mDraftDetail",
+    "mRoster"
+   ]
+  },
+  "raw": {
+   "2025": {
+    "league": {
+     "id": 4242424,
+     "seasonId": 2025,
+     "settings": {
+      "name": "Phonetic Six",
+      "size": 6,
+      "scoringSettings": {
+       "scoringType": "H2H_MOST_CATEGORIES",
+       "scoringItems": [
+        {
+         "statId": 1
+        },
+        {
+         "statId": 3
+        },
+        {
+         "statId": 4
+        }
+       ]
+      },
+      "scheduleSettings": {
+       "matchupPeriodCount": 1,
+       "playoffTeamCount": 4,
+       "playoffSeedingRule": "H2H_RECORD"
+      }
+     },
+     "status": {
+      "currentMatchupPeriod": 1,
+      "firstScoringPeriod": 1,
+      "finalScoringPeriod": 7
+     },
+     "teams": [
+      {
+       "id": 1,
+       "name": "Alpha",
+       "abbrev": "ALP",
+       "record": {
+        "overall": {
+         "wins": 1,
+         "losses": 0,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 1,
+       "rankCalculatedFinal": 1
+      },
+      {
+       "id": 2,
+       "name": "Bravo",
+       "abbrev": "BRV",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 1,
+         "ties": 1
+        }
+       },
+       "playoffSeed": 5,
+       "rankCalculatedFinal": 5
+      },
+      {
+       "id": 3,
+       "name": "Charlie",
+       "abbrev": "CHA",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 1,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 6,
+       "rankCalculatedFinal": 6
+      },
+      {
+       "id": 4,
+       "name": "Delta",
+       "abbrev": "DEL",
+       "record": {
+        "overall": {
+         "wins": 1,
+         "losses": 0,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 2,
+       "rankCalculatedFinal": 2
+      },
+      {
+       "id": 5,
+       "name": "Echo",
+       "abbrev": "ECH",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 4,
+       "rankCalculatedFinal": 4
+      },
+      {
+       "id": 6,
+       "name": "Foxtrot",
+       "abbrev": "FOX",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 1
+        }
+       },
+       "playoffSeed": 3,
+       "rankCalculatedFinal": 3
+      }
+     ],
+     "schedule": [
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "HOME",
+       "home": {
+        "teamId": 1,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 10,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 2,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        },
+        "cumulativeScoreLive": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 12
+          },
+          "3": {
+           "score": 5
+          },
+          "4": {
+           "score": 2
+          }
+         }
+        }
+       },
+       "away": {
+        "teamId": 2,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 9,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 3,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        },
+        "cumulativeScoreLive": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 9
+          },
+          "3": {
+           "score": 7
+          },
+          "4": {
+           "score": 3
+          }
+         }
+        }
+       }
+      },
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "AWAY",
+       "home": {
+        "teamId": 3,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 4,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 4,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 8,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       },
+       "away": {
+        "teamId": 4,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 6,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 9,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 1,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       }
+      },
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "UNDECIDED",
+       "home": {
+        "teamId": 5,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       }
+      },
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "TIE",
+       "home": {
+        "teamId": 6,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       },
+       "away": {
+        "teamId": 2,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       }
+      }
+     ]
+    },
+    "draft": {
+     "draftDetail": {
+      "picks": [
+       {
+        "overallPickNumber": 1,
+        "roundId": 1,
+        "teamId": 4,
+        "playerId": 3895074
+       },
+       {
+        "overallPickNumber": 2,
+        "roundId": 1,
+        "teamId": 1,
+        "playerId": 4233875
+       }
+      ]
+     }
+    },
+    "rosters": {
+     "1": [
+      {
+       "id": 1,
+       "entries": [
+        {
+         "p": 3895074,
+         "slot": 3
+        },
+        {
+         "p": 4233875,
+         "slot": 20
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "2026": {
+    "league": {
+     "id": 4242424,
+     "seasonId": 2026,
+     "settings": {
+      "name": "Phonetic Six",
+      "size": 6,
+      "scoringSettings": {
+       "scoringType": "H2H_MOST_CATEGORIES",
+       "scoringItems": [
+        {
+         "statId": 1
+        },
+        {
+         "statId": 3
+        },
+        {
+         "statId": 4
+        }
+       ]
+      },
+      "scheduleSettings": {
+       "matchupPeriodCount": 1,
+       "playoffTeamCount": 4,
+       "playoffSeedingRule": "H2H_RECORD"
+      }
+     },
+     "status": {
+      "currentMatchupPeriod": 1,
+      "firstScoringPeriod": 1,
+      "finalScoringPeriod": 7
+     },
+     "teams": [
+      {
+       "id": 1,
+       "name": "Alpha",
+       "abbrev": "ALP",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 1,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 6,
+       "rankCalculatedFinal": 6
+      },
+      {
+       "id": 2,
+       "name": "Bravo",
+       "abbrev": "BRV",
+       "record": {
+        "overall": {
+         "wins": 1,
+         "losses": 0,
+         "ties": 1
+        }
+       },
+       "playoffSeed": 1,
+       "rankCalculatedFinal": 1
+      },
+      {
+       "id": 3,
+       "name": "Charlie",
+       "abbrev": "CHA",
+       "record": {
+        "overall": {
+         "wins": 1,
+         "losses": 0,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 2,
+       "rankCalculatedFinal": 2
+      },
+      {
+       "id": 4,
+       "name": "Delta",
+       "abbrev": "DEL",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 1,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 5,
+       "rankCalculatedFinal": 5
+      },
+      {
+       "id": 5,
+       "name": "Echo",
+       "abbrev": "ECH",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0
+        }
+       },
+       "playoffSeed": 4,
+       "rankCalculatedFinal": 4
+      },
+      {
+       "id": 6,
+       "name": "Foxtrot",
+       "abbrev": "FOX",
+       "record": {
+        "overall": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 1
+        }
+       },
+       "playoffSeed": 3,
+       "rankCalculatedFinal": 3
+      }
+     ],
+     "schedule": [
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "HOME",
+       "home": {
+        "teamId": 1,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 10,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 2,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        },
+        "cumulativeScoreLive": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 12
+          },
+          "3": {
+           "score": 5
+          },
+          "4": {
+           "score": 2
+          }
+         }
+        }
+       },
+       "away": {
+        "teamId": 2,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 9,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 3,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        },
+        "cumulativeScoreLive": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 9
+          },
+          "3": {
+           "score": 7
+          },
+          "4": {
+           "score": 3
+          }
+         }
+        }
+       }
+      },
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "AWAY",
+       "home": {
+        "teamId": 3,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 4,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 4,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 8,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       },
+       "away": {
+        "teamId": 4,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 6,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 9,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 1,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       }
+      },
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "UNDECIDED",
+       "home": {
+        "teamId": 5,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 7,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       }
+      },
+      {
+       "matchupPeriodId": 1,
+       "playoffTierType": "NONE",
+       "winner": "TIE",
+       "home": {
+        "teamId": 6,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       },
+       "away": {
+        "teamId": 2,
+        "cumulativeScore": {
+         "wins": 0,
+         "losses": 0,
+         "ties": 0,
+         "scoreByStat": {
+          "1": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "3": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          },
+          "4": {
+           "score": 5,
+           "ineligible": false,
+           "rank": 0,
+           "result": null
+          }
+         }
+        },
+        "pointsByScoringPeriod": {
+         "1": 0
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "_expected": "The 2025 summary, hand-computed from the raw above. A tie weighs half a win in the percentage. Bravo plays TWICE in the week (it loses to Alpha and ties Foxtrot), which is why its record is 0-1-1 over two games and its percentage 0.25.",
+ "expected": {
+  "league2025": {
+   "name": "Phonetic Six",
+   "size": 6,
+   "scoringType": "H2H_MOST_CATEGORIES",
+   "categories": [
+    "1",
+    "3",
+    "4"
+   ],
+   "regularSeasonPeriods": 1,
+   "playoffTeamCount": 4
+  },
+  "teams2025": [
+   {
+    "id": 1,
+    "name": "Alpha",
+    "abbrev": "ALP",
+    "record": {
+     "wins": 1,
+     "losses": 0,
+     "ties": 0,
+     "percentage": 1.0
+    },
+    "seed": 1,
+    "finalRank": 1
+   },
+   {
+    "id": 2,
+    "name": "Bravo",
+    "abbrev": "BRV",
+    "record": {
+     "wins": 0,
+     "losses": 1,
+     "ties": 1,
+     "percentage": 0.25
+    },
+    "seed": 5,
+    "finalRank": 5
+   },
+   {
+    "id": 3,
+    "name": "Charlie",
+    "abbrev": "CHA",
+    "record": {
+     "wins": 0,
+     "losses": 1,
+     "ties": 0,
+     "percentage": 0.0
+    },
+    "seed": 6,
+    "finalRank": 6
+   },
+   {
+    "id": 4,
+    "name": "Delta",
+    "abbrev": "DEL",
+    "record": {
+     "wins": 1,
+     "losses": 0,
+     "ties": 0,
+     "percentage": 1.0
+    },
+    "seed": 2,
+    "finalRank": 2
+   },
+   {
+    "id": 5,
+    "name": "Echo",
+    "abbrev": "ECH",
+    "record": {
+     "wins": 0,
+     "losses": 0,
+     "ties": 0,
+     "percentage": 0.0
+    },
+    "seed": 4,
+    "finalRank": 4
+   },
+   {
+    "id": 6,
+    "name": "Foxtrot",
+    "abbrev": "FOX",
+    "record": {
+     "wins": 0,
+     "losses": 0,
+     "ties": 1,
+     "percentage": 0.5
+    },
+    "seed": 3,
+    "finalRank": 3
+   }
+  ],
+  "_periods": "Three matchups, not four: team 5's bye writes none. The 1 v 2 categories are the LIVE block's, where the rollup would have said 10.",
+  "periods2025": [
+   {
+    "period": 1,
+    "matchups": [
+     {
+      "home": 1,
+      "away": 2,
+      "winner": "HOME",
+      "categories": {
+       "1": {
+        "home": 12,
+        "away": 9
+       },
+       "3": {
+        "home": 5,
+        "away": 7
+       },
+       "4": {
+        "home": 2,
+        "away": 3
+       }
+      }
+     },
+     {
+      "home": 3,
+      "away": 4,
+      "winner": "AWAY",
+      "categories": {
+       "1": {
+        "home": 4,
+        "away": 6
+       },
+       "3": {
+        "home": 4,
+        "away": 9
+       },
+       "4": {
+        "home": 8,
+        "away": 1
+       }
+      }
+     },
+     {
+      "home": 6,
+      "away": 2,
+      "winner": "TIE",
+      "categories": {
+       "1": {
+        "home": 5,
+        "away": 5
+       },
+       "3": {
+        "home": 5,
+        "away": 5
+       },
+       "4": {
+        "home": 5,
+        "away": 5
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "draft2025": [
+   {
+    "overall": 1,
+    "round": 1,
+    "teamId": 4,
+    "playerId": 3895074
+   },
+   {
+    "overall": 2,
+    "round": 1,
+    "teamId": 1,
+    "playerId": 4233875
+   }
+  ],
+  "rosters2025": {
+   "1": [
+    {
+     "teamId": 1,
+     "entries": [
+      {
+       "playerId": 3895074,
+       "slot": 3
+      },
+      {
+       "playerId": 4233875,
+       "slot": 20
+      }
+     ]
+    }
+   ]
+  },
+  "_csv": "The first data line of each table, after its header. RFC 4180: CRLF between lines, a cell quoted only when it must be.",
+  "csv": {
+   "standingsHeader": "Team,Abbrev,W,L,T,Pct,Seed,Final rank",
+   "standingsFirst": "Alpha,ALP,1,0,0,1,1,1",
+   "draftHeader": "Overall,Round,Team,Player",
+   "draftFirst": "1,1,4,3895074"
+  }
+ }
+}

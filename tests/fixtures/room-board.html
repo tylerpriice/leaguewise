@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<!--
+  A SYNTHETIC ESPN DRAFT BOARD (B267 item 4b), built to the structure measured on the owner's saved
+  room page and recorded in tests/fixtures/room-feed.md Amendment 6: the header row of
+  .draft-board-grid-header-cell with myTeam on the reader's own column, and .draftBoardGrid holding one
+  .draft-board-grid-pick-cell.completedPick per made pick, each carrying `grid-area: <row> / <column>`,
+  a .roundPick reading "<round>.<pickInRound>", the two name spans, the club and the position pill.
+
+  EVERYTHING IN IT IS INVENTED - three teams, nine players, three-letter clubs - and it is deliberately
+  the same nine picks as the `boardDom` block in room-feed.json, so a test can check the reader's own
+  extraction against expectations that were hand-computed once.
+
+  THE WHOLE BOARD SITS INSIDE `tab__item dn`, ESPN's own display-none utility, because that is how the
+  measured page carried it: the Players tab was selected and all 286 cells were in the DOM behind
+  display:none. A read that only worked on a visible board would work on nobody's room.
+
+  The last two cells are the two negatives: one without `completedPick` (a slot whose pick has not been
+  made - the form this structure has never been measured in, so it is never read), and one whose
+  .roundPick is empty.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>synthetic draft board</title></head>
+<body>
+<div class="tab__item dn" style="display: none;">
+  <div class="jsx-3316227911 draft-board-grid-header">
+    <div class="jsx-4278309785 draft-board-grid-header-cell myTeam" style="width: 77px;"><span class="jsx-4278309785">AAA</span></div>
+    <div class="jsx-4278309785 draft-board-grid-header-cell" style="width: 77px;"><span class="jsx-4278309785">BBB</span></div>
+    <div class="jsx-4278309785 draft-board-grid-header-cell" style="width: 77px;"><span class="jsx-4278309785">CCC</span></div>
+  </div>
+  <div class="jsx-2689162533 draftBoardGrid">
+
+    <div class="draft-board-grid-pick-cell completedPick myTeam" style="grid-area: 1 / 1; --position-color: 255, 144, 0;">
+      <div class="pickCellTop"><div class="roundPick">1.1</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Ada</span><span class="playerLastName">Lovel</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">AAA</span><span class="jsx-672329450 positionPill">C</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 1 / 2; --position-color: 48, 239, 221;">
+      <div class="pickCellTop"><div class="roundPick">1.2</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Bea</span><span class="playerLastName">Turing</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">BBB</span><span class="jsx-672329450 positionPill">F</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 1 / 3; --position-color: 48, 239, 221;">
+      <div class="pickCellTop"><div class="roundPick">1.3</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Cyd</span><span class="playerLastName">Hopper</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">CCC</span><span class="jsx-672329450 positionPill">F</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 2 / 3; --position-color: 255, 144, 0;">
+      <div class="pickCellTop"><div class="roundPick">2.1</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Dee</span><span class="playerLastName">Knuth</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">CCC</span><span class="jsx-672329450 positionPill">D</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 2 / 2; --position-color: 255, 144, 0;">
+      <div class="pickCellTop"><div class="roundPick">2.2</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Eli</span><span class="playerLastName">Church</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">BBB</span><span class="jsx-672329450 positionPill">G</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick myTeam" style="grid-area: 2 / 1; --position-color: 255, 144, 0;">
+      <div class="pickCellTop"><div class="roundPick">2.3</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Fay</span><span class="playerLastName">Dijkst</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">AAA</span><span class="jsx-672329450 positionPill">D</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick myTeam" style="grid-area: 3 / 1; --position-color: 48, 239, 221;">
+      <div class="pickCellTop"><div class="roundPick">3.1</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Gus</span><span class="playerLastName">Backus</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">AAA</span><span class="jsx-672329450 positionPill">C</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 3 / 2; --position-color: 48, 239, 221;">
+      <div class="pickCellTop"><div class="roundPick">3.2</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Hal</span><span class="playerLastName">Ritchie</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">BBB</span><span class="jsx-672329450 positionPill">F</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 3 / 3; --position-color: 255, 144, 0;">
+      <div class="pickCellTop"><div class="roundPick">3.3</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Ivy</span><span class="playerLastName">Lamport</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">CCC</span><span class="jsx-672329450 positionPill">G</span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell" style="grid-area: 4 / 1;">
+      <div class="pickCellTop"><div class="roundPick">4.1</div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName"></span><span class="playerLastName"></span></div>
+    </div>
+
+    <div class="draft-board-grid-pick-cell completedPick" style="grid-area: 4 / 2;">
+      <div class="pickCellTop"><div class="roundPick"></div></div>
+      <div class="pickCellMiddle"><span class="playerFirstName">Jo</span><span class="playerLastName">Wirth</span></div>
+      <div class="pickCellBottom"><span class="playerProTeam">BBB</span><span class="jsx-672329450 positionPill">C</span></div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

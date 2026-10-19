@@ -1,5 +1,5 @@
-// Unit tests for the pure projection-pacing model (projection-pacing.js, item 10 / O7). Open tests/projection-pacing.test.html through any static server - green means every assertion held. EVERY EXPECTED VALUE HERE IS HAND-COMPUTED from tests/fixtures/projection-pacing.md, never taken from running the code. The arithmetic is written out beside each case so a failure says which step moved rather than only that a number changed.
-import { projectionPacing } from '../projection-pacing.js';
+// Unit tests for the pure projection-pacing model (projection-pacing.js). Open tests/projection-pacing.test.html through any static server; green means every assertion held. Every expected value is hand-computed from tests/fixtures/projection-pacing.md, never taken from running the code. The arithmetic is written out beside each case, so a failure says which step moved.
+import { projectionPacing } from '../src/engines/projection-pacing.js';
 
 const results = [];
 function test(name, fn) {
@@ -15,7 +15,17 @@ function assertClose(actual, expected, msg, tol = 1e-9) {
     if (!(Math.abs(actual - expected) <= tol)) throw new Error(`${msg}: expected ${expected}, got ${actual}`);
 }
 
-// ==== THE STANDING FIXTURE. Baseball ids: 81 games, 5 HR, 20 R, 24 CS (inverse), 2 AVG (rate). 40 games played, and 100 games REMAINING in ESPN's own forecast - projectedTotals covers the REST of the season, not the whole of it (measured; see the contract's Provenance section). The two spans are deliberately different sizes here so that any code confusing them shows up. HR 24 actual / 40 = 0.6 per game; 40 projected / 100 remaining = 0.4 per game; ratio 1.5 R 40 actual / 40 = 1.0 per game; 100 projected / 100 remaining = 1.0 per game; ratio 1.0 Round figures on purpose: nothing here lands on a.5 rounding boundary, so a change in the rounding rule cannot masquerade as a change in the maths. ====
+/**
+ * The standing fixture. Baseball ids: 81 games, 5 HR, 20 R, 24 CS (inverse), 2 AVG (rate).
+ *
+ * 40 games played, and 100 games remaining in ESPN's own forecast, since projectedTotals covers the
+ * rest of the season and not the whole of it. The two spans are different sizes on purpose, so that
+ * any code confusing them shows up.
+ *   HR  24 actual / 40 = 0.6 per game;  40 projected / 100 remaining = 0.4 per game;  ratio 1.5
+ *   R   40 actual / 40 = 1.0 per game; 100 projected / 100 remaining = 1.0 per game;  ratio 1.0
+ * Round figures on purpose: nothing here lands on a .5 rounding boundary, so a change in the
+ * rounding rule cannot pass for a change in the maths.
+ */
 const PLAYER = {
     seasonTotals: { '81': 40, '5': 24, '20': 40, '24': 9, '2': 0.311 },
     projectedTotals: { '81': 100, '5': 40, '20': 100, '24': 10, '2': 0.290 }
@@ -34,7 +44,7 @@ const ctx = (over = {}) => ({ ...BASE_CTX, ...over });
 // ==== The two-category case, in both league types ====
 
 test('two categories, roto league: equal weights, because roto pays one point per category', () => {
-    // No isPointsLeague flag is a CATEGORY league. Equal shares of 0.5 each, and the headline is the MEDIAN of the ratios - with two of them that is their mean: median(1.5, 1.0) = 1.25 -> pct = round(25) = 25
+    // With no points-league flag this is a category league. The shares are equal at 0.5 each, and the headline is the median of the ratios, which with two of them is their mean: median(1.5, 1.0) = 1.25, so pct = 25.
     const out = projectionPacing(PLAYER, ctx());
     assertEq(out.pct, 25, 'a quarter above the projected rate');
     assertEq(out.dir, 'over', 'and the word agrees with the sign');
@@ -123,7 +133,15 @@ test('games played and projected games travel with the answer', () => {
 // ==== The headline summary: median in a category league, weighted mean in a points league (contract amendment 1) ====
 
 test('a category league takes the MEDIAN, so one thin category cannot carry the headline', () => {
-    // Three categories, and the third is the thin one the rule exists for. HR 24 / 40 = 0.6/g against 40 / 100 = 0.4/g -> 1.5 R 40 / 40 = 1.0/g against 100 / 100 = 1.0/g -> 1.0 SB 6 / 40 = 0.15/g against 4 / 100 = 0.04/g -> 3.75 (a 4-SB projection, one steal moves it enormously) MEAN would be (1.5 + 1.0 + 3.75) / 3 = 2.0833 -> pct 108, a headline invented by the smallest category in the line. MEDIAN is the middle ratio, 1.5 -> pct 50.
+    /**
+     * Three categories, and the third is the thin one the rule exists for.
+     *   HR   24 / 40 = 0.6/g  against 40 / 100 = 0.4/g   ratio 1.5
+     *   R    40 / 40 = 1.0/g  against 100 / 100 = 1.0/g  ratio 1.0
+     *   SB    6 / 40 = 0.15/g against 4 / 100 = 0.04/g   ratio 3.75   (a 4-SB projection, where one
+     *                                                                 steal moves it enormously)
+     * The mean would be (1.5 + 1.0 + 3.75) / 3 = 2.0833, pct 108, a headline set by the smallest
+     * category in the line. The median is the middle ratio, 1.5, pct 50.
+     */
     const player = {
         seasonTotals: { '81': 40, '5': 24, '20': 40, '23': 6 },
         projectedTotals: { '81': 100, '5': 40, '20': 100, '23': 4 }
@@ -135,7 +153,7 @@ test('a category league takes the MEDIAN, so one thin category cannot carry the 
 });
 
 test('the outlier survives in the components, so the renderer can show it', () => {
-    // The median must not HIDE the thin category - it must stop it deciding the headline. Both.
+    // The median must not hide the thin category. It must stop it deciding the headline, and both are asserted.
     const player = {
         seasonTotals: { '81': 40, '5': 24, '20': 40, '23': 6 },
         projectedTotals: { '81': 100, '5': 40, '20': 100, '23': 4 }
@@ -188,7 +206,7 @@ test('a rate category is excluded - a rate is already normalised per opportunity
 });
 
 test('an unprojected or zero-projected category is skipped, not scored zero', () => {
-    // Id 7 has an ACTUAL but no projection; id 8 is projected at zero. Scoring either as 0 would be the roto trap rank-engine.js names - an absent figure flattering the player.
+    // Id 7 has an actual figure and no projection, and id 8 is projected at zero. Scoring either as 0 would let an absent figure flatter the player.
     const player = {
         seasonTotals: { ...PLAYER.seasonTotals, '7': 30, '8': 5 },
         projectedTotals: { ...PLAYER.projectedTotals, '8': 0 }
@@ -198,7 +216,7 @@ test('an unprojected or zero-projected category is skipped, not scored zero', ()
     assertEq(out.pct, 25, 'and the player still gets an answer from what remains');
 });
 
-// ==== The five refusals - null, never a zeroed shape ====
+// ==== The five refusals: null, never a zeroed shape ====
 
 test('refusal 1: no projection at all answers null', () => {
     assertEq(projectionPacing({ seasonTotals: { '81': 40 }, projectedTotals: {} }, ctx()), null, 'empty projection');
@@ -277,7 +295,7 @@ test('the contract invariants hold on every non-null answer', () => {
 });
 
 test('the model answers inside the 10% band - the suppression is the renderer\'s', () => {
-    // The shipped builder returned NOTHING under 10%. R10's track shows the comparison whichever way it leans, so the model must answer and let the renderer decide whether to speak. A model that refuses cannot be asked a different question later. HR 22 / 40 = 0.55 against 0.5 -> 1.1; R 1.0. mean 1.05 -> pct 5. 21 HR was the first draft of this case and it is instructive: the mean lands on 1.025, and (1.025 - 1) * 100 is 2.4999999999999996 in floating point, not 2.5, so it rounds DOWN to 2. Asserting either 2 or 3 would pin a floating-point artifact rather than the rule, so the case moved off the boundary - the same reason the standing fixture uses round figures.
+    // A small lean is still answered, so a page can decide whether to show it. HR 22 / 40 = 0.55 against 0.5, ratio 1.1; R 1.0; mean 1.05, pct 5. With 21 HR the mean would be 1.025, and (1.025 - 1) * 100 is 2.4999999999999996 in floating point, which rounds down to 2. Asserting that would pin an artefact of floating point, so the case sits off the boundary.
     const small = {
         seasonTotals: { '81': 40, '5': 22, '20': 40 },
         projectedTotals: { '81': 100, '5': 50, '20': 100 }
@@ -298,7 +316,7 @@ test('projectedGamesId can differ from gamesId without the two denominators cros
     assertEq(out.pct, 50, '0.6/g against 0.4/g is half again over, not level');
 });
 
-// Report --------------------------------------------------------------------------- --------------------------------------------------------------------------------------------- The span leaves ESPN's hands (contract amendment 2, R2 / O55c) --------------------------------------------------------------------------------------------- Measured on a live 2026 baseball league at scoring period 164 of 187 - the capture the defect was reported on. A free agent's projection was never refreshed off its preseason full-season line, so this card read a 287-game season.
+// The span comes from the schedule. Measured on a live baseball league at scoring period 164 of 187: a free agent's projection was a full-season line never refreshed, which made the season read as 287 games.
 
 const STALE = {
     name: 'the unrefreshed free agent',
@@ -332,7 +350,7 @@ test('the 287-game season is gone: the span is the schedule, not ESPN count', ()
 });
 
 test('and the 29 home runs still to come become 3.6', () => {
-    // ESPN's RATE is unchanged - 29 over 156 games - and only the span it is applied over moves.
+    // ESPN's rate is unchanged, 29 over 156 games, and only the span it is applied over moves.
     const p = projectionPacing(STALE, SPAN_CTX('81', ['5'], 19.5));
     assertClose(p.projectedRest, 3.6, 'three weeks of home runs, not a season', 0.05);
     assertClose(p.projectedSeason, 23.6, 'banked 20 plus what is left', 0.05);
@@ -354,7 +372,7 @@ test('a player ESPN is keeping current barely moves', () => {
 });
 
 test('A STARTING PITCHER KEEPS HIS PER-START RATE over his own appearances', () => {
-    // The crossing this contract now names: 22 appearances in his club's 141 games is 3.4 over the next 22, NOT 22. His per-start rate times his club's games would be 159 strikeouts in three weeks - his whole season - which is the same absurdity from the other direction.
+    // 22 appearances in the club's 141 games is 3.4 over the next 22, not 22. A rate per start times the club's games would be 159 strikeouts in three weeks, a whole season.
     const p = projectionPacing(STARTER, SPAN_CTX('32', ['48'], 3.4));
     assertClose(p.components[0].projPerGame, 29 / 4, 'ESPN per START, unchanged', 0.0001);
     assertClose(p.projectedRest, 24.7, 'three weeks of a starter', 0.1);
@@ -363,7 +381,7 @@ test('A STARTING PITCHER KEEPS HIS PER-START RATE over his own appearances', () 
 });
 
 test('omitting gamesRemaining is the behaviour before the amendment', () => {
-    // A caller with no pro schedule loaded gets ESPN's count as the span - the old figure, right for every player whose line ESPN is keeping current - rather than a blank card.
+    // A caller with no pro schedule loaded gets ESPN's count as the span, which is right for every player whose line ESPN keeps current, and not a blank card.
     const p = projectionPacing(FRESH, SPAN_CTX('81', ['5'], undefined));
     assertEq(p.projectedGames, 22, "ESPN own count stands in");
     assertEq(p.projectedGames, p.espnProjectedGames, 'and the two fields agree');
@@ -378,6 +396,23 @@ test('a zero span is a real zero, and refusal 3 still keys on ESPN count', () =>
     const noRate = projectionPacing({ seasonTotals: { '5': 37, '81': 140 }, projectedTotals: { '5': 6 } },
         SPAN_CTX('81', ['5'], 20.7));
     assertEq(noRate, null, 'no denominator for ESPN rate');
+});
+
+test('A FINISHED SEASON PROJECTS NOTHING: the banked figure IS the season', () => {
+    // Measured on a hockey season that had ended: ESPN never retires the projection, so its lines still carried 77 to 82 projected games beside 82 played. A finished season passes 0 games remaining, and the shape below is what 0 produces. The line used is one skater's from that season: 48 goals in 82 games, with 37 projected over 77.
+    const mcdavid = { seasonTotals: { '13': 48, '30': 82 }, projectedTotals: { '13': 37, '30': 77 } };
+    const done = projectionPacing(mcdavid, SPAN_CTX('30', ['13'], 0));
+    assertEq(done.projectedGames, 0, 'no games left in a season that is over');
+    assertEq(done.projectedRest, 0, 'so nothing is still to come');
+    assertClose(done.actualToDate, 48, 'the banked goals', 0.01);
+    assertClose(done.projectedSeason, 48, 'and the season total is exactly what was banked', 0.01);
+    assertEq(done.projectedSeasonGames, 82, 'the games he actually played, not 159');
+    assertEq(done.espnProjectedGames, 77, "ESPN's own count survives as the rate's denominator");
+    // The pacing sentence still means something once the season is over: it is the rate ESPN expected per game against the rate he managed, which is a fair retrospective.
+    assertEq(done.pct, 22, '0.5854 a game against ESPN 0.4805 is 22% over');
+    // The defect, pinned: the same player with ESPN's count as the span invents another season.
+    const stale = projectionPacing(mcdavid, SPAN_CTX('30', ['13'], undefined));
+    assertClose(stale.projectedSeason, 85, 'what the card printed before - 48 banked plus 37 more', 0.5);
 });
 
 const passed = results.filter(r => r.ok).length;

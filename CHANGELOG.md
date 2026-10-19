@@ -1,5 +1,41 @@
 ﻿# Changelog
 
+## 1.7.0 (2026-10-18)
+
+Added
+- Firefox for Android. Every tab has a phone layout: a bottom tab bar, one thing per screen, condensed grids with heat-tinted cells, and the settings, filters and Compare drawer as sheets that close by their button, a tap outside or Escape.
+- Matchup chance on My Team's Compare drawer: who is likely to win the matchup being played, as a percentage in baseball and as a word (favoured, close or behind) in hockey until your league's own record has earned the number.
+- Playoff odds on Team Metrics, run from your league's own played weeks, with the remaining schedule beside each bar. Roto leagues get a title chance and a chance per category.
+- Draft tab: a cheat sheet with ranked projections, tiers and ADP verdicts; a mock draft with a lineup drawn per sport; a draft planner with alternates and a pick log that re-ranks the board as the pool shrinks; your own notes on a player; your own rankings or tiers loaded from a file beside the board.
+- Draft room companion: on ESPN's draft page, picks are read from the room and a Draft button sends your pick through ESPN's own button. Firefox shows it in a sidebar, Chrome and Edge in the side panel.
+- Draft results for a league that has drafted: a grid by round and team, and a recap that shows how each pick has fared against the slot it went at.
+- Head-to-head series matrix on Team Metrics, with each team's record against every other.
+- Category spread in a roto league: every team as a dot on each category's track, with the teams just above and below you named.
+- Standings movement over the window you picked: your place now and at its start, the best and worst, and the gap above and below.
+- Hockey Schedule on My Team: the nights calendar for skaters and goalies, with a shots-and-goals edge for each game, club against club.
+- Football matchups drawn by game day, with the points climbing across the week.
+- Download All downloads everything: one press runs every harvest for the league and season on screen, shows its progress, carries on past a refusal, and writes an index into the zip saying what it holds.
+- Find new leagues, beside the League picker, asks ESPN again when pressed.
+- Signed releases: each release carries a hash file and a signature, SECURITY.md says how to verify a download against the tagged source, NETWORK.md lists every host the extension reaches and what is sent, and PERMISSIONS.md gives the reason for each permission.
+
+Changed
+- Firefox 121 or newer is required. An older Firefox keeps 1.6.0.
+- The timeframe control gains a scope chip with a popover, and picking one matchup lights it alone.
+- Loading shows a skeleton in place of an empty box while the player pool arrives.
+- Team Rankings switches between bars and the donut without resizing the box under it.
+- The recap image and the draft recap cards keep each team's colour, with the header in the brand colours.
+- Explanatory sentences removed from more faces; figures and labels only.
+
+Fixed
+- Football leagues read inverse categories the right way round across the standings and the coverage strip.
+- A league joined after the browser opened shows in the picker without a restart.
+- Reopening a season carried the wrong year in the picker.
+- The player photo overflowed its club-colour ground in the drill-down.
+- Category columns overprinted on leagues with dozens of categories.
+- A season with no closest matchup threw an error in League History.
+- Hovering a day on the stat chart named every stat; it now names the one on the chart.
+- ESPN host checks match the whole host name rather than a substring, and the test runner's results table is built from nodes rather than markup.
+
 ## 1.6.0 (2026-09-05)
 
 Added

@@ -1,0 +1,44 @@
+title: "Idea: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us what you'd like Leaguewise to do. Rough is fine. Please don't attach a Diagnostic export or a league payload: those hold your league's data.
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What you want to see or do, and the league question behind it.
+    validations:
+      required: true
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Sport
+      multiple: true
+      options:
+        - Baseball
+        - Hockey
+        - Football
+        - Another sport
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: League format
+      multiple: true
+      options:
+        - Head-to-head categories
+        - Head-to-head points
+        - Rotisserie
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: Firefox, Chrome, Edge, Firefox for Android
+    validations:
+      required: true

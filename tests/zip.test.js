@@ -1,5 +1,5 @@
-// Unit tests for the pure zip writer. Open tests/zip.test.html through any static server - green means every assertion held. Every expected value here is hand-computed from the ZIP spec or is a published check value; nothing is read back out of the module that produced it, because a writer checked only by its own reader agrees with itself no matter how wrong it is. The archives these produce are also checked from OUTSIDE the browser once, by a real unzip tool - see the note at the bottom of this file. A byte layout that satisfies every assertion here and still will not open is the failure this suite cannot see by itself.
-import { crc32, dosDateTime, buildZip } from '../zip.js';
+// Unit tests for the pure zip writer. Open tests/zip.test.html through any static server; green means every assertion held. Every expected value is hand-computed from the ZIP specification or is a published check value. Nothing is read back out of the module that produced it, since a writer checked only by its own reader agrees with itself however wrong it is.
+import { crc32, dosDateTime, buildZip } from '../src/data/zip.js';
 
 const results = [];
 function test(name, fn) {
@@ -40,7 +40,7 @@ test('crc32: unsigned, never negative', () => {
 // ==== DOS timestamps ====
 
 test('dosDateTime: packs the fields the way the spec lays them out', () => {
-    // 14:30:04. Date: (2026-1980)=46 << 9 | 8 << 5 | 31 = 23552 + 256 + 31 = 23839. Time: 14 << 11 | 30 << 5 | (4/2) = 28672 + 960 + 2 = 29634.
+    // 31 August 2026 at 14:30:04. Date: (2026-1980)=46 << 9 | 8 << 5 | 31 = 23552 + 256 + 31 = 23839. Time: 14 << 11 | 30 << 5 | (4/2) = 28672 + 960 + 2 = 29634.
     const d = new Date(2026, 7, 31, 14, 30, 4);
     assertEq(dosDateTime(d), { time: 29634, date: 23839 }, 'packed');
 });
@@ -110,7 +110,7 @@ test('buildZip: two files, offsets point where the data actually is', () => {
 });
 
 test('buildZip: a UTF-8 name is stored as UTF-8, and its length is in BYTES', () => {
-    // The length field counts bytes, not characters. "café.json" is 9 characters and 10 bytes, and writing 9 there truncates the name for every reader.
+    // The length field counts bytes, not characters. The name here has one accented letter, so it is 9 characters and 10 bytes, and writing 9 would cut the name short for every reader.
     const z = buildZip([{ name: 'café.json', bytes: bytes('x') }], STAMP);
     assertEq(read16(z, 26), 10, 'name length in bytes');
     assertEq(new TextDecoder().decode(z.slice(30, 40)), 'café.json', 'round-trips');

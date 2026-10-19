@@ -1,0 +1,89 @@
+{
+  "picks": [
+    { "playerId": 9001, "teamId": 7, "roundId": 1, "roundPickNumber": 1, "overallPickNumber": 1, "keeper": false },
+    { "playerId": 9002, "teamId": 1, "roundId": 1, "roundPickNumber": 2, "overallPickNumber": 2, "keeper": false },
+    { "playerId": 9003, "teamId": 3, "roundId": 1, "roundPickNumber": 3, "overallPickNumber": 3, "keeper": true },
+    { "playerId": 9004, "teamId": 3, "roundId": 2, "roundPickNumber": 1, "overallPickNumber": 4, "keeper": false },
+    { "playerId": 9005, "teamId": 1, "roundId": 2, "roundPickNumber": 2, "overallPickNumber": 5, "keeper": false },
+    { "playerId": 9006, "teamId": 7, "roundId": 2, "roundPickNumber": 3, "overallPickNumber": 6, "keeper": false },
+    { "playerId": 9007, "teamId": 7, "roundId": 3, "roundPickNumber": 1, "overallPickNumber": 7, "keeper": false },
+    { "playerId": 9008, "teamId": 1, "roundId": 3, "roundPickNumber": 2, "overallPickNumber": 8, "keeper": false },
+    { "playerId": 9099, "teamId": 1, "roundId": 3, "roundPickNumber": 2, "overallPickNumber": 8, "keeper": false },
+    { "playerId": -16033, "teamId": 3, "roundId": 3, "roundPickNumber": 3, "overallPickNumber": 9, "keeper": false },
+    { "playerId": -1, "teamId": 7, "roundId": 1, "roundPickNumber": null, "overallPickNumber": null, "keeper": false }
+  ],
+  "teamIds": [7, 1, 3],
+  "myTeamId": 7,
+  "feed": {
+    "gridPlaceholders": [
+      { "playerId": -1, "teamId": 7, "roundId": 1, "roundPickNumber": 1, "overallPickNumber": 1, "keeper": false },
+      { "playerId": -1, "teamId": 1, "roundId": 1, "roundPickNumber": 2, "overallPickNumber": 2, "keeper": false },
+      { "playerId": -1, "teamId": 3, "roundId": 1, "roundPickNumber": 3, "overallPickNumber": 3, "keeper": false },
+      { "playerId": -1, "teamId": 3, "roundId": 2, "roundPickNumber": 1, "overallPickNumber": 4, "keeper": false },
+      { "playerId": -1, "teamId": 1, "roundId": 2, "roundPickNumber": 2, "overallPickNumber": 5, "keeper": false },
+      { "playerId": -1, "teamId": 7, "roundId": 2, "roundPickNumber": 3, "overallPickNumber": 6, "keeper": false },
+      { "playerId": -1, "teamId": 7, "roundId": 3, "roundPickNumber": 1, "overallPickNumber": 7, "keeper": false },
+      { "playerId": -1, "teamId": 1, "roundId": 3, "roundPickNumber": 2, "overallPickNumber": 8, "keeper": false },
+      { "playerId": -1, "teamId": 3, "roundId": 3, "roundPickNumber": 3, "overallPickNumber": 9, "keeper": false }
+    ],
+    "logComplete": {
+      "picks": [
+        { "overall": 1, "teamId": 7, "playerId": 9101, "source": "room" },
+        { "overall": 2, "teamId": 1, "playerId": 9102, "source": "room" },
+        { "overall": 3, "teamId": 3, "playerId": 9103, "source": "room" },
+        { "overall": 4, "teamId": 3, "playerId": 9104, "source": "room" },
+        { "overall": 5, "teamId": null, "playerId": 9105, "source": "hand" },
+        { "overall": 6, "teamId": 7, "playerId": 9106, "source": "room" },
+        { "overall": 7, "teamId": 7, "playerId": 9107, "source": "room" },
+        { "overall": 8, "teamId": 7, "playerId": 9108, "source": "room" },
+        { "overall": 9, "teamId": 3, "playerId": 9109, "source": "room" }
+      ]
+    },
+    "logShort": {
+      "picks": [
+        { "overall": 1, "teamId": 7, "playerId": 9101, "source": "room" },
+        { "overall": 2, "teamId": 1, "playerId": 9102, "source": "room" },
+        { "overall": 3, "teamId": 3, "playerId": 9103, "source": "room" },
+        { "overall": 4, "teamId": 3, "playerId": 9104, "source": "room" },
+        { "overall": 5, "teamId": 1, "playerId": 9105, "source": "room" },
+        { "overall": 6, "teamId": 7, "playerId": 9106, "source": "room" },
+        { "overall": 7, "teamId": 7, "playerId": 9107, "source": "room" }
+      ]
+    },
+    "logGap": {
+      "picks": [
+        { "overall": 1, "teamId": 7, "playerId": 9101, "source": "room" },
+        { "overall": 2, "teamId": 1, "playerId": 9102, "source": "room" },
+        { "overall": 3, "teamId": 3, "playerId": 9103, "source": "room" },
+        { "overall": 4, "teamId": 3, "playerId": 9104, "source": "room" },
+        { "overall": 5, "teamId": 1, "playerId": 9105, "source": "room" },
+        { "overall": 6, "teamId": 7, "playerId": 9106, "source": "room" },
+        { "overall": 7, "teamId": 7, "playerId": 9107, "source": "room" },
+        { "overall": 8, "teamId": 1, "playerId": 9108, "source": "room" },
+        { "overall": 10, "teamId": 3, "playerId": 9110, "source": "room" }
+      ]
+    },
+    "rosterTeams": [
+      { "id": 7, "roster": { "entries": [
+        { "playerId": 9201, "lineupSlotId": 3, "acquisitionType": null },
+        { "playerId": 9202, "lineupSlotId": 4, "acquisitionType": null },
+        { "playerId": 9203, "lineupSlotId": 8, "acquisitionType": null }
+      ] } },
+      { "id": 1, "roster": { "entries": [
+        { "playerId": 9204, "lineupSlotId": 3, "acquisitionType": null },
+        { "playerId": 9204, "lineupSlotId": 5, "acquisitionType": null },
+        { "playerId": null, "lineupSlotId": 6, "acquisitionType": null },
+        { "playerId": 9205, "lineupSlotId": null, "acquisitionType": null }
+      ] } },
+      { "id": 3, "roster": { "entries": [
+        { "playerId": -1, "lineupSlotId": 3, "acquisitionType": null },
+        { "playerId": 9206, "lineupSlotId": 7, "acquisitionType": null }
+      ] } }
+    ],
+    "rosterTeamsOneEmpty": [
+      { "id": 7, "roster": { "entries": [ { "playerId": 9201, "lineupSlotId": 3 } ] } },
+      { "id": 1, "roster": { "entries": [] } },
+      { "id": 3, "roster": { "entries": [ { "playerId": 9206, "lineupSlotId": 7 } ] } }
+    ]
+  }
+}

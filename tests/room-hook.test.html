@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>room-hook.js EventSource tests</title>
+    <style>
+        body { font-family: monospace; padding: 20px; font-size: 13px; }
+        h1 { font-size: 16px; }
+        .pass { color: #2e7d32; }
+        .fail { color: #c62828; font-weight: bold; }
+        #summary { font-size: 15px; font-weight: bold; margin-bottom: 12px; }
+    </style>
+</head>
+
+<body>
+    <h1>room-hook.js EventSource tests</h1>
+    <p>The page-world hook's SECOND transport (B267 item 2), over a fake EventSource and a fake
+        WebSocket installed before the hook loads. tests/room-reader.test.html proves the socket wrap
+        and stays as it is - a hook installs once per page, so each transport's fake needs its own.</p>
+    <p>No room is involved and none can be: no capture holds an SSE message body, so these prove the
+        BRIDGE - transport, event name and masked endpoint arriving intact. What the frames say is
+        Q34's question, and the contract's Amendment 2 lists what is still unknown.</p>
+    <div id="summary">Running...</div>
+    <div id="results"></div>
+    <script type="module" src="room-hook.test.js"></script>
+</body>
+
+</html>

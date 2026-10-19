@@ -1,0 +1,61 @@
+{
+  "about": "Every host the Leaguewise extension contacts, and every page it runs on. NETWORK.md is this list in words. It is checked against the code before each release.",
+  "hosts": [
+    {
+      "origin": "https://lm-api-reads.fantasy.espn.com",
+      "what": "ESPN's fantasy API",
+      "requests": ["league", "history", "rosters", "pool", "weekly", "draft", "transactions", "schedule"],
+      "cookies": "sent",
+      "sent": ["the browser's ESPN cookies", "the league id and season in the path", "an X-Fantasy-Filter header on pool and weekly requests"]
+    },
+    {
+      "origin": "https://fan.api.espn.com",
+      "what": "ESPN's account lookup",
+      "requests": ["league list"],
+      "cookies": "sent",
+      "sent": ["the browser's ESPN cookies", "the SWID in the path"]
+    },
+    {
+      "origin": "https://site.api.espn.com",
+      "what": "ESPN's public scoreboard",
+      "requests": ["scoreboard"],
+      "cookies": "sent",
+      "sent": ["the browser's ESPN cookies", "the sport in the path"],
+      "optIn": "only while the betting lines option is on; it is off by default"
+    },
+    {
+      "origin": "https://a.espncdn.com",
+      "what": "ESPN's image server",
+      "requests": ["headshot", "pro logo"],
+      "cookies": "not sent: another domain",
+      "sent": ["a player id or a club abbreviation in the path"]
+    },
+    {
+      "origin": "https://g.espncdn.com",
+      "what": "ESPN's image server",
+      "requests": ["team logo", "logo colour"],
+      "cookies": "not sent: another domain",
+      "sent": ["the logo's own address, as the league payload gives it"]
+    },
+    {
+      "origin": "https://mystique-api.fantasy.espn.com",
+      "what": "ESPN's uploaded team logos",
+      "requests": ["team logo", "logo colour"],
+      "cookies": "an image load, under the browser's own rules for one",
+      "sent": ["the logo's own address, as the league payload gives it"]
+    }
+  ],
+  "cookieRead": {
+    "origin": "https://espn.com",
+    "names": ["SWID", "espn_s2"],
+    "note": "read through the browser's cookies API to know whether the reader is signed in to ESPN, and to tell which team is theirs. Not a request."
+  },
+  "notRequests": [
+    { "origin": "http://www.w3.org", "why": "the SVG namespace name in generated markup. A browser never contacts it." }
+  ],
+  "hostPermissions": ["*://*.espn.com/*"],
+  "permissions": ["cookies", "storage", "clipboardWrite"],
+  "contentScripts": [
+    { "matches": ["*://fantasy.espn.com/*/draft*"], "what": "ESPN's draft room. Reads the draft's own messages in the reader's tab while a draft is on. Opens no connection of its own." }
+  ]
+}

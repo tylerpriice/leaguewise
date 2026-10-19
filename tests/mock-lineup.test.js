@@ -1,7 +1,7 @@
-// Unit tests for the pure mock lineup (mock-lineup.js, R6). Open tests/mock-lineup.test.html through any static server - green means every assertion held. THE FIXTURE IS FRAME E'S OWN LEAGUE AND ITS OWN NUMBERS, so a test that passes here is a test that agrees with the acceptance standard rather than with an invented example. Nine seats, four filled, and the card's three figures are 572.7, "#6 of 11" and 1,288.
+// Unit tests for the pure mock lineup (mock-lineup.js). Open tests/mock-lineup.test.html through any static server; green means every assertion held. The fixture is the league and the figures of the design the card was accepted against: nine seats, four filled, and the card's three figures are 572.7, #6 of 11 and 1,288.
 import {
     seatsFor, emptyState, canSeat, seat, unseat, clear, ceilingFor, placeAmong, summary
-} from '../mock-lineup.js';
+} from '../src/engines/mock-lineup.js';
 
 const results = [];
 function test(name, fn) {
@@ -18,7 +18,7 @@ function assertClose(actual, expected, tol, msg) {
     }
 }
 
-// Football's real tables, copied from state.js rather than invented - the order, the labels, the bench pair and the flex positions are the league's own answer, not this file's.
+// Football's real tables, copied from state.js and not invented: the order, the labels, the bench pair and the flex positions are the league's own.
 const ORDER = [0, 2, 4, 6, 23, 16, 17];
 const LABELS = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'D/ST', 17: 'K', 20: 'BE', 21: 'IR', 23: 'FLEX' };
 const NON_STARTING = new Set([20, 21]);
@@ -114,7 +114,7 @@ test('unseat empties one seat; clear empties every seat', () => {
     assertEq(clear(FRAME_E).seats.length, 17, 'the seats survive, only the players go');
 });
 
-// ==== The summary, against frame E's printed figures ====
+// ==== The summary, against the accepted design's printed figures ====
 
 test('the total is the sum of the card\'s OWN figures - frame E prints 572.7', () => {
     // 163.7 + 158.8 + 146.0 + 104.2, and the mockup's card says 572.7.
@@ -122,6 +122,21 @@ test('the total is the sum of the card\'s OWN figures - frame E prints 572.7', (
     assertClose(s.total, 572.7, 1e-9, 'the printed total');
     assertEq(s.filled, 4, 'four seats');
     assertEq(s.of, 9, 'of nine - the bench row\'s "4 of 9 seats filled"');
+});
+
+test('a points league sums score, not the ranking edge, but still RANKS by the edge (B246)', () => {
+    // The quarterback's value is 163.7 but the printed score is a different figure, a points league's own scored total. The total and the ceiling must sum the printed score, while the choice of best eligible player still ranks on the value, so the same players are picked.
+    const scored = POOL.map(p => ({ ...p, score: p.value + 10 }));
+    const ptsCtx = { ...CTX, isPointsLeague: true };
+    const frameEScored = [[1, idx('QB')], [2, idx('RB', 0)], [4, idx('RB', 1)], [12, idx('TE')]]
+        .reduce((st, [pid, i]) => seat(st, pid, i, scored, ptsCtx), emptyState(SEATS));
+    const s = summary(frameEScored, scored, null, ptsCtx);
+    assertClose(s.total, 572.7 + 4 * 10, 1e-9, 'four starters, each +10 over its edge');
+    const byIndex = ceilingFor(SEATS, scored, ptsCtx);
+    assertClose(byIndex.get(idx('RB', 0)), 158.8 + 10, 1e-9, 'still the best back by EDGE, printed as its score');
+    // Off a points league (isPointsLeague unset), the same scored pool falls back to the edge - the field exists but nothing asked for it, matching every other call site in this file.
+    const s2 = summary(frameEScored, scored, null, CTX);
+    assertClose(s2.total, 572.7, 1e-9, 'category league: score is ignored, the edge still sums to 572.7');
 });
 
 test('byPosition is in ground order and sums each slot\'s seats', () => {
@@ -136,7 +151,7 @@ test('byPosition is in ground order and sums each slot\'s seats', () => {
 });
 
 test('the ceiling fills fixed seats BEFORE flex, each player once', () => {
-    // Best QB 163.7, best two RB 158.8 + 146.0, best two WR 146.8 + 130.1, best TE 104.2, and the FLEX then takes the best RB/WR/TE still unclaimed - McCaffrey at 135.1. D/ST and K have nobody eligible in this pool and contribute nothing.
+    // Best QB 163.7, best two RB 158.8 + 146.0, best two WR 146.8 + 130.1, best TE 104.2, and the FLEX then takes the best RB, WR or TE still unclaimed, at 135.1. D/ST and K have nobody eligible in this pool and add nothing.
     const s = summary(FRAME_E, POOL, null, CTX);
     assertClose(s.ceiling, 163.7 + 158.8 + 146.0 + 146.8 + 130.1 + 104.2 + 135.1, 1e-9, 'the best the seats could hold');
     // The ordering is the point: filling FLEX first would have taken Gibbs and left an RB seat holding McCaffrey, which is a worse pair by exactly the gap between them.
@@ -169,7 +184,7 @@ test('place is where the total would have finished - frame E prints #6 of 11', (
 });
 
 test('place is NULL where the league keeps no points, and the cell is then absent', () => {
-    // A head-to-head categories league reports 0 on every team (measured, R1). Placing a projected total against a column of zeros would rank every mock team first.
+    // A head-to-head categories league reports 0 on every team. Placing a projected total against a column of zeros would rank every mock team first.
     const zeros = [0, 0, 0, 0, 0, 0].map(points => ({ points }));
     assertEq(placeAmong(572.7, zeros), null, 'a categories league');
     assertEq(placeAmong(572.7, []), null, 'no standings at all');
@@ -197,7 +212,7 @@ test('a league with no starting seats summarises to NULL, never an empty card', 
 });
 
 
-// ==== The bench (v2, R1 / frame H) ====
+// ==== The bench ====
 
 const benchIdx = (n = 0) => SEATS.findIndex((s, i) => s.bench && SEATS.slice(0, i).filter(x => x.bench).length === n);
 
@@ -260,7 +275,7 @@ test('moving a player BENCH TO STARTER empties the bench seat', () => {
 });
 
 test('the ceiling never fills a bench seat', () => {
-    // A bench seat takes anyone, so a ceiling that filled eight of them would hand the best players left to seats that score nothing - and take them from the starting seats it is measuring.
+    // A bench seat takes anyone, so a ceiling that filled eight of them would hand the best players left to seats that score nothing, and take them from the starting seats it is measuring.
     const byIndex = ceilingFor(SEATS, POOL, CTX);
     const benchIndexes = SEATS.map((s, i) => (s.bench ? i : -1)).filter(i => i >= 0);
     assertEq(benchIndexes.some(i => byIndex.has(i)), false, 'no bench seat has a ceiling value');

@@ -1,9 +1,9 @@
-// Unit tests for the projected basis. Open tests/projected-basis.test.html through any static server - green means every assertion held. The roto scorer is the REAL one, imported from rank-engine, because the whole claim of this module is that a projected standing is scored by the same engine a played one is. A stub here would test the stub.
+// Unit tests for the projected basis. Open tests/projected-basis.test.html through any static server; green means every assertion held. The roto scorer is the real one, imported from rank-engine.js, because the whole claim of this module is that a projected standing is scored by the same engine a played one is. A stub here would test the stub.
 import {
     projectedTeamSums, projectedValues, projectedRotoStandings, projectedPointsStandings, placeOf,
     lineFromCells, remainderLine, expectedAppearances
-} from '../projected-basis.js';
-import { rotoPointsForCategory } from '../rank-engine.js';
+} from '../src/engines/projected-basis.js';
+import { rotoPointsForCategory } from '../src/engines/rank-engine.js';
 
 const results = [];
 function test(name, fn) {
@@ -24,7 +24,7 @@ const COMPONENTS = [{ out: '47', num: ['45'], den: ['34'], scale: 27 }];   // ER
 const CATS = [{ id: '5', inverse: false }, { id: '47', inverse: true }];
 const CAT_IDS = ['5', '47'];
 
-// Three rosters of two. Projected lines only - nobody has played.
+// Three rosters of two. Projected lines only, since nobody has played.
 const ROSTERS = {
     1: [{ projectedTotals: { '5': 30, '45': 60, '34': 900 } },
         { projectedTotals: { '5': 10 } }],
@@ -73,7 +73,7 @@ test('lineFromCells: a row with no cells yields an empty line, not a throw', () 
 });
 
 test('lineFromCells: cells and totals DISAGREE for a two-way player, and cells win', () => {
-    // Measured on the real capture: summing row.totals came out 1,696.08 against the board's own 1,699.66 in one category over 24 players, because a two-way player's row carries one group's totals while the CELLS merge the groups - each category drawn by whichever group scores it. Reading totals would have made a projected standing disagree with the board it is built from.
+    // Measured on a real capture: summing the row totals came to 1,696.08 against the board's own 1,699.66 in one category over 24 players, because a two-way player's row carries one group's totals while the cells merge the groups. Reading the totals would make a projected standing disagree with the board it is built from.
     const twoWay = { totals: { '5': 30, '47': 9.99 }, cells: [{ value: 30 }, { value: 3.10 }] };
     const fromCells = lineFromCells(twoWay, ['5', '47']);
     assertEq(fromCells['47'], 3.10, 'the pitching cell, not the batting line');
@@ -142,7 +142,7 @@ test('placeOf: a team not in the standing has no place', () => {
     assertEq(placeOf(null, 'a'), null, 'no standing at all');
 });
 
-// ==== remainderLine: what a player is still expected to produce Every figure below is MEASURED off a live 2026 baseball league at scoring period 164 of 187, the capture the defect was reported on: the owner's own hitters, his ace, and the free agent whose card read "would add 29 the rest of the way". ====
+// remainderLine: what a player is still expected to produce. Every figure below was measured on a live baseball league at scoring period 164 of 187: a roster's hitters, its best starter, and a free agent whose card read 29 more home runs with three weeks left.
 
 const BAT_GAMES = '81';                               // MLB batter games played
 const PIT_GAMES = '32';                               // MLB pitcher appearances
@@ -153,7 +153,7 @@ const ALVAREZ = { seasonTotals: { '5': 37, [BAT_GAMES]: 140 }, clubPlayed: 142, 
 const RICE = { seasonTotals: { '5': 35, [BAT_GAMES]: 135 }, clubPlayed: 144, left: 22 };
 const SCHWARBER = { seasonTotals: { '5': 40, [BAT_GAMES]: 135 }, clubPlayed: 141, left: 22 };
 const FREEMAN = { seasonTotals: { '5': 16, [BAT_GAMES]: 136 }, clubPlayed: 141, left: 22 };
-// The reported defect: ESPN's line says 29 home runs off 629 at-bats - a full season, never refreshed. He has actually hit 20 in 131 games; his club has played 141 and has 21 left.
+// The reported defect: ESPN's line says 29 home runs off 629 at-bats, a full season never refreshed. The player has hit 20 in 131 games, and the club has played 141 and has 21 left.
 const RODRIGUEZ = { seasonTotals: { '5': 20, [BAT_GAMES]: 131 }, clubPlayed: 141, left: 21 };
 // A STARTING PITCHER, the case that falsified the first version of this rule. 159 strikeouts in 22 appearances while his club played 141 games; ESPN expects 29 more.
 const SKUBAL = { seasonTotals: { '48': 159, [PIT_GAMES]: 22 }, clubPlayed: 141, left: 22 };
@@ -232,7 +232,7 @@ test('the line is scaled from the ACTUAL record, so a stale projection cannot re
     assertEq(a['5'], b['5'], 'the projection is not read at all');
 });
 
-// ==== expectedAppearances: a count AND its unit Measured on a live 2026 baseball league at scoring period 164 of 187. The matchup being played runs to 173 and ESPN's probable listings reach 174, so THIS MATCHUP is inside the horizon and the rest of the season is not - which is the whole of the rule below. ====
+// expectedAppearances: a count and its unit. Measured on a live baseball league at scoring period 164 of 187. The matchup being played runs to 173 and ESPN's probable listings reach 174, so this matchup is inside what is listed and the rest of the season is not, which is the whole of the rule below.
 
 const HORIZON = 174;                 // the furthest day ESPN has listed a probable for
 const MATCHUP_END = 173;             // inside it
@@ -240,12 +240,12 @@ const SEASON_END = 187;              // past it
 
 // A starter: 22 appearances while his club played 141, 1 probable start left in the matchup.
 const ACE = { seasonTotals: { '32': 22 } };
-// A closer: 55 appearances in his club's 140 games, and no probable anywhere - he does not start.
+// A closer: 55 appearances in the club's 140 games and no probable start listed anywhere, since a closer does not start.
 const CLOSER = { seasonTotals: { '32': 55 } };
 const BAT = { seasonTotals: { '81': 140 } };
 
 test('a STARTER inside the horizon is counted in STARTS, exactly', () => {
-    // The owner's complaint in one assertion: the column said "9 of 13 games left" for a pitcher who appears once. The share would have said 1.4; ESPN's own listing says 1.
+    // The defect in one assertion: the column said 9 of 13 games left for a pitcher who appears once. The share would have given 1.4, and ESPN's own listing gives 1.
     const out = expectedAppearances(ACE, {
         gamesId: '32', clubGamesPlayed: 141, gamesRemaining: 9,
         projectedStarts: 1, startsScheduled: true, horizonEnd: HORIZON, windowEnd: MATCHUP_END
@@ -323,7 +323,7 @@ test('the refusals are unchanged', () => {
     assertEq(expectedAppearances(ACE, { gamesId: '32', gamesRemaining: 9 }), null, 'no club games');
 });
 
-// ==== The remainder follows the unit remainderLine is production PER APPEARANCE times the appearances expected, and expectedAppearances decides what an appearance is. So a starting pitcher inside ESPN's listed horizon is priced over his ROTATION TURN and everyone else over the club's schedule, with no branch in remainderLine. ====
+// The remainder follows the unit. remainderLine is production per appearance times the appearances expected, and expectedAppearances decides what an appearance is. So a starting pitcher inside what ESPN has listed is priced over rotation turns and everyone else over the club's schedule, with no branch in remainderLine.
 
 // The ace: 159 strikeouts in 22 appearances while his club played 141 and has 9 left in the window.
 const ACE_LINE = { seasonTotals: { '48': 159, '32': 22 } };

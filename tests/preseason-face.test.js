@@ -1,5 +1,5 @@
-// Unit tests for the pre-draft face's pure data. Open tests/preseason-face.test.html through any static server - green means every assertion held. The card this file cares most about is the one that must NOT appear. A first-season league has no last season, and the failure mode of a summary card is defaulting - a champion of "Unknown", a finish of 0, a best category chosen from an empty list. Half of these tests assert an absence.
-import { countdownCard, countdownPhrase, lastSeasonCard, categoryRanks, rankedPoolCard, slotSeatsFor, projectedCategoryRanks, bestValuePick } from '../preseason-face.js';
+// Unit tests for the pre-draft face's pure data. Open tests/preseason-face.test.html through any static server; green means every assertion held. The card this file cares most about is the one that must not appear: a league in its first season has no last season, and a summary card fails by defaulting to a champion of Unknown or a finish of 0. Half of these tests assert an absence.
+import { countdownCard, countdownPhrase, lastSeasonCard, categoryRanks, rankedPoolCard, slotSeatsFor, projectedCategoryRanks, bestValuePick, draftPickRows, draftPickOf, draftedIndexOf } from '../src/engines/preseason-face.js';
 
 const results = [];
 function test(name, fn) {
@@ -157,11 +157,12 @@ test('lastSeasonCard: no champion and no finish is no card', () => {
 
 // ==== the ranked pool ====
 
+// The board's order by value and the order by score disagree on purpose. First leads on value (42.5) and Second leads on score (145.2 against 120.4). The card sorts by score, so a fixture where the two orders agreed could not prove it. Unvalued Skater carries no score at all, which is the real state for a player the projections do not reach.
 const BOARD = [
-    { boardRank: 1, value: 42.5, player: { id: 1, name: 'First Skater', proTeamId: 5, positionDisplay: 'C' } },
-    { boardRank: 2, value: 38.0, player: { id: 2, name: 'Second Skater', proTeamId: 9, positionDisplay: 'LW' } },
-    { boardRank: 3, value: null, player: { id: 3, name: 'Unvalued Skater', proTeamId: 5, positionDisplay: 'RW' } },
-    { boardRank: null, value: null, player: { id: 4, name: 'Unranked Skater', proTeamId: 5, positionDisplay: 'D' } }
+    { boardRank: 1, value: 42.5, score: 120.4, player: { id: 1, name: 'First Skater', proTeamId: 5, positionDisplay: 'C' } },
+    { boardRank: 2, value: 38.0, score: 145.2, player: { id: 2, name: 'Second Skater', proTeamId: 9, positionDisplay: 'LW' } },
+    { boardRank: 3, value: null, score: null, player: { id: 3, name: 'Unvalued Skater', proTeamId: 5, positionDisplay: 'RW' } },
+    { boardRank: null, value: null, score: 999, player: { id: 4, name: 'Unranked Skater', proTeamId: 5, positionDisplay: 'D' } }
 ];
 const CLUBS = new Map([[5, 'DET'], [9, 'BOS']]);
 const DEPTH = [
@@ -171,14 +172,17 @@ const DEPTH = [
     { pos: 'RW', starters: 8, available: 13, ratio: 1.6, word: '' }
 ];
 
-test('rankedPoolCard: the top of the board, with club and the gold figure', () => {
+test('rankedPoolCard: ranked by PROJECTED POINTS, not the board\'s own value (B239 item 2.1)', () => {
     const card = rankedPoolCard(BOARD, DEPTH, { clubs: CLUBS, limit: 3 });
     assertEq(card.rows.length, 3, 'limited');
-    assertEq(card.rows[0].rank, 1, 'board rank');
-    assertEq(card.rows[0].name, 'First Skater', 'name');
-    assertEq(card.rows[0].club, 'DET', 'club from the map');
-    assertEq(card.rows[0].pos, 'C', 'position');
-    assertEq(card.rows[0].value, 42.5, 'the gold figure');
+    // Second Skater (145.2) outranks First Skater (120.4) here despite being #2 on the board - the whole point of the fix. rank is this list's own 1-based position, not boardRank.
+    assertEq(card.rows[0].rank, 1, 'this list\'s own rank, not the board\'s');
+    assertEq(card.rows[0].name, 'Second Skater', 'the higher PROJECTION leads, not the higher board value');
+    assertEq(card.rows[0].club, 'BOS', 'club from the map');
+    assertEq(card.rows[0].pos, 'LW', 'position');
+    assertEq(card.rows[0].value, 145.2, 'the gold figure is the projection, never the board\'s value');
+    assertEq(card.rows[1].name, 'First Skater', 'second by points, second row');
+    assertEq(card.rows[1].value, 120.4, 'not the board\'s own 42.5');
 });
 
 test('rankedPoolCard: an unranked row is not on a ranked board', () => {
@@ -231,7 +235,7 @@ test('rankedPoolCard: no depth at all still yields the board', () => {
 // ==== the pre-draft seats ====
 
 test('slotSeatsFor: every seat is ANONYMOUS before a draft, with the league own counts', () => {
-    // A family with count > 1 IS the pre-draft case - the ground needs no separate signal.
+    // A family with a count above one is the pre-draft case, so the ground needs no separate signal.
     const seats = slotSeatsFor({
         counts: { 0: 1, 2: 2, 4: 3, 20: 6 },
         labels: { 0: 'QB', 2: 'RB', 4: 'WR', 20: 'BE' },
@@ -292,11 +296,11 @@ const GRADE_INVERSE = new Set(['47']);
 
 test('projectedCategoryRanks: best category first, and an inverse category ranks the LOW value best', () => {
     const ranks = projectedCategoryRanks(GRADE_VALUES, 'A', ['5', '47'], GRADE_INVERSE);
-    // A leads home runs outright (nobody above 40). In ERA only B (3.00) and C (3.50) are better than A's 4.00 - D's 5.00 is worse - so A is THIRD of four, which is the whole point of the inverse flag: read the other way round A's 4.00 would rank second and look like a strength.
+    // A leads home runs outright, with nobody above 40. In ERA only B (3.00) and C (3.50) are better than A's 4.00, and D's 5.00 is worse, so A is third of four. That is the point of the inverse flag: read the other way round, A's 4.00 would rank second and look like a strength.
     assertEq(ranks.length, 2, 'both categories ranked');
     assertEq(ranks[0].id, '5', 'strongest is home runs');
     assertEq(ranks[0].rank, 1, 'first of four');
-    assertEq(ranks[ranks.length - 1].id, '47', 'thinnest is ERA');
+    assertEq(ranks[ranks.length - 1].id, '47', 'weakest is ERA');
     assertEq(ranks[ranks.length - 1].rank, 3, 'two teams better, one worse');
 });
 
@@ -321,7 +325,7 @@ test('projectedCategoryRanks: a team with no figure in a category is not ranked 
 });
 
 test('projectedCategoryRanks: equally-ranked categories keep the order the LEAGUE lists them in', () => {
-    // B and C tie on home runs, and A is alone at the top of both categories it leads. Ranking is stable, so a caller listing its categories the way the league lists them gets them back that way. This is not cosmetic: the card names the LAST entry as "thinnest", so a tie broken on the stat id silently changes which category a manager is told to worry about.
+    // B and C tie on home runs, and A is alone at the top of both categories it leads. Ranking is stable, so a caller listing its categories the way the league lists them gets them back that way. This is not cosmetic: the card names the LAST entry as "weakest", so a tie broken on the stat id silently changes which category a manager is told to worry about.
     const vals = { A: { '5': 1, '47': 1 }, B: { '5': 2, '47': 2 } };
     const forward = projectedCategoryRanks(vals, 'A', ['5', '47'], new Set());
     const reversed = projectedCategoryRanks(vals, 'A', ['47', '5'], new Set());
@@ -330,7 +334,7 @@ test('projectedCategoryRanks: equally-ranked categories keep the order the LEAGU
 });
 
 test('projectedCategoryRanks: a category that is NULL for everyone ranks nobody', () => {
-    // Number(null) is 0, so converting before checking made every team tie at zero and every one of them rank #1. On a real capture that reported fielding assists - which ESPN does not project at all - as the team's STRONGEST category. The projected basis carries such a category as null for every team on purpose, so it keeps its heatmap column; it must not earn a rank as well.
+    // Number(null) is 0, so converting before checking would tie every team at zero and rank every one of them first. A category ESPN does not project is carried as null for every team on purpose, so it keeps its heatmap column, and it must not earn a rank as well.
     const vals = {
         A: { '5': 10, '19': null },
         B: { '5': 20, '19': null },
@@ -370,12 +374,167 @@ test('bestValuePick: a player the board does not rank is skipped, never treated 
     assertEq(best.edge, 8, 'twenty minus twelve');
 });
 
+// The picks beside the marked one. Team 7 is the reader and team 3 is not. Pick 4 with the board at 12 is eight picks early (edge -8). Pick 13 with the board at 3 is ten picks late (edge +10) and is the best value. The board never ranked pick 20's player.
+const W2_PICKS = [
+    { playerId: 9, overallPickNumber: 1, roundId: 1, teamId: 3 },
+    { playerId: 1, overallPickNumber: 4, roundId: 1, teamId: 7 },
+    { playerId: 2, overallPickNumber: 13, roundId: 2, teamId: 7 },
+    { playerId: 3, overallPickNumber: 20, roundId: 3, teamId: 7 }
+];
+const W2_BOARD = new Map([[9, 1], [1, 12], [2, 3]]);
+
+test('draftPickRows: the reader own picks, in draft order, measured against the board', () => {
+    const rows = draftPickRows(W2_PICKS, W2_BOARD, 7);
+    assertEq(rows.length, 3, 'another team pick is not the reader own');
+    assertEq(rows.map(r => r.overallPickNumber).join(','), '4,13,20', 'draft order');
+    assertEq(rows.map(r => r.round).join(','), '1,2,3', 'each round as ESPN numbered it');
+    assertEq(rows[0].edge, -8, 'four less twelve: taken eight picks early');
+    assertEq(rows[1].edge, 10, 'thirteen less three: the steal');
+    assertEq(rows[2].rank, null, 'a player the board does not rank has no rank');
+    assertEq(rows[2].edge, null, 'and no edge, rather than a last-place one');
+});
+
+test('draftPickRows: the starred row is the one bestValuePick names, by construction', () => {
+    const rows = draftPickRows(W2_PICKS, W2_BOARD, 7);
+    const starred = rows.filter(r => r.best);
+    assertEq(starred.length, 1, 'exactly one');
+    // The same call the card headline makes, on the same filtered picks.
+    const mine = W2_PICKS.filter(p => p.teamId === 7);
+    assertEq(starred[0].playerId, bestValuePick(mine, W2_BOARD).playerId, 'the same pick as the headline');
+    assertEq(starred[0].edge, bestValuePick(mine, W2_BOARD).edge, 'and the same edge');
+});
+
+test('draftPickRows: no steal stars nothing, and every row still draws', () => {
+    // Both picks came in at or ahead of the board, so bestValuePick returns null, and the rows are still the reader's own picks with none marked.
+    const picks = [
+        { playerId: 1, overallPickNumber: 4, roundId: 1, teamId: 7 },
+        { playerId: 2, overallPickNumber: 9, roundId: 2, teamId: 7 }
+    ];
+    const rows = draftPickRows(picks, new Map([[1, 4], [2, 12]]), 7);
+    assertEq(rows.length, 2, 'both rows');
+    assertEq(rows.some(r => r.best), false, 'and nothing starred');
+    assertEq(rows[0].edge, 0, 'exactly where the board had them');
+});
+
+test('draftPickRows: a keeper keeps its round, and a missing pick number is left out', () => {
+    const picks = [
+        { playerId: 5, overallPickNumber: 2, roundId: 1, teamId: 7, keeper: true },
+        { playerId: 1, overallPickNumber: 13, roundId: 2, teamId: 7 },
+        { playerId: 6, roundId: 3, teamId: 7 }
+    ];
+    const rows = draftPickRows(picks, new Map([[5, 40], [1, 3]]), 7);
+    assertEq(rows.length, 2, 'the pick with no pick number has nothing to order or compare');
+    assertEq(rows[0].round, 1, 'the keeper keeps the round ESPN gave it');
+    assertEq(rows[0].edge, -38, 'two less forty: a keeper held far above the board');
+    assertEq(rows[1].best, true, 'and the later pick is still the steal');
+});
+
+test('draftPickRows: no team, no rows', () => {
+    assertEq(draftPickRows(W2_PICKS, W2_BOARD, null).length, 0, 'a card of somebody else picks is worse than none');
+    assertEq(draftPickRows(null, W2_BOARD, 7).length, 0, 'no picks');
+    // No board at all: the rows still list the picks, with nothing to measure them against.
+    const rows = draftPickRows(W2_PICKS, null, 7);
+    assertEq(rows.length, 3, 'the picks are still the picks');
+    assertEq(rows.every(r => r.rank === null && r.edge === null && !r.best), true, 'and nothing is ranked');
+});
+
+// Where one player came from. The drill-down says the round, the pick and the team in season, or that the player was undrafted.
+test('draftPickOf: the round, the pick and the team that made it', () => {
+    const got = draftPickOf(W2_PICKS, 2);
+    assertEq(got.round, 2, 'the round ESPN numbered');
+    assertEq(got.overallPickNumber, 13, 'the overall pick');
+    assertEq(got.teamId, 7, 'and whose pick it was, as an id for the caller to name');
+});
+
+// ==== The board's Drafted column ====
+
+test('draftedIndexOf: one pass, the compact label, and the reader own picks marked MINE', () => {
+    const index = draftedIndexOf(W2_PICKS, { myTeamId: 7, drafted: true });
+    assertEq(index.size, 4, 'every pick, keyed by player');
+    const second = index.get('2');
+    assertEq(second.round, 2, 'the round ESPN numbered');
+    assertEq(second.pick, 13, 'the overall pick');
+    assertEq(second.label, '2.13', 'the drill-down own compact form');
+    assertEq(second.mine, true, 'the reader own pick');
+    assertEq(second.teamId, 7, 'whose pick it was');
+    assertEq(index.get('9').mine, false, 'another team pick is not MINE');
+    assertEq(index.get('404'), undefined, 'an undrafted player is absent, for the caller to read as undrafted');
+});
+
+test('draftedIndexOf: drafted !== true is not a real log, whatever the picks say', () => {
+    // No default: a caller that omits the drafted flag, or that knows the league has not drafted, gets nothing back. The picks are never read anyway on the assumption that absence means false.
+    assertEq(draftedIndexOf(W2_PICKS).size, 0, 'omitted defaults to not-a-log, not to true');
+    assertEq(draftedIndexOf(W2_PICKS, { drafted: false }).size, 0, 'known false: nothing, even with real picks');
+});
+
+test('draftedIndexOf: an UNFILLED pick is not a pick, and a real negative id survives', () => {
+    // A league whose draft has not happened still carries its whole grid of picks, every player id at -1, since ESPN publishes the grid before the results. A board that read those would show every seat drafted by nobody. A negative id that is not -1 is a real pick, since a football team defence has one, so the test is exactly -1 and never anything at or below zero.
+    const grid = [
+        { playerId: -1, overallPickNumber: 1, roundId: 1, teamId: 5 },
+        { playerId: -1, overallPickNumber: 2, roundId: 1, teamId: 7 },
+        { playerId: -16033, overallPickNumber: 3, roundId: 1, teamId: 4 }
+    ];
+    const index = draftedIndexOf(grid, { drafted: true });
+    assertEq(index.size, 1, 'the two placeholder seats are dropped, the real D/ST pick is not');
+    assertEq(index.get('-16033').pick, 3, 'the surviving pick keeps its own overall number');
+    assertEq(draftedIndexOf(null, { drafted: true }).size, 0, 'no draft view fetched');
+    assertEq(draftedIndexOf([], { drafted: true }).size, 0, 'no picks at all');
+});
+
+test('draftedIndexOf: sortKey puts the column in draft order and the undrafted last', () => {
+    const index = draftedIndexOf([
+        { playerId: 5, overallPickNumber: 40, roundId: 4, teamId: 1 },
+        { playerId: 6, overallPickNumber: 7, roundId: 1, teamId: 2 },
+        // ESPN gave this one a round and no overall number: it sorts at the head of round 3.
+        { playerId: 7, roundId: 3, teamId: 2 },
+        { playerId: 8, teamId: 2 }
+    ], { drafted: true });
+    const keyOf = (id) => index.get(String(id)).sortKey;
+    assertEq(keyOf(6), 7, 'the overall number is the order');
+    assertEq(keyOf(5), 40, 'and the later pick sorts after it');
+    assertEq(keyOf(7), 3000, 'a round with no overall sorts at that round own head');
+    assertEq(keyOf(8), Infinity, 'a pick with neither sorts last, in either direction');
+    assertEq(index.get('7').label, 'R3', 'a round with no overall says the round');
+    assertEq(index.get('8').label, 'Drafted', 'and one with neither says only that');
+});
+
+test('draftedIndexOf: a doubled payload keeps the earliest pick, and a keeper says so', () => {
+    const index = draftedIndexOf([
+        { playerId: 4, overallPickNumber: 30, roundId: 3, teamId: 2 },
+        { playerId: 4, overallPickNumber: 12, roundId: 2, teamId: 2, keeper: true }
+    ], { drafted: true });
+    assertEq(index.get('4').pick, 12, 'the earliest, the rule draftPickOf already follows');
+    assertEq(index.get('4').keeper, true, "ESPN's own keeper flag, carried for the column to mark");
+});
+
+test('draftPickOf: undrafted is null, which is a real answer', () => {
+    assertEq(draftPickOf(W2_PICKS, 404), null, 'a free agent was never picked');
+    assertEq(draftPickOf([], 1), null, 'no picks at all');
+    assertEq(draftPickOf(null, 1), null, 'no draft view fetched');
+    assertEq(draftPickOf(W2_PICKS, null), null, 'nobody asked about');
+});
+
+test('draftPickOf: a string id finds the same pick as a numeric one', () => {
+    // ESPN mixes the two across payloads; losing the pick on that would call a drafted player undrafted in the one place a reader goes to check.
+    assertEq(draftPickOf(W2_PICKS, '2').overallPickNumber, 13, 'matched as a string');
+    assertEq(draftPickOf([{ playerId: '55', roundId: 4, overallPickNumber: 40, teamId: 3 }], 55).round, 4,
+        'and the other way round');
+});
+
+test('draftPickOf: a pick with no pick number still says where the player came from', () => {
+    // draftPickRows leaves such a pick out because it orders and grades them; this only reports where a player came from, and the round and the team are most of that answer.
+    const got = draftPickOf([{ playerId: 6, roundId: 3, teamId: 7 }], 6);
+    assertEq(got.round, 3, 'the round survives');
+    assertEq(got.overallPickNumber, null, 'the missing number reads as missing');
+    assertEq(got.teamId, 7, 'and the team is still known');
+});
+
 test('bestValuePick: no picks and no board are both just null', () => {
     assertEq(bestValuePick(null, new Map()), null, 'no picks');
     assertEq(bestValuePick([{ playerId: 1, overallPickNumber: 3 }], null), null, 'no board');
 });
 
-// ==== LAST SEASON'S STANDINGS. The card was three figures in a large empty box; this is the table that fills it. The fixture above is deliberately NOT in place order (3, 1, 2), so a test that passes cannot be passing by accident of input order. ====
+// Last season's standings. The fixture above is deliberately not in order of place (3, 1, 2), so a test that passes cannot pass by accident of input order.
 
 test('standings: every team, ordered by place, whatever order the summary arrived in', () => {
     const s = lastSeasonCard(SUMMARY, SEASON, 'k1', OPTS).standings;
@@ -385,7 +544,7 @@ test('standings: every team, ordered by place, whatever order the summary arrive
 });
 
 test('standings: the champion is MARKED, never moved', () => {
-    // The whole ordering ruling in one case. Rally Caps is both champion and first here, which is what four measured seasons across three sports all look like - so the mark and the place agree, and the test that matters is the one below, where they do not.
+    // The whole ordering rule in one case. Rally Caps is both champion and first here, so the mark and the place agree, and the test that matters is the one below, where they do not.
     const s = lastSeasonCard(SUMMARY, SEASON, 'k1', OPTS).standings;
     assertEq(s[0].isChampion, true, 'the champion');
     assertEq(s.filter(r => r.isChampion).length, 1, 'exactly one');
@@ -429,7 +588,7 @@ test('standings: points ride along where the format keeps them, null where it do
     };
     const s = lastSeasonCard(withPoints, SEASON, 'k1', OPTS).standings;
     assertEq(s[0].points, 1693.2, 'the first-place team carries its points');
-    // A summary whose franchises carry no points field at all - every h2h categories season - reads null, never 0.
+    // A summary whose franchises carry no points field at all, which is every head-to-head categories season, reads null and never 0.
     assertEq(lastSeasonCard(SUMMARY, SEASON, 'k1', OPTS).standings[0].points, null, 'null, not zero');
 });
 
@@ -448,7 +607,7 @@ test('standings: a team the season never ranked sorts to the BACK, not the front
 });
 
 test('standings does not resurrect a card that would have been absent', () => {
-    // Fields added, none removed - and the REFUSAL is unchanged too. A first season, or one this league cannot be found in with no champion either, is still null rather than a table with a heading over it.
+    // Fields are added and none removed, and the refusal is unchanged too. A first season, or one this league cannot be found in and that has no champion either, is still null.
     assertEq(lastSeasonCard(null, SEASON, 'k1', OPTS), null, 'no summary');
     assertEq(lastSeasonCard({ ...SUMMARY, franchises: [] }, SEASON, 'k1', OPTS), null, 'no franchises');
     assertEq(lastSeasonCard({ ...SUMMARY, finished: false }, SEASON, 'k1', OPTS), null, 'an unfinished season');

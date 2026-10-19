@@ -1,0 +1,79 @@
+{
+  "_source": "Synthetic, hand-built. No capture and no real player or league. Contract: tests/fixtures/matchup-face.md. The league is built so the sides the model yields are tests/fixtures/matchup-sides.json's own: the same six players, day lines, projections, board and seats, reached through a payload, a pool, a schedule and a harvest in the real shapes. Player 301 sits on another roster of the same matchup so the league's floor comes out at matchup-sides.json's 0.25, 1 and 0.5 for a bat.",
+  "sport": "flb",
+  "teamId": 1,
+  "asOf": "the caller's clock",
+  "matchupMap": { "currentMatchup": 2, "lastPeriod": 9, "byPeriod": [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [8, 2], [9, 2]], "currentSpan": { "start": 8, "end": 11 } },
+  "payload": {
+    "id": 4242,
+    "seasonId": 2027,
+    "status": { "currentMatchupPeriod": 2, "latestScoringPeriod": 10, "finalScoringPeriod": 60, "firstScoringPeriod": 1 },
+    "settings": {
+      "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "matchupTieRule": "NONE", "scoringItems": [ { "statId": 5 }, { "statId": 2 }, { "statId": 47 } ] },
+      "rosterSettings": { "lineupSlotCounts": { "0": 1, "13": 1, "16": 3, "17": 2 } }
+    },
+    "schedule": [
+      { "matchupPeriodId": 1, "winner": "HOME", "home": { "teamId": 1 }, "away": { "teamId": 2 } },
+      { "matchupPeriodId": 1, "winner": "AWAY", "home": { "teamId": 3 }, "away": { "teamId": 4 } },
+      { "matchupPeriodId": 2, "winner": "UNDECIDED",
+        "home": { "teamId": 1,
+          "cumulativeScore": { "wins": 0, "scoreByStat": { "5": { "score": 3 }, "0": { "score": 20 }, "1": { "score": 5 }, "34": { "score": 27 }, "45": { "score": 3 } } },
+          "rosterForCurrentScoringPeriod": { "entries": [
+            { "playerId": 101, "lineupSlotId": 0 }, { "playerId": 102, "lineupSlotId": 16 }, { "playerId": 103, "lineupSlotId": 13 },
+            { "playerId": 104, "lineupSlotId": 17 }, { "playerId": 105, "lineupSlotId": 16 } ] } },
+        "away": { "teamId": 2,
+          "cumulativeScore": { "wins": 0, "scoreByStat": { "5": { "score": 2 }, "0": { "score": 16 }, "1": { "score": 4 } } },
+          "rosterForCurrentScoringPeriod": { "entries": [ { "playerId": 201, "lineupSlotId": 0 } ] } } },
+      { "matchupPeriodId": 2, "winner": "UNDECIDED",
+        "home": { "teamId": 3, "cumulativeScore": { "wins": 0, "scoreByStat": {} }, "rosterForCurrentScoringPeriod": { "entries": [ { "playerId": 301, "lineupSlotId": 0 } ] } },
+        "away": { "teamId": 4, "cumulativeScore": { "wins": 0, "scoreByStat": {} }, "rosterForCurrentScoringPeriod": { "entries": [] } } }
+    ]
+  },
+  "pool": [
+    { "id": 101, "player": { "defaultPositionId": 2, "proTeamId": 1, "stats": [
+      { "statSourceId": 1, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 20, "5": 10, "0": 80, "1": 20 } },
+      { "statSourceId": 0, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 4 } } ] } },
+    { "id": 102, "player": { "defaultPositionId": 2, "proTeamId": 2, "stats": [
+      { "statSourceId": 1, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 10, "5": 2, "0": 40, "1": 12 } },
+      { "statSourceId": 0, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 1 } } ] } },
+    { "id": 103, "player": { "defaultPositionId": 1, "proTeamId": 3, "starterStatusByProGame": { "9003": "PROBABLE" }, "stats": [
+      { "statSourceId": 1, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "32": 5, "33": 5, "34": 90, "45": 10 } },
+      { "statSourceId": 0, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "32": 2 } } ] } },
+    { "id": 104, "player": { "defaultPositionId": 2, "proTeamId": 1, "stats": [
+      { "statSourceId": 1, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 30, "5": 30, "0": 120, "1": 60 } } ] } },
+    { "id": 105, "player": { "defaultPositionId": 2, "proTeamId": 1, "stats": [
+      { "statSourceId": 0, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 4 } } ] } },
+    { "id": 201, "player": { "defaultPositionId": 2, "proTeamId": 1, "stats": [
+      { "statSourceId": 1, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 10, "5": 5, "0": 40, "1": 10 } },
+      { "statSourceId": 0, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 4 } } ] } },
+    { "id": 301, "player": { "defaultPositionId": 2, "proTeamId": 1, "stats": [
+      { "statSourceId": 1, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 10, "5": 1, "0": 40, "1": 10 } },
+      { "statSourceId": 0, "statSplitTypeId": 0, "seasonId": 2027, "scoringPeriodId": 0, "stats": { "81": 4 } } ] } }
+  ],
+  "proSchedule": { "settings": { "proTeams": [
+    { "id": 1, "proGamesByScoringPeriod": {
+      "6": [ { "id": 1006, "scoringPeriodId": 6, "homeProTeamId": 1, "awayProTeamId": 9, "statsOfficial": true } ],
+      "7": [ { "id": 1007, "scoringPeriodId": 7, "homeProTeamId": 1, "awayProTeamId": 9, "statsOfficial": true } ],
+      "8": [ { "id": 1008, "scoringPeriodId": 8, "homeProTeamId": 1, "awayProTeamId": 9, "statsOfficial": true } ],
+      "9": [ { "id": 1009, "scoringPeriodId": 9, "homeProTeamId": 1, "awayProTeamId": 9, "statsOfficial": true } ],
+      "10": [ { "id": 1010, "scoringPeriodId": 10, "homeProTeamId": 1, "awayProTeamId": 9, "statsOfficial": false } ],
+      "11": [ { "id": 1011, "scoringPeriodId": 11, "homeProTeamId": 1, "awayProTeamId": 9, "statsOfficial": false } ] } },
+    { "id": 2, "proGamesByScoringPeriod": {
+      "8": [ { "id": 2008, "scoringPeriodId": 8, "homeProTeamId": 2, "awayProTeamId": 9, "statsOfficial": true } ],
+      "9": [ { "id": 2009, "scoringPeriodId": 9, "homeProTeamId": 2, "awayProTeamId": 9, "statsOfficial": true } ],
+      "10": [ { "id": 2010, "scoringPeriodId": 10, "homeProTeamId": 2, "awayProTeamId": 9, "statsOfficial": false } ] } },
+    { "id": 3, "proGamesByScoringPeriod": {
+      "7": [ { "id": 3007, "scoringPeriodId": 7, "homeProTeamId": 3, "awayProTeamId": 9, "statsOfficial": true } ],
+      "8": [ { "id": 3008, "scoringPeriodId": 8, "homeProTeamId": 3, "awayProTeamId": 9, "statsOfficial": true } ],
+      "9": [ { "id": 3009, "scoringPeriodId": 9, "homeProTeamId": 3, "awayProTeamId": 9, "statsOfficial": true } ],
+      "11": [ { "id": 9003, "scoringPeriodId": 11, "homeProTeamId": 3, "awayProTeamId": 9, "statsOfficial": false },
+              { "id": 9004, "scoringPeriodId": 11, "homeProTeamId": 3, "awayProTeamId": 9, "statsOfficial": false } ] } }
+  ] } },
+  "dayLines": {
+    "101": { "8": { "5": 1, "0": 4, "1": 2 }, "9": { "5": 0, "0": 4, "1": 0 } },
+    "102": { "8": { "0": 4, "1": 1 }, "9": { "0": 4, "1": 1 } },
+    "103": { "7": { "34": 18, "45": 2 }, "9": { "34": 15, "45": 4 } },
+    "201": { "6": { "5": 1, "0": 4, "1": 1 }, "7": { "5": 1, "0": 4, "1": 1 }, "8": { "5": 0, "0": 4, "1": 1 }, "9": { "5": 0, "0": 4, "1": 1 } },
+    "301": { "6": { "5": 0, "0": 0, "1": 0 }, "7": { "5": 1, "0": 0, "1": 0 }, "8": { "5": 1, "0": 4, "1": 2 }, "9": { "5": 2, "0": 4, "1": 2 } }
+  }
+}

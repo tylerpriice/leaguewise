@@ -7,12 +7,12 @@
 </head>
 
 <body>
-    <!-- Generates tests/fixtures/matchup-rank.json THROUGH THE MODEL ITSELF, from tests/sample-league.json and nothing else, so the fixture and the suite that reads it can both be published. THE MARGINS ARE REAL AND THE PLAYERS ARE NOT, and the split is the whole design. sample-league.json is a real league's real season - 6 teams, 72 decided pairings over 24 periods - with its team names removed. Its box scores are intact, and margins are read from box scores, so leagueMargins produces figures here that are IDENTICAL to the ones the same league's unanonymised capture produces: HR 4.5613, E 2.2016, OPS 0.1177, R 10.5600, RBI 9.6278, SB 4.5231, AVG 0.0388. Nothing about the margin half of this fixture is a reduced or stand-in version of anything. What the anonymised file does NOT carry is a player pool - it has no players key at all - so the players below are ARCHETYPES with round season totals, chosen to exercise the contract rather than to resemble anybody. That is stated in the fixture itself so no reader mistakes "Speed Only" for a measurement. Their OUTPUTS are still the model's own: each line goes through playerWinsPerWeek against the real margins above. THE O36 ACCEPTANCE CHECK IS NOT HERE. It needs the owner's own league and lives in tests/matchup-rank.private.gen.html, which is not published. This page cannot verify that the module still reproduces the figures the Q8 ruling was made on; that page can. -->
+    <!-- Generates tests/fixtures/matchup-rank.json through the model itself, from tests/sample-league.json and nothing else, so the fixture and the suite that reads it can both be published. The margins are real: the sample is a real league's season with its team names removed and its box scores intact. The players are archetypes, since the sample carries no player pool, and each line still goes through playerWinsPerWeek. -->
     <pre id="out">running</pre>
 
     <script type="module">
-        import { ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, PITCHING_IDS } from '../state.js';
-        import { leagueMargins, computeMatchupRanks } from '../matchup-rank.js';
+        import { ESPN_STAT_MAPS, AVERAGE_STATS, INVERSE_STATS, PITCHING_IDS } from '../src/data/state.js';
+        import { leagueMargins, computeMatchupRanks } from '../src/engines/matchup-rank.js';
 
         const say = [];
         const log = (s) => say.push(s === undefined ? '' : s);

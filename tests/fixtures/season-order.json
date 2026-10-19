@@ -1,0 +1,135 @@
+{
+ "_synthetic": "Hand-written for B266 item 7.1. Every team is invented; the records and the field shapes are the ones measured on the three captures. Every expectation is computed by hand in season-order.md, never by running the module.",
+ "_espnFields": "record.overall.percentage is ESPN's own field, and the identity percentage == (wins + 0.5*ties)/games was measured on 21 of 21 teams across the captures. playoffSeed and rankCalculatedFinal are carried so a test can confirm the order AGREES with ESPN's seed without the function ever having read it.",
+
+ "unfinishedCategories": {
+  "_case": "THE OWNER'S CASE. The 11-10-0 team is deliberately first in the payload, so a function falling back to the payload's order reproduces the bug.",
+  "seasonId": 2026,
+  "settings": { "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "scoringItems": [{ "statId": 53 }] } },
+  "status": { "latestScoringPeriod": 162, "finalScoringPeriod": 187 },
+  "teams": [
+   { "id": 1, "name": "Bravos", "playoffSeed": 2, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 11, "losses": 10, "ties": 0, "percentage": 0.5238095238095238, "pointsFor": 0, "gamesBack": 0.5 } } },
+   { "id": 3, "name": "Charlies", "playoffSeed": 3, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 10, "losses": 10, "ties": 1, "percentage": 0.5, "pointsFor": 0, "gamesBack": 1 } } },
+   { "id": 5, "name": "Deltas", "playoffSeed": 4, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 9, "losses": 12, "ties": 0, "percentage": 0.42857142857142855, "pointsFor": 0, "gamesBack": 2.5 } } },
+   { "id": 8, "name": "Alphas", "playoffSeed": 1, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 11, "losses": 9, "ties": 1, "percentage": 0.5476190476190477, "pointsFor": 0, "gamesBack": 0 } } }
+  ],
+  "expect": {
+   "basis": "record",
+   "order": [8, 1, 3, 5],
+   "places": { "8": 1, "1": 2, "3": 3, "5": 4 },
+   "percentages": { "8": 0.5476190476190477, "1": 0.5238095238095238, "3": 0.5, "5": 0.42857142857142855 }
+  }
+ },
+
+ "unfinishedPoints": {
+  "_case": "The percentage catches unequal games played (Golfs 5-7 over Hotels 5-8), and pointsFor breaks the one level pair (Echoes over Foxes). Hotels' larger pointsFor does not lift it, because step 2 is only reached by teams level on step 1.",
+  "seasonId": 2025,
+  "settings": { "scoringSettings": { "scoringType": "H2H_POINTS", "scoringItems": [{ "statId": 0 }] } },
+  "status": { "latestScoringPeriod": 13, "finalScoringPeriod": 18 },
+  "teams": [
+   { "id": 2, "name": "Echoes", "playoffSeed": 3, "rankCalculatedFinal": 0, "points": 1693.2,
+     "record": { "overall": { "wins": 8, "losses": 5, "ties": 0, "percentage": 0.6153846153846154, "pointsFor": 1693.2 } } },
+   { "id": 4, "name": "Foxes", "playoffSeed": 4, "rankCalculatedFinal": 0, "points": 1361.2,
+     "record": { "overall": { "wins": 8, "losses": 5, "ties": 0, "percentage": 0.6153846153846154, "pointsFor": 1361.2 } } },
+   { "id": 6, "name": "Golfs", "playoffSeed": 7, "rankCalculatedFinal": 0, "points": 1242.1,
+     "record": { "overall": { "wins": 5, "losses": 7, "ties": 0, "percentage": 0.4166666666666667, "pointsFor": 1242.1 } } },
+   { "id": 7, "name": "Hotels", "playoffSeed": 8, "rankCalculatedFinal": 0, "points": 1456.4,
+     "record": { "overall": { "wins": 5, "losses": 8, "ties": 0, "percentage": 0.38461538461538464, "pointsFor": 1456.4 } } }
+  ],
+  "expect": {
+   "basis": "record",
+   "order": [2, 4, 6, 7],
+   "places": { "2": 1, "4": 2, "6": 3, "7": 4 }
+  }
+ },
+
+ "finished": {
+  "_case": "Every rankCalculatedFinal filed, so the bracket order is kept however little it looks like the records: November has the league's worst record and finished fourth, Limas the second best and finished fifth.",
+  "seasonId": 2026,
+  "settings": { "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "scoringItems": [{ "statId": 13 }] } },
+  "status": { "latestScoringPeriod": 193, "finalScoringPeriod": 192 },
+  "teams": [
+   { "id": 1, "name": "Indias", "playoffSeed": 2, "rankCalculatedFinal": 2, "points": 0,
+     "record": { "overall": { "wins": 11, "losses": 9, "ties": 1, "percentage": 0.5476190476190477, "pointsFor": 0 } } },
+   { "id": 2, "name": "Julietts", "playoffSeed": 1, "rankCalculatedFinal": 1, "points": 0,
+     "record": { "overall": { "wins": 18, "losses": 3, "ties": 0, "percentage": 0.8571428571428571, "pointsFor": 0 } } },
+   { "id": 4, "name": "Kilos", "playoffSeed": 5, "rankCalculatedFinal": 3, "points": 0,
+     "record": { "overall": { "wins": 6, "losses": 13, "ties": 2, "percentage": 0.3333333333333333, "pointsFor": 0 } } },
+   { "id": 5, "name": "Limas", "playoffSeed": 3, "rankCalculatedFinal": 5, "points": 0,
+     "record": { "overall": { "wins": 13, "losses": 6, "ties": 2, "percentage": 0.6666666666666666, "pointsFor": 0 } } },
+   { "id": 6, "name": "Mikes", "playoffSeed": 4, "rankCalculatedFinal": 6, "points": 0,
+     "record": { "overall": { "wins": 7, "losses": 12, "ties": 2, "percentage": 0.38095238095238093, "pointsFor": 0 } } },
+   { "id": 7, "name": "November", "playoffSeed": 6, "rankCalculatedFinal": 4, "points": 0,
+     "record": { "overall": { "wins": 4, "losses": 16, "ties": 1, "percentage": 0.21428571428571427, "pointsFor": 0 } } }
+  ],
+  "expect": {
+   "basis": "finish",
+   "order": [2, 1, 4, 7, 5, 6],
+   "places": { "2": 1, "1": 2, "4": 3, "7": 4, "5": 5, "6": 6 }
+  }
+ },
+
+ "partlyFinished": {
+  "_case": "One rank filed is not a finished season. A rank filed for some teams cannot order the ones it was not filed for, so the basis is record and the single filed rank is ignored for ordering.",
+  "seasonId": 2026,
+  "settings": { "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "scoringItems": [{ "statId": 13 }] } },
+  "teams": [
+   { "id": 1, "name": "Indias", "playoffSeed": 2, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 11, "losses": 9, "ties": 1, "percentage": 0.5476190476190477, "pointsFor": 0 } } },
+   { "id": 2, "name": "Julietts", "playoffSeed": 1, "rankCalculatedFinal": 1, "points": 0,
+     "record": { "overall": { "wins": 18, "losses": 3, "ties": 0, "percentage": 0.8571428571428571, "pointsFor": 0 } } },
+   { "id": 4, "name": "Kilos", "playoffSeed": 5, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 6, "losses": 13, "ties": 2, "percentage": 0.3333333333333333, "pointsFor": 0 } } },
+   { "id": 5, "name": "Limas", "playoffSeed": 3, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 13, "losses": 6, "ties": 2, "percentage": 0.6666666666666666, "pointsFor": 0 } } },
+   { "id": 6, "name": "Mikes", "playoffSeed": 4, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 7, "losses": 12, "ties": 2, "percentage": 0.38095238095238093, "pointsFor": 0 } } },
+   { "id": 7, "name": "November", "playoffSeed": 6, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 4, "losses": 16, "ties": 1, "percentage": 0.21428571428571427, "pointsFor": 0 } } }
+  ],
+  "expect": { "basis": "record", "order": [2, 5, 1, 6, 4, 7] }
+ },
+
+ "roto": {
+  "_case": "A roto season has no records at all and is decided by its own points. The three total 96, which is sixteen categories times (1+2+3).",
+  "seasonId": 2021,
+  "settings": { "scoringSettings": { "scoringType": "ROTO", "scoringItems": [{ "statId": 53 }] } },
+  "teams": [
+   { "id": 11, "name": "Oscars", "playoffSeed": 1, "rankCalculatedFinal": 1, "points": 40, "record": { "overall": {} } },
+   { "id": 12, "name": "Papas", "playoffSeed": 2, "rankCalculatedFinal": 2, "points": 32, "record": { "overall": {} } },
+   { "id": 13, "name": "Quebecs", "playoffSeed": 3, "rankCalculatedFinal": 3, "points": 24, "record": { "overall": {} } }
+  ],
+  "expect": { "basis": "points", "order": [11, 12, 13] }
+ },
+
+ "missingPercentage": {
+  "_case": "ESPN's percentage field absent, so the measured identity is computed instead. Uniforms has played nothing and sorts last on a null rather than on a zero.",
+  "seasonId": 2026,
+  "settings": { "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "scoringItems": [{ "statId": 13 }] } },
+  "teams": [
+   { "id": 21, "name": "Sierras", "playoffSeed": 1, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 7, "losses": 3, "ties": 0, "pointsFor": 0 } } },
+   { "id": 22, "name": "Tangos", "playoffSeed": 2, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 4, "losses": 5, "ties": 1, "pointsFor": 0 } } },
+   { "id": 23, "name": "Uniforms", "playoffSeed": 3, "rankCalculatedFinal": 0, "points": 0,
+     "record": { "overall": { "wins": 0, "losses": 0, "ties": 0, "pointsFor": 0 } } }
+  ],
+  "expect": {
+   "basis": "record",
+   "order": [21, 22, 23],
+   "percentages": { "21": 0.7, "22": 0.45, "23": null }
+  }
+ },
+
+ "empty": {
+  "_case": "A season with nobody in it is an empty order, never null - a caller maps over it without asking first.",
+  "seasonId": 2026,
+  "settings": { "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "scoringItems": [] } },
+  "teams": [],
+  "expect": { "basis": "record", "order": [] }
+ }
+}

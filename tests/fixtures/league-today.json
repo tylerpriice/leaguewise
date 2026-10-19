@@ -1,0 +1,1087 @@
+{
+ "_synthetic": "Hand-written for B270. Every id, name, date and figure is invented; no capture and no account is involved. The expectations are computed by hand in league-today.md, never by running the module.",
+ "now": 1790000000000,
+ "rules": {
+  "fhl": {
+   "benchSlots": [
+    7
+   ],
+   "nonStartingSlots": [
+    7,
+    8
+   ],
+   "gamesId": "30",
+   "gameLengthMs": 9900000
+  },
+  "ffl": {
+   "benchSlots": [
+    20
+   ],
+   "nonStartingSlots": [
+    20,
+    21
+   ],
+   "gamesId": null,
+   "gameLengthMs": 12600000
+  }
+ },
+ "schedules": {
+  "fhl": {
+   "settings": {
+    "proTeams": [
+     {
+      "id": 0,
+      "abbrev": "C0",
+      "proGamesByScoringPeriod": {}
+     },
+     {
+      "id": 1,
+      "abbrev": "C1",
+      "proGamesByScoringPeriod": {
+       "10": [
+        {
+         "id": 501,
+         "date": 1789996400000,
+         "homeProTeamId": 1,
+         "awayProTeamId": 5,
+         "scoringPeriodId": 10,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 2,
+      "abbrev": "C2",
+      "proGamesByScoringPeriod": {}
+     },
+     {
+      "id": 3,
+      "abbrev": "C3",
+      "proGamesByScoringPeriod": {
+       "10": [
+        {
+         "id": 502,
+         "date": 1790007200000,
+         "homeProTeamId": 3,
+         "awayProTeamId": 6,
+         "scoringPeriodId": 10,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ],
+       "1": [
+        {
+         "id": 504,
+         "date": 1790010800000,
+         "homeProTeamId": 3,
+         "awayProTeamId": 6,
+         "scoringPeriodId": 1,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 4,
+      "abbrev": "C4",
+      "proGamesByScoringPeriod": {
+       "10": [
+        {
+         "id": 503,
+         "date": 1789982000000,
+         "homeProTeamId": 4,
+         "awayProTeamId": 7,
+         "scoringPeriodId": 10,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 5,
+      "abbrev": "C5",
+      "proGamesByScoringPeriod": {
+       "10": [
+        {
+         "id": 501,
+         "date": 1789996400000,
+         "homeProTeamId": 1,
+         "awayProTeamId": 5,
+         "scoringPeriodId": 10,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 6,
+      "abbrev": "C6",
+      "proGamesByScoringPeriod": {
+       "10": [
+        {
+         "id": 502,
+         "date": 1790007200000,
+         "homeProTeamId": 3,
+         "awayProTeamId": 6,
+         "scoringPeriodId": 10,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ],
+       "1": [
+        {
+         "id": 504,
+         "date": 1790010800000,
+         "homeProTeamId": 3,
+         "awayProTeamId": 6,
+         "scoringPeriodId": 1,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 7,
+      "abbrev": "C7",
+      "proGamesByScoringPeriod": {
+       "10": [
+        {
+         "id": 503,
+         "date": 1789982000000,
+         "homeProTeamId": 4,
+         "awayProTeamId": 7,
+         "scoringPeriodId": 10,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "ffl": {
+   "settings": {
+    "proTeams": [
+     {
+      "id": 10,
+      "abbrev": "C10",
+      "proGamesByScoringPeriod": {
+       "2": [
+        {
+         "id": 601,
+         "date": 1789996400000,
+         "homeProTeamId": 10,
+         "awayProTeamId": 13,
+         "scoringPeriodId": 2,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 11,
+      "abbrev": "C11",
+      "proGamesByScoringPeriod": {
+       "2": [
+        {
+         "id": 602,
+         "date": 1790093600000,
+         "homeProTeamId": 11,
+         "awayProTeamId": 14,
+         "scoringPeriodId": 2,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 12,
+      "abbrev": "C12",
+      "proGamesByScoringPeriod": {}
+     },
+     {
+      "id": 13,
+      "abbrev": "C13",
+      "proGamesByScoringPeriod": {
+       "2": [
+        {
+         "id": 601,
+         "date": 1789996400000,
+         "homeProTeamId": 10,
+         "awayProTeamId": 13,
+         "scoringPeriodId": 2,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     },
+     {
+      "id": 14,
+      "abbrev": "C14",
+      "proGamesByScoringPeriod": {
+       "2": [
+        {
+         "id": 602,
+         "date": 1790093600000,
+         "homeProTeamId": 11,
+         "awayProTeamId": 14,
+         "scoringPeriodId": 2,
+         "startTimeTBD": false,
+         "statsOfficial": false,
+         "validForLocking": true
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ },
+ "leagues": {
+  "A": {
+   "teamId": 3,
+   "payload": {
+    "gameId": 4,
+    "id": 101,
+    "seasonId": 2027,
+    "scoringPeriodId": 10,
+    "status": {
+     "latestScoringPeriod": 10,
+     "finalScoringPeriod": 190,
+     "currentMatchupPeriod": 1
+    },
+    "draftDetail": {
+     "drafted": true
+    },
+    "settings": {
+     "name": "Alpha",
+     "scoringSettings": {
+      "scoringType": "H2H_POINTS"
+     },
+     "rosterSettings": {
+      "lineupSlotCounts": {
+       "0": 1,
+       "4": 1,
+       "5": 1,
+       "7": 2,
+       "8": 1,
+       "3": 0
+      }
+     }
+    },
+    "teams": [
+     {
+      "id": 3,
+      "name": "Reader",
+      "valuesByStat": {
+       "16": 12
+      }
+     },
+     {
+      "id": 4,
+      "name": "Other",
+      "valuesByStat": {
+       "16": 9
+      }
+     }
+    ],
+    "schedule": [
+     {
+      "matchupPeriodId": 1,
+      "winner": "UNDECIDED",
+      "home": {
+       "teamId": 4,
+       "rosterForCurrentScoringPeriod": {
+        "entries": [
+         {
+          "lineupSlotId": 0,
+          "playerId": 9100,
+          "playerPoolEntry": {
+           "id": 9100,
+           "player": {
+            "id": 9100,
+            "fullName": "Rival",
+            "proTeamId": 2,
+            "eligibleSlots": [
+             0,
+             7
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": []
+           }
+          }
+         }
+        ]
+       }
+      },
+      "away": {
+       "teamId": 3,
+       "rosterForCurrentScoringPeriod": {
+        "entries": [
+         {
+          "lineupSlotId": 0,
+          "playerId": 9001,
+          "playerPoolEntry": {
+           "id": 9001,
+           "player": {
+            "id": 9001,
+            "fullName": "Player One",
+            "proTeamId": 1,
+            "eligibleSlots": [
+             0,
+             7,
+             8
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": [
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 5,
+              "scoringPeriodId": 10,
+              "seasonId": 2027,
+              "stats": {
+               "13": 1,
+               "14": 2
+              },
+              "appliedTotal": 4.5,
+              "externalId": "501"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lineupSlotId": 5,
+          "playerId": 9002,
+          "playerPoolEntry": {
+           "id": 9002,
+           "player": {
+            "id": 9002,
+            "fullName": "Player Two",
+            "proTeamId": 2,
+            "eligibleSlots": [
+             5,
+             7,
+             8
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": []
+           }
+          }
+         },
+         {
+          "lineupSlotId": 7,
+          "playerId": 9003,
+          "playerPoolEntry": {
+           "id": 9003,
+           "player": {
+            "id": 9003,
+            "fullName": "Player Three",
+            "proTeamId": 3,
+            "eligibleSlots": [
+             4,
+             7,
+             8
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": [
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 5,
+              "scoringPeriodId": 10,
+              "seasonId": 2027,
+              "stats": {},
+              "externalId": "502"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lineupSlotId": 7,
+          "playerId": 9004,
+          "playerPoolEntry": {
+           "id": 9004,
+           "player": {
+            "id": 9004,
+            "fullName": "Player Four",
+            "proTeamId": 1,
+            "eligibleSlots": [
+             0,
+             7,
+             8
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": [
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 5,
+              "scoringPeriodId": 10,
+              "seasonId": 2027,
+              "stats": {
+               "14": 1
+              },
+              "appliedTotal": 1,
+              "externalId": "501"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lineupSlotId": 7,
+          "playerId": 9007,
+          "playerPoolEntry": {
+           "id": 9007,
+           "player": {
+            "id": 9007,
+            "fullName": "Player Seven",
+            "proTeamId": 4,
+            "eligibleSlots": [
+             4,
+             7
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": [
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 5,
+              "scoringPeriodId": 10,
+              "seasonId": 2027,
+              "stats": {
+               "13": 1
+              },
+              "appliedTotal": 2,
+              "externalId": "503"
+             },
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 5,
+              "scoringPeriodId": 9,
+              "seasonId": 2027,
+              "stats": {
+               "13": 3
+              },
+              "appliedTotal": 6,
+              "externalId": "499"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lineupSlotId": 8,
+          "playerId": 9005,
+          "playerPoolEntry": {
+           "id": 9005,
+           "player": {
+            "id": 9005,
+            "fullName": "Player Five",
+            "proTeamId": 3,
+            "eligibleSlots": [
+             4,
+             7,
+             8
+            ],
+            "injuryStatus": "OUT",
+            "stats": [
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 5,
+              "scoringPeriodId": 10,
+              "seasonId": 2027,
+              "stats": {},
+              "externalId": "502"
+             }
+            ]
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    ]
+   },
+   "rosterView": {
+    "teams": [
+     {
+      "id": 4,
+      "roster": {
+       "entries": [
+        {
+         "lineupSlotId": 0,
+         "playerId": 9100,
+         "playerPoolEntry": {
+          "id": 9100,
+          "player": {
+           "id": 9100,
+           "fullName": "Rival",
+           "proTeamId": 2,
+           "eligibleSlots": [
+            0,
+            7
+           ],
+           "injuryStatus": "ACTIVE",
+           "stats": []
+          }
+         }
+        }
+       ]
+      }
+     },
+     {
+      "id": 3,
+      "roster": {
+       "entries": [
+        {
+         "lineupSlotId": 0,
+         "playerId": 9001,
+         "playerPoolEntry": {
+          "id": 9001,
+          "player": {
+           "id": 9001,
+           "fullName": "Player One",
+           "proTeamId": 1,
+           "eligibleSlots": [
+            0,
+            7,
+            8
+           ],
+           "injuryStatus": "ACTIVE",
+           "stats": [
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 0,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 40
+             },
+             "appliedTotal": 100
+            },
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 1,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 4
+             },
+             "appliedTotal": 14
+            },
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 2,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 8
+             },
+             "appliedTotal": 20
+            },
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 3,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 16
+             },
+             "appliedTotal": 32
+            },
+            {
+             "statSourceId": 1,
+             "statSplitTypeId": 0,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 82
+             },
+             "appliedTotal": 210
+            }
+           ]
+          }
+         }
+        },
+        {
+         "lineupSlotId": 5,
+         "playerId": 9002,
+         "playerPoolEntry": {
+          "id": 9002,
+          "player": {
+           "id": 9002,
+           "fullName": "Player Two",
+           "proTeamId": 2,
+           "eligibleSlots": [
+            5,
+            7,
+            8
+           ],
+           "injuryStatus": "ACTIVE",
+           "stats": [
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 0,
+             "scoringPeriodId": 0,
+             "seasonId": 2026,
+             "stats": {
+              "30": 60
+             },
+             "appliedTotal": 300
+            },
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 0,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 20
+             },
+             "appliedTotal": 50
+            },
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 1,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 0
+             },
+             "appliedTotal": 0
+            }
+           ]
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "B": {
+   "teamId": 5,
+   "payload": {
+    "gameId": 1,
+    "id": 202,
+    "seasonId": 2026,
+    "scoringPeriodId": 2,
+    "status": {
+     "latestScoringPeriod": 2,
+     "finalScoringPeriod": 18,
+     "currentMatchupPeriod": 2
+    },
+    "draftDetail": {
+     "drafted": true
+    },
+    "settings": {
+     "name": "Bravo",
+     "scoringSettings": {
+      "scoringType": "H2H_POINTS"
+     },
+     "rosterSettings": {
+      "lineupSlotCounts": {
+       "0": 1,
+       "2": 1,
+       "20": 2,
+       "21": 1
+      }
+     }
+    },
+    "teams": [
+     {
+      "id": 5,
+      "name": "Reader FC",
+      "valuesByStat": {}
+     },
+     {
+      "id": 6,
+      "name": "Six",
+      "valuesByStat": {}
+     }
+    ],
+    "schedule": [
+     {
+      "matchupPeriodId": 1,
+      "winner": "HOME",
+      "home": {
+       "teamId": 5
+      },
+      "away": {
+       "teamId": 6
+      }
+     },
+     {
+      "matchupPeriodId": 2,
+      "winner": "UNDECIDED",
+      "home": {
+       "teamId": 5,
+       "rosterForCurrentScoringPeriod": {
+        "entries": [
+         {
+          "lineupSlotId": 0,
+          "playerId": 8001,
+          "playerPoolEntry": {
+           "id": 8001,
+           "player": {
+            "id": 8001,
+            "fullName": "Passer",
+            "proTeamId": 10,
+            "eligibleSlots": [
+             0,
+             20,
+             21
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": [
+             {
+              "statSourceId": 1,
+              "statSplitTypeId": 1,
+              "scoringPeriodId": 2,
+              "seasonId": 2026,
+              "stats": {
+               "3": 250
+              },
+              "appliedTotal": 18,
+              "externalId": "601"
+             },
+             {
+              "statSourceId": 0,
+              "statSplitTypeId": 1,
+              "scoringPeriodId": 2,
+              "seasonId": 2026,
+              "stats": {
+               "3": 180
+              },
+              "appliedTotal": 12.5,
+              "externalId": "601"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lineupSlotId": 2,
+          "playerId": 8002,
+          "playerPoolEntry": {
+           "id": 8002,
+           "player": {
+            "id": 8002,
+            "fullName": "Runner",
+            "proTeamId": 11,
+            "eligibleSlots": [
+             2,
+             20,
+             21
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": [
+             {
+              "statSourceId": 1,
+              "statSplitTypeId": 1,
+              "scoringPeriodId": 2,
+              "seasonId": 2026,
+              "stats": {
+               "24": 70
+              },
+              "appliedTotal": 9.5,
+              "externalId": "602"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "lineupSlotId": 20,
+          "playerId": 8003,
+          "playerPoolEntry": {
+           "id": 8003,
+           "player": {
+            "id": 8003,
+            "fullName": "Reserve",
+            "proTeamId": 12,
+            "eligibleSlots": [
+             2,
+             20,
+             21
+            ],
+            "injuryStatus": "ACTIVE",
+            "stats": []
+           }
+          }
+         }
+        ]
+       }
+      },
+      "away": {
+       "teamId": 6,
+       "rosterForCurrentScoringPeriod": {
+        "entries": []
+       }
+      }
+     }
+    ]
+   },
+   "rosterView": {
+    "teams": [
+     {
+      "id": 5,
+      "roster": {
+       "entries": [
+        {
+         "lineupSlotId": 0,
+         "playerId": 8001
+        },
+        {
+         "lineupSlotId": 2,
+         "playerId": 8002
+        },
+        {
+         "lineupSlotId": 20,
+         "playerId": 8003
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "C": {
+   "teamId": 2,
+   "payload": {
+    "gameId": 4,
+    "id": 303,
+    "seasonId": 2027,
+    "scoringPeriodId": 1,
+    "status": {
+     "latestScoringPeriod": 1,
+     "finalScoringPeriod": 190,
+     "currentMatchupPeriod": 1
+    },
+    "draftDetail": {
+     "drafted": true
+    },
+    "settings": {
+     "name": "Charlie",
+     "scoringSettings": {
+      "scoringType": "H2H_POINTS"
+     },
+     "rosterSettings": {
+      "lineupSlotCounts": {
+       "0": 1,
+       "7": 1
+      }
+     }
+    },
+    "teams": [
+     {
+      "id": 2,
+      "name": "Unplayed",
+      "valuesByStat": {}
+     },
+     {
+      "id": 9,
+      "name": "Nine",
+      "valuesByStat": {}
+     }
+    ],
+    "schedule": [
+     {
+      "matchupPeriodId": 1,
+      "winner": "UNDECIDED",
+      "home": {
+       "teamId": 2
+      },
+      "away": {
+       "teamId": 9
+      }
+     }
+    ]
+   },
+   "rosterView": {
+    "teams": [
+     {
+      "id": 2,
+      "roster": {
+       "entries": [
+        {
+         "lineupSlotId": 0,
+         "playerId": 7001,
+         "playerPoolEntry": {
+          "id": 7001,
+          "player": {
+           "id": 7001,
+           "fullName": "Centre",
+           "proTeamId": 1,
+           "eligibleSlots": [
+            0,
+            7
+           ],
+           "injuryStatus": "ACTIVE",
+           "stats": [
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 0,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 82
+             },
+             "appliedTotal": 200
+            },
+            {
+             "statSourceId": 0,
+             "statSplitTypeId": 1,
+             "scoringPeriodId": 0,
+             "seasonId": 2027,
+             "stats": {
+              "30": 4
+             },
+             "appliedTotal": 12
+            }
+           ]
+          }
+         }
+        },
+        {
+         "lineupSlotId": 7,
+         "playerId": 7002,
+         "playerPoolEntry": {
+          "id": 7002,
+          "player": {
+           "id": 7002,
+           "fullName": "Spare",
+           "proTeamId": 3,
+           "eligibleSlots": [
+            0,
+            7
+           ],
+           "injuryStatus": "ACTIVE",
+           "stats": []
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "D": {
+   "teamId": 1,
+   "payload": {
+    "gameId": 4,
+    "id": 404,
+    "seasonId": 2027,
+    "scoringPeriodId": 0,
+    "status": {
+     "latestScoringPeriod": 0,
+     "finalScoringPeriod": 190,
+     "currentMatchupPeriod": 1
+    },
+    "draftDetail": {
+     "drafted": false
+    },
+    "settings": {
+     "name": "Delta",
+     "scoringSettings": {
+      "scoringType": "H2H_POINTS"
+     },
+     "rosterSettings": {
+      "lineupSlotCounts": {
+       "0": 1,
+       "7": 1
+      }
+     }
+    },
+    "teams": [
+     {
+      "id": 1,
+      "name": "Not yet",
+      "valuesByStat": {}
+     }
+    ],
+    "schedule": []
+   },
+   "rosterView": null
+  }
+ },
+ "lookup": {
+  "alpha": {
+   "key": "fhl:101",
+   "sport": "fhl",
+   "leagueId": "101",
+   "seasonId": 2027,
+   "label": "Alpha",
+   "teamId": 3,
+   "subType": "NONE",
+   "drafted": true,
+   "inSeason": true
+  },
+  "mock": {
+   "key": "fhl:901",
+   "sport": "fhl",
+   "leagueId": "901",
+   "seasonId": 2027,
+   "label": "Lobby",
+   "teamId": 1,
+   "subType": "MOCKDRAFT_LOBBY",
+   "drafted": false,
+   "inSeason": true
+  },
+  "undrafted": {
+   "key": "fhl:404",
+   "sport": "fhl",
+   "leagueId": "404",
+   "seasonId": 2027,
+   "label": "Delta",
+   "teamId": 1,
+   "subType": "NONE",
+   "drafted": false,
+   "inSeason": true
+  },
+  "baseball": {
+   "key": "flb:505",
+   "sport": "flb",
+   "leagueId": "505",
+   "seasonId": 2026,
+   "label": "Echo",
+   "teamId": 2,
+   "subType": "NONE",
+   "drafted": true,
+   "inSeason": false
+  },
+  "noflag": {
+   "key": "ffl:202",
+   "sport": "ffl",
+   "leagueId": "202",
+   "seasonId": 2026,
+   "label": "Bravo",
+   "teamId": 5,
+   "subType": "NONE",
+   "drafted": true
+  }
+ }
+}

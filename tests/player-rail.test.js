@@ -1,5 +1,5 @@
-// Unit tests for the pure team/club picker rail (player-rail.js). Open tests/player-rail.test.html through any static server - green means every assertion held. See tests/fixtures/player-rail.md for the frozen contract these values are computed against.
-import { buildPlayerRailHtml, escapeHtmlLocal } from '../player-rail.js';
+// Unit tests for the pure team/club picker rail (player-rail.js). Open tests/player-rail.test.html through any static server; green means every assertion held. See tests/fixtures/player-rail.md for the frozen contract these values are computed against.
+import { buildPlayerRailHtml, escapeHtmlLocal } from '../src/views/player-rail.js';
 
 const results = [];
 function test(name, fn) {
@@ -8,7 +8,7 @@ function test(name, fn) {
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
 
-// R2/S51 (frame I1): a fantasy team is a crest now - crestHtml is pre-built by the caller (buildTeamCrestHtml, images.js), the same way a club's is pre-built by opts.crestHtml. This module never builds one itself; the fixture's own stub stands in for the caller's real markup.
+// A fantasy team is a crest now. crestHtml is pre-built by the caller (buildTeamCrestHtml, images.js), the same way a club's is pre-built by opts.crestHtml. This module never builds one itself, and the fixture's own stub stands in for the caller's real markup.
 const TEAMS = [
     { id: 1, label: 'ALFA', color: '#e63946', crestHtml: '<span class="fcrest-stub">ALFA</span>' },
     { id: 2, label: 'BRVO', color: '#2ec4b6', crestHtml: '<span class="fcrest-stub">BRVO</span>' },
@@ -36,7 +36,7 @@ test('B220 R6/Amendment 3: no fantasy teams present (preseason, every player a f
     assert(!html.includes('class="lb-rail-chip active" data-kind="all"'), 'All itself is not active while a club is picked - it is there to clear it');
 });
 
-// R2/Amendment 4: BOTH captions are gone now, not only "Clubs" - the divider and each crest's own hover title are what tell the two groups apart.
+// Both captions are gone now, not only "Clubs", so the divider and each crest's own hover title are what tell the two groups apart.
 test('B221 R2/Amendment 4: no caption anywhere in the rail, even with both groups present', () => {
     const html = buildPlayerRailHtml({ active: { kind: 'all', id: null }, teams: TEAMS, clubs: CLUBS }, { crestHtml });
     assert(!html.includes('>Teams<') && !html.includes('>Clubs<'), 'neither group carries a caption');

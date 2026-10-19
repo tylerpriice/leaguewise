@@ -1,5 +1,5 @@
-// Unit tests for the pure leaderboard row/header builder (leaderboard-row.js). Open tests/leaderboard-row.test.html through any static server (file:// won't work for ES modules) - green means every assertion held. See tests/fixtures/leaderboard-row.md for the frozen contract these values are computed against.
-import { buildLeaderboardRowHtml, buildLeaderboardHeaderHtml, escapeHtmlLocal } from '../leaderboard-row.js';
+// Unit tests for the pure leaderboard row/header builder (leaderboard-row.js). Open tests/leaderboard-row.test.html through any static server (file:// won't work for ES modules); green means every assertion held. See tests/fixtures/leaderboard-row.md for the frozen contract these values are computed against.
+import { buildLeaderboardRowHtml, buildLeaderboardHeaderHtml, escapeHtmlLocal, nextGameCell, gameDayTime, pinnedColumnWidth, comparePalette, hueDistance } from '../src/views/leaderboard-row.js';
 
 const results = [];
 function test(name, fn) {
@@ -7,8 +7,12 @@ function test(name, fn) {
     catch (e) { results.push({ name, ok: false, err: e.message }); }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
+function assertEq(actual, expected, msg) {
+    const a = JSON.stringify(actual), b = JSON.stringify(expected);
+    if (a !== b) throw new Error(`${msg}: expected ${b}, got ${a}`);
+}
 
-// A minimal ordinary row - full identity, ranked solo, one tinted cell, a settled dial.
+// A minimal ordinary row with full identity, ranked solo, one tinted cell and a settled dial.
 function baseRow(overrides = {}) {
     return Object.assign({
         id: 4429795,
@@ -27,32 +31,29 @@ function baseRow(overrides = {}) {
 
 test('identity: name, meta line joined with the middot separator, no dead segments when gpLabel is null', () => {
     const html = buildLeaderboardRowHtml(baseRow());
-    assert(html.includes('Jahmyr Gibbs'), 'name renders');
+    // The name is two spans now (lb-name-first/lb-name-last, never an ellipsis), so "Jahmyr Gibbs" no longer appears as one literal substring.
+    assert(html.includes('lb-name-first" data-full="Jahmyr">Jahmyr'), 'first name renders');
+    assert(html.includes('lb-name-last">Gibbs'), 'surname renders');
     assert(html.includes('DET · RB · 14 GP'), 'full three-part meta line');
     const noGp = buildLeaderboardRowHtml(baseRow({ gpLabel: null }));
     assert(noGp.includes('DET · RB'), 'two-part meta line with gpLabel omitted');
     assert(!noGp.includes('DET · RB ·'), 'no dangling separator when the third segment is dropped');
 });
 
-test('identity: every row carries the compare trigger (B18 item 2, the row-level affordance)', () => {
+test('identity: B240 item 6/S141b - no row carries a compare trigger any more', () => {
     const html = buildLeaderboardRowHtml(baseRow());
-    assert(html.includes('<button type="button" class="lb-compare-trigger"'), 'the row-hover compare icon renders');
-    assert(html.includes('data-tooltip="Compare Jahmyr Gibbs with another player"'), 'the tooltip names the player');
-    const hostile = buildLeaderboardRowHtml(baseRow({ name: '<img src=x onerror=alert(1)>' }));
-    assert(hostile.includes('&lt;img src=x onerror=alert(1)&gt; with another player'), 'a hostile name is escaped in the trigger\'s own tooltip too');
+    assert(!html.includes('lb-compare-trigger'), 'the row-level compare icon (B18 item 2) is gone - "two ways in was the objection" (B240 item 6)');
 });
 
-// ==== R1/S49: preseason has nothing for a drill-down to show ("useless" - the owner's own word), so the row draws no affordance for the click that would open one - no compare trigger, no hover cursor. `interactive` defaults true (every existing test above and below is unaffected); the caller states `false` for the one season state with nothing to open. ====
+// Preseason has nothing for a drill-down to show, so the row draws no hover cursor for the click that would open one. `interactive` defaults true (every existing test above and below is unaffected); the caller states `false` for the one season state with nothing to open.
 
-test('B221 R1/S49: interactive:false drops the compare trigger and marks the row inert', () => {
+test('B221 R1/S49: interactive:false marks the row inert', () => {
     const html = buildLeaderboardRowHtml(baseRow(), { interactive: false });
-    assert(!html.includes('lb-compare-trigger'), 'no compare trigger when the row cannot open anything');
     assert(html.includes('class="lb-row lb-row-inert"'), 'the row carries its own inert marker for the caller\'s CSS');
 });
 
-test('B221 R1/S49: interactive omitted (every real season) renders exactly as before - the compare trigger, no inert class', () => {
+test('B221 R1/S49: interactive omitted (every real season) renders exactly as before - no inert class', () => {
     const html = buildLeaderboardRowHtml(baseRow());
-    assert(html.includes('lb-compare-trigger'), 'the compare trigger still renders with no opt supplied');
     assert(!html.includes('lb-row-inert'), 'no inert marker when the caller says nothing');
 });
 
@@ -164,7 +165,7 @@ test('a dash cell with a stray non-null pct (should not happen, but defensively)
 });
 
 test('inverse-category tint: a low pct on an inverse stat renders exactly as given, never re-inverted', () => {
-    // An inverse category (e.g. ERA) already had its percentile flipped by the rank engine before this model existed - a LOW ERA produces a HIGH pct, and any shrinkage for a small sample is already folded in too. A pct of 30 here means "30th percentile", full stop; the builder is pure pass-through from model to --pct, and a builder that re-derived it would render --pct:70 instead, which is the bug this test exists to catch.
+    // An inverse category (e.g. ERA) already had its percentile flipped by the rank engine before this model existed, so a low ERA produces a high pct, with any small-sample shrinkage folded in too. A pct of 30 here means 30th percentile, full stop. The builder is a pure pass-through from model to --pct, and one that re-derived it would render --pct:70, which is the bug this test exists to catch.
     const html = buildLeaderboardRowHtml(baseRow({ cells: [{ id: 'era', label: 'ERA', value: '2.10', pct: 30, estimated: false, inverse: true }] }));
     assert(html.includes('--pct:30'), 'inverse cell renders its own pct unchanged, not flipped to 70');
 });
@@ -219,7 +220,7 @@ test('total: non-null with no ptsPerGame renders the slab alone, no empty second
     assert(!html.includes('lb-ptsg-secondary'), 'no secondary span when there is no ptsPerGame to put in it');
 });
 
-// item 3.2 - the playoff-window lens. UNEVEN carries the exact worked example tests/fixtures/schedule-insight.md documents (matchups 22/23 at 7 days, 24 folding the pro season's tail in at 18) so the round-length caveat has a real case to prove itself against.
+// The playoff-window lens. UNEVEN carries the exact worked example tests/fixtures/schedule-insight.md documents (matchups 22/23 at 7 days, 24 folding the pro season's tail in at 18) so the round-length caveat has a real case to prove itself against.
 const PLAYOFF_UNEVEN = {
     games: 14,
     byRound: [
@@ -341,7 +342,7 @@ test('playoff: XSS - a hostile proAbbrev renders escaped in the hover sentence',
     assert(html.includes('&lt;img src=x onerror=alert(1)&gt; plays'), 'the escaped club still opens the sentence');
 });
 
-// - the "games left" lens (this matchup / next matchup), sharing the playoff column's slot.
+// The "games left" lens (this matchup / next matchup), sharing the playoff column's slot.
 const WINDOW_MULTI = {
     matchup: 5, games: 6, played: 3, remaining: 3,
     byPeriod: [{ period: 'Tue', count: 1 }, { period: 'Thu', count: 1 }, { period: 'Sat', count: 2 }, { period: 'Sun', count: 2 }],
@@ -384,7 +385,7 @@ test('next lens: same shape, different field and subject label - "next matchup" 
     assert(html.includes('6 games next matchup: Tue'), 'the hover subject follows the active lens');
 });
 
-// item 2/O11 - the rest-of-season lens, replacing Playoffs on the toggle.
+// The rest-of-season lens, replacing Playoffs on the toggle.
 const REST_WINDOW = {
     matchup: null, games: 23, played: 0, remaining: 23,
     offNight: 4, twoGameDays: 1,
@@ -415,7 +416,7 @@ test('offNight/twoGameDays: a real zero is omitted exactly like null - the rende
     assert(html.includes('<span class="lb-window-figure">3 of 6 left</span>'), 'the figure is unaffected - Burleson\'s own proof from the mockup');
 });
 
-// S14 - the fourth lens state, a different SHAPE (`{ nights, count }`) than window/next/rest, so it gets its own figure branch.
+// The fourth lens state, a different shape (`{ nights, count }`) than window/next/rest, so it gets its own figure branch.
 test('openSeats lens: the figure is the bare count, same class window/next/rest use', () => {
     const html = buildLeaderboardRowHtml(baseRow({ isFreeAgent: true, openSeats: { nights: [12, 14], count: 2 } }), {}, 'openSeats');
     assert(html.includes('<span class="lb-window-figure">2</span>'), 'openSeats renders through the shared .lb-window-figure class');
@@ -442,7 +443,7 @@ test('buildLeaderboardHeaderHtml: timeLens "openSeats" defaults to "Empty Nights
     assert(html.includes('>Empty Nights<'), 'the shared header reads the new lens\'s own default label');
 });
 
-// S18: one copy line, the Rank header's own hover, distinct from the click-to-open explainer.
+// One copy line, the Rank header's own hover, distinct from the click-to-open explainer.
 test('buildLeaderboardHeaderHtml: the Rank header carries its own hover naming the pool it ranks against', () => {
     const html = buildLeaderboardHeaderHtml({ cells: [] });
     assert(html.includes('class="lb-head-rank sortable" data-sort="rank" data-tooltip='), 'the tooltip sits on the header cell itself');
@@ -549,6 +550,28 @@ test('dial change line: shown only when abs(change) >= 5, with direction and rou
     assert(!down.includes('▲7'), 'a drop never renders the up arrow');
 });
 
+test('dial change line: a rise is the success token, a fall the danger token, whatever the dial tone', () => {
+    const upAmber = buildLeaderboardRowHtml(baseRow({ rostered: { pct: 50, change: 6.2 } }));
+    assert(upAmber.includes('lb-dial-amber') && upAmber.includes('lb-dial-change lb-change-up'), 'a rise on an amber dial is up-coloured, the dial stays amber');
+    const downGreen = buildLeaderboardRowHtml(baseRow({ rostered: { pct: 90, change: -6.2 } }));
+    assert(downGreen.includes('lb-dial-green') && downGreen.includes('lb-dial-change lb-change-down'), 'a fall on a green dial is down-coloured, the dial stays green');
+    assert(!downGreen.includes('lb-change-up'), 'a fall never carries the up class');
+    const upGreen = buildLeaderboardRowHtml(baseRow({ rostered: { pct: 90, change: 5 } }));
+    assert(upGreen.includes('lb-change-up'), 'the 5-point threshold is inclusive and still holds');
+});
+
+test('team disc: a rostered player draws the fantasy team logo ringed in its colour, a free agent draws nothing (B283 1.1)', () => {
+    const on = buildLeaderboardRowHtml(baseRow({ team: { name: 'Walk Off Warriors', color: '#e6194b', logo: 'https://g.espncdn.com/x.png' } }));
+    assert(on.includes('lb-team-disc') && on.includes('--fteam-color:#e6194b'), 'the disc carries the legend colour');
+    assert(on.includes('src="https://g.espncdn.com/x.png"') && on.includes('data-team-logo="https://g.espncdn.com/x.png"'), 'and the logo');
+    assert(on.includes('title="Walk Off Warriors"'), 'and the full team name as its hover');
+    const ring = buildLeaderboardRowHtml(baseRow({ team: { name: 'Walk Off Warriors', color: '#e6194b', logo: null } }));
+    assert(ring.includes('lb-team-disc') && !ring.includes('<img class="avatar-img" loading="lazy" alt="" src="https://'), 'a logo the host rule refused draws the ring alone');
+    const none = buildLeaderboardRowHtml(baseRow({ team: null }));
+    assert(!none.includes('lb-team-disc'), 'a free agent has no disc, and no dash');
+    assert(!buildLeaderboardRowHtml(baseRow()).includes('lb-team-disc'), 'a caller with no team field draws none');
+});
+
 test('dial hover text: exact phrase and one-decimal signed change, independent of the change line threshold', () => {
     const html = buildLeaderboardRowHtml(baseRow({ rostered: { pct: 97.2, change: 0.4 } }));
     assert(html.includes('data-tooltip="Rostered in 97% of ESPN leagues, +0.4 this week"'), 'exact hover phrase, rounded percent, signed one-decimal change');
@@ -574,7 +597,8 @@ test('caller-supplied opts are used in place of every local fallback', () => {
     assert(avatarCalls === 1, 'avatarHtml was called');
     assert(logoCalls === 1, 'logoHtml was called');
     assert(badgeCalls === 1, 'injuryBadgeHtml was called');
-    assert(rowHtml.includes('JAHMYR GIBBS'), 'the supplied escapeHtml reached the rendered HTML');
+    // The name is two spans now (lb-name-first/lb-name-last).
+    assert(rowHtml.includes('JAHMYR') && rowHtml.includes('GIBBS'), 'the supplied escapeHtml reached the rendered HTML');
     assert(rowHtml.includes('<b>hurt</b>'), 'the supplied injuryBadgeHtml reached the rendered HTML');
     assert(rowHtml.includes('data-logo="DET"'), 'the supplied logoHtml reached the rendered HTML, called with proAbbrev');
     const headHtml = buildLeaderboardHeaderHtml({ cells: [{ id: '1', label: 'R' }] }, opts);
@@ -627,6 +651,214 @@ test('header: one header cell per category, in the order given, each sortable by
 test('header: Rostered column omits with showRostered: false', () => {
     const html = buildLeaderboardHeaderHtml({ cells: [], showRostered: false });
     assert(!html.includes('lb-head-rostered'), 'no rostered header cell');
+});
+
+// The pick control and the group's per-cell delta. ---------------------------------------------------------------------------
+
+test('pick control: null (no caller wiring) draws nothing at all', () => {
+    const html = buildLeaderboardRowHtml(baseRow());
+    assert(!html.includes('lb-pick'), 'not even an unpicked "+" for a caller that never asked');
+});
+
+test('pick control: unpicked draws a plain "+", not disabled', () => {
+    const html = buildLeaderboardRowHtml(baseRow(), {}, 'playoff', false, { state: null, capReached: false });
+    assert(html.includes('class="lb-pick"'), 'the base class, no -on');
+    assert(html.includes('>+<'), 'the plus');
+    assert(!html.includes('disabled'), 'not disabled below the cap');
+});
+
+test('pick control: capped and unpicked is disabled, still a "+"', () => {
+    const html = buildLeaderboardRowHtml(baseRow(), {}, 'playoff', false, { state: null, capReached: true });
+    assert(html.includes('lb-pick" disabled') || html.includes('lb-pick"disabled'), 'disabled attribute present');
+    assert(html.includes('>+<'), 'still reads as the same control, not hidden');
+});
+
+test('pick control: anchor draws pick number 1, gold class, and the row itself carries lb-row-anchor', () => {
+    const html = buildLeaderboardRowHtml(baseRow(), {}, 'playoff', false, { state: 'anchor', number: 1 });
+    assert(html.includes('lb-pick lb-pick-on'), 'the on class');
+    assert(html.includes('>1<'), 'pick order, not rank');
+    assert(html.includes('lb-row-anchor'), 'the row itself is marked, for the caller\'s own styling');
+});
+
+test('pick control: a further pick draws its own pick number, no anchor row class', () => {
+    const html = buildLeaderboardRowHtml(baseRow(), {}, 'playoff', false, { state: 'picked', number: 3 });
+    assert(html.includes('>3<'), 'the third pick reads 3, never the row\'s rank');
+    assert(!html.includes('lb-row-anchor'), 'only the anchor\'s own row carries that class');
+});
+
+test('header: an empty pick column cell appears only when cols.showPick is set', () => {
+    const without = buildLeaderboardHeaderHtml({ cells: [] });
+    assert(!without.includes('lb-head-pick'), 'omitted by default, every existing caller unaffected');
+    const withIt = buildLeaderboardHeaderHtml({ cells: [], showPick: true });
+    assert(withIt.includes('lb-head-pick'), 'rendered when the group feature is wired in');
+});
+
+test('cell delta: null delta (not in a group, or the anchor\'s own cell) draws no sub-line', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ cells: [{ id: '24', label: 'R', value: '65', pct: 84, estimated: false, inverse: false, delta: null, better: null }] }));
+    assert(!html.includes('lb-cell-delta'), 'no delta markup at all');
+});
+
+test('cell delta: a positive delta on a normal category is signed and "up"', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ cells: [{ id: '24', label: 'R', value: '65', pct: 84, estimated: false, inverse: false, delta: 17, better: 'up' }] }));
+    assert(html.includes('lb-cell-delta up'), 'the up tone');
+    assert(html.includes('>+17<'), 'signed positive');
+});
+
+test('cell delta: an INVERSE category with more than the anchor reads "down" even though delta is positive - the bug this split exists to prevent', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ cells: [{ id: '9', label: 'CS', value: '4', pct: 10, estimated: false, inverse: true, delta: 3, better: 'down' }] }));
+    assert(html.includes('lb-cell-delta dn'), 'coloured by better, not by the sign of delta');
+    assert(html.includes('>+3<'), 'delta is still plain arithmetic, value minus anchor, signed positive');
+});
+
+test('cell delta: even reads the word, no sign', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ cells: [{ id: '24', label: 'R', value: '65', pct: 84, estimated: false, inverse: false, delta: 0, better: 'even' }] }));
+    assert(html.includes('lb-cell-delta ev'), 'the even tone');
+    assert(html.includes('>even<'), 'the word, not "+0" or "0"');
+});
+
+test('model.isAnchor prints the Anchor tag on the name line; false/absent prints nothing', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ isAnchor: true }));
+    assert(html.includes('lb-anchor-tag'), 'the tag renders');
+    assert(html.includes('>Anchor<'), 'the word');
+    const without = buildLeaderboardRowHtml(baseRow());
+    assert(!without.includes('lb-anchor-tag'), 'omitted when the model does not say so');
+});
+
+test('cell delta: formatDelta, when supplied, formats the number the same way the value itself was formatted', () => {
+    const html = buildLeaderboardRowHtml(
+        baseRow({ cells: [{ id: '2', label: 'AVG', value: '.267', pct: 40, estimated: false, inverse: false, delta: -0.036, better: 'down' }] }),
+        { formatDelta: (v) => Math.abs(v).toFixed(3) }
+    );
+    assert(html.includes('>-0.036<'), 'the sign this function adds, plus the caller\'s own precision');
+});
+
+test('cell delta: formatDelta reaches cellDeltaHtml through resolveOpts, not just a direct call', () => {
+    // -0.036 above prints the same whether formatDelta runs or the raw-number fallback does, so it could not have caught resolveOpts silently dropping the option, which it once did, because every other opt is allowlisted there by hand and formatDelta was added to cellDeltaHtml without being added to that list. This value's floating-point tail only the caller's own formatter removes.
+    const html = buildLeaderboardRowHtml(
+        baseRow({ cells: [{ id: '2', label: 'AVG', value: '.267', pct: 40, estimated: false, inverse: false, delta: 0.033900149000000004, better: 'up' }] }),
+        { formatDelta: (v) => v.toFixed(3) }
+    );
+    assert(html.includes('>+0.034<'), 'the formatter\'s rounded figure, not the raw float');
+    assert(!html.includes('0.0339001'), 'the fallback\'s unrounded string must not leak through');
+});
+
+// The phone points form: the next game and the games played, a dash when there is none The phone grid: the ring on the headshot and the pinned column's width ---------------------------------------------------------------------------
+
+test('the headshot slot carries the team colour as its ring, only for a hex', () => {
+    const withTeam = buildLeaderboardRowHtml(baseRow({ team: { name: 'Fixture Nine', color: '#4363d8', logo: null } }), {}, null);
+    assert(withTeam.includes('<span class="lb-avatar-slot" style="--ring:#4363d8">'), 'the ring property on the slot');
+    const bad = buildLeaderboardRowHtml(baseRow({ team: { name: 'X', color: 'red; background:url(x)', logo: null } }), {}, null);
+    assert(!bad.includes('--ring'), 'a string that is not a hex never reaches the style attribute');
+    const none = buildLeaderboardRowHtml(baseRow({ team: null }), {}, null);
+    assert(none.includes('<span class="lb-avatar-slot">'), 'a free agent has no ring property');
+});
+
+test('the headshot slot carries the rank as a badge, T for a tie, gold for the leader, none for an unranked row', () => {
+    const ranked = buildLeaderboardRowHtml(baseRow({ rank: { label: 3, tied: false, gold: false } }), {}, null);
+    assert(ranked.includes('<em class="lb-rankbadge">3</em>'), 'the rank on the slot');
+    const tied = buildLeaderboardRowHtml(baseRow({ rank: { label: 7, tied: true, gold: false } }), {}, null);
+    assert(tied.includes('<em class="lb-rankbadge">T7</em>'), 'a tie reads T7');
+    const gold = buildLeaderboardRowHtml(baseRow({ rank: { label: 1, tied: false, gold: true } }), {}, null);
+    assert(gold.includes('lb-rankbadge lb-rankbadge-gold'), 'the leader is gold');
+    const none = buildLeaderboardRowHtml(baseRow({ rank: null }), {}, null);
+    assert(!none.includes('lb-rankbadge'), 'an unranked row has no badge');
+});
+
+test('pinnedColumnWidth: the longest name part plus the headshot, the gap and the padding, between a floor and a ceiling', () => {
+    // 46 headshot + 8 gap + 16 padding = 70, plus the widest part.
+    assertEq(pinnedColumnWidth([60, 72.4, 55]), 143, '70 + 72.4 = 142.4, rounded up');
+    assertEq(pinnedColumnWidth([]), 120, 'no names: the floor');
+    assertEq(pinnedColumnWidth([30]), 120, '70 + 30 = 100, under the floor');
+    assertEq(pinnedColumnWidth([200]), 210, '70 + 200 = 270, held at the ceiling');
+    assertEq(pinnedColumnWidth([NaN, 80, null]), 150, 'a part that did not measure is ignored: 70 + 80');
+    assertEq(pinnedColumnWidth([80], { photo: 40, gap: 6, pad: 10, min: 100, max: 300 }), 136, 'the drawn defaults are options: 40 + 6 + 10 + 80');
+});
+
+
+test('nextGameCell: a game not yet played is the opponent, the side and the label', () => {
+    const away = nextGameCell({ date: 1, dayLabel: 'Sat 4:00PM', opponentAbbrev: 'SJ', home: false, played: false, bye: false });
+    assertEq(away, { opponent: 'SJ', away: true, when: 'Sat 4:00PM' }, 'an away game');
+    const home = nextGameCell({ date: 1, dayLabel: 'Sun 7:00PM', opponentAbbrev: 'LA', home: true, played: false, bye: false });
+    assertEq(home, { opponent: 'LA', away: false, when: 'Sun 7:00PM' }, 'a home game');
+});
+
+test('nextGameCell: played, a bye, no date, no opponent and no answer are all a dash', () => {
+    const ok = { date: 1, dayLabel: 'Sat 4:00PM', opponentAbbrev: 'SJ', home: true, played: false, bye: false };
+    assertEq(nextGameCell(null), null, 'no answer');
+    assertEq(nextGameCell({ ...ok, played: true }), null, 'a game already played');
+    assertEq(nextGameCell({ ...ok, bye: true }), null, 'a club with no game in the matchup');
+    assertEq(nextGameCell({ ...ok, date: null }), null, 'no date');
+    assertEq(nextGameCell({ ...ok, opponentAbbrev: null }), null, 'no opponent');
+    assertEq(nextGameCell({ ...ok, dayLabel: null }), null, 'no label');
+});
+
+test('gameDayTime: a short weekday and the time with no space before the meridiem, in the named zone', () => {
+    // T20:00:00Z is 16:00 in New York (EDT, UTC-4) and 13:00 in Los Angeles (PDT, UTC-7).
+    const ms = Date.UTC(2026, 9, 10, 20, 0);
+    assertEq(gameDayTime(ms, { locale: 'en-US', timeZone: 'America/New_York' }), 'Sat 4:00PM', 'New York');
+    assertEq(gameDayTime(ms, { locale: 'en-US', timeZone: 'America/Los_Angeles' }), 'Sat 1:00PM', 'Los Angeles');
+    // T00:30:00Z is 20:30 on Saturday in New York: the local weekday, not the UTC one.
+    assertEq(gameDayTime(Date.UTC(2026, 9, 11, 0, 30), { locale: 'en-US', timeZone: 'America/New_York' }), 'Sat 8:30PM', 'across UTC midnight');
+    assertEq(gameDayTime(null), null, 'no value');
+});
+
+test('the row: a model with nextGame draws the badge, the split games figure and the next-game cells', () => {
+    const html = buildLeaderboardRowHtml(
+        baseRow({ posLabel: 'RW', gpLabel: '4 GP', proAbbrev: 'EDM', nextGame: { opponent: 'SJ', away: true, when: 'Sat 4:00PM' }, total: 21.4, ptsPerGame: 5.35 }),
+        {}, null);
+    assert(html.includes('<span class="lb-posbadge">RW</span>'), 'the position badge');
+    assert(html.includes('EDM &middot; RW') || html.includes('EDM · RW'), 'the club and position lead the meta line');
+    assert(html.includes('<span class="lb-meta-gp"> · 4 GP</span>'), 'the games figure is its own span');
+    assert(html.includes('<span class="lb-next-opp">@SJ</span><span class="lb-next-when">Sat 4:00PM</span>'), 'the away prefix and the label');
+    assert(html.includes('<div class="lb-gp">4</div>'), 'the games played as its own cell');
+});
+
+test('the row: nextGame null is a dash, never a sentence', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ gpLabel: '12 GP', nextGame: null }), {}, null);
+    assert(html.includes('<div class="lb-next lb-next-none">-</div>'), 'a dash');
+    assert(html.includes('<div class="lb-gp">12</div>'), 'the games played still print');
+    assert(!/no game|none left|not scheduled/i.test(html), 'no sentence about it');
+});
+
+test('the row: nextGame absent leaves the row exactly as it was', () => {
+    const html = buildLeaderboardRowHtml(baseRow({ gpLabel: '12 GP' }), {}, null);
+    assert(!html.includes('lb-next') && !html.includes('lb-gp') && !html.includes('lb-posbadge') && !html.includes('lb-meta-gp'), 'no phone-form element');
+    assert(html.includes('12 GP'), 'the games figure stays in the meta line as before');
+});
+
+test('the header: showNextGame adds the five phone labels and only then', () => {
+    const on = buildLeaderboardHeaderHtml({ showNextGame: true, showPtsPerGame: true }, {});
+    assert(on.includes('lb-head-phone'), 'the phone group');
+    ['Opp', 'FPts', 'FP/G', 'GP', 'Rank'].forEach(l => assert(on.includes('>' + l), 'the label ' + l));
+    assert(on.includes('data-sort="ptsPerGame"') && on.includes('data-sort="rank"'), 'FPts and Rank sort on the keys the desktop header uses');
+    assert(!buildLeaderboardHeaderHtml({ showPtsPerGame: true }, {}).includes('lb-head-phone'), 'absent without the flag');
+});
+
+// The compare palette. Hand-computed from the offsets 0, 180, 90, 270, 45, 225 on an accent hue of 212.
+test('the compare palette is the accent rotated, in pick order', () => {
+    const pal = comparePalette({ h: 212, s: 0.9, l: 0.65 }, 6);
+    assertEq(pal.map(c => c.h), [212, 32, 302, 122, 257, 77], 'hues in pick order');
+    assertEq(pal[0].css, 'hsl(212 90% 65%)', 'the first is the accent itself');
+});
+
+test('three players are at least 90 degrees apart and six at least 45', () => {
+    const minDist = (n, accent) => {
+        const hs = comparePalette({ h: accent, s: 0.7, l: 0.6 }, n).map(c => c.h);
+        let m = 360;
+        for (let i = 0; i < hs.length; i++) for (let j = i + 1; j < hs.length; j++) m = Math.min(m, hueDistance(hs[i], hs[j]));
+        return m;
+    };
+    [212, 45, 340, 0].forEach(a => {
+        assertEq(minDist(3, a), 90, 'three apart, accent ' + a);
+        assertEq(minDist(6, a), 45, 'six apart, accent ' + a);
+    });
+    assertEq(hueDistance(350, 10), 20, 'the short way round the wheel');
+});
+
+test('the palette holds its saturation and lightness inside a legible range', () => {
+    const pal = comparePalette({ h: 40, s: 0.1, l: 0.95 }, 2);
+    assert(pal.every(c => c.s >= 0.5 && c.s <= 0.9 && c.l >= 0.45 && c.l <= 0.7), 'clamped');
+    assertEq(comparePalette({ h: 0, s: 0.7, l: 0.6 }, 0), [], 'no players, no colours');
 });
 
 // Report ---------------------------------------------------------------------------

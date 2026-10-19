@@ -1,0 +1,12 @@
+# Keeps the GitHub Actions this repository's workflows use current: each is pinned to a full commit
+# hash, and this proposes the new hash as a pull request when an action publishes a new release.
+#
+# This file and the workflows are generated: the mirror's build copies them here from their source.
+# An update merged here must also be made at the source, or the next build puts the old pin back.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

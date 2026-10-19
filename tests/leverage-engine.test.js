@@ -1,9 +1,9 @@
-// Unit tests for the pure leverage engine. Open tests/leverage-engine.test.html through any static server (python -m http.server is a zero-dependency option) - green means every assertion held. Every expected value is hand-computed from the rules written on the functions; the normal-CDF figures are the standard published values, so a failure means the engine changed, not the maths.
+// Unit tests for the pure leverage engine. Open tests/leverage-engine.test.html through any static server; green means every assertion held. Every expected value is hand-computed from the rules written on the functions. The normal-CDF figures are the standard published values, so a failure means the engine changed, not the arithmetic.
 import {
     normalCdf, MEDIAN_Z, weeklyMoments, projectedMoments, poolMoments, teamTotalMoments,
     marginSd, rateMarginSd, reach, flipChance, categoryFlip, flipsPerWeek,
     countingShift, rateShift
-} from '../leverage-engine.js';
+} from '../src/engines/leverage-engine.js';
 
 const results = [];
 function test(name, fn) {
@@ -52,7 +52,7 @@ test('weeklyMoments: the mean, and the UNBIASED weekly variance', () => {
     assertEq(weeklyMoments([5]), { mean: 5, variance: 0, n: 1 }, 'a single week');
     assertEq(weeklyMoments([]), null, 'no weeks is null, not zero');
     assertEq(weeklyMoments(null), null, 'no samples at all');
-    // A missing week is not a zero week - it is dropped, not counted as a shutout.
+    // A missing week is not a zero week. It is dropped, not counted as a shutout.
     assertEq(weeklyMoments([2, null, 6, undefined, NaN]), { mean: 4, variance: 8, n: 2 }, 'gaps are dropped');
 });
 
@@ -94,7 +94,7 @@ test('reach and flipChance: within the week, versus turned by it', () => {
     assertClose(flipChance(3, 3), PHI_1 - 0.5, REACH_ERR, 'and half of it flips');
     assertClose(reach(1.5, 3), 2 * PHI_0_5 - 1, REACH_ERR, 'half a sigma');
     assertClose(reach(4.5, 3), 2 * PHI_1_5 - 1, REACH_ERR, 'one and a half sigma');
-    // Magnitude only - a shift of -2 reaches exactly as far as a shift of +2. The direction is categoryFlip's business, not reach's.
+    // Magnitude only: a shift of -2 reaches exactly as far as a shift of +2. The direction is categoryFlip's business, not reach's.
     assertClose(reach(-3, 3), reach(3, 3), 1e-12, 'reach is a distance');
     assertEq(reach(0, 3), 0, 'a player who does nothing reaches nothing');
     assertEq(reach(3, 0), null, 'a category with no spread is not a probability');
@@ -146,7 +146,16 @@ test('countingShift and rateShift: what a player actually moves', () => {
 });
 
 test('rateMarginSd: the delta method, with the covariance that is not optional', () => {
-    // AVG = H/AB, hand-computed end to end. per player-week: H mean 2, AB mean 8; Var(H) 2, Var(AB) 4, Cov 2 4 seats -> team H 8, AB 32, team AVG 0.25 gradient: d/dH = 1/32 = 0.03125; d/dAB = -H/AB^2 = -8/1024 = -0.0078125 team covariance = 4 x the per-player-week figures = Var(H) 8, Var(AB) 16, Cov 8 Var(AVG) = 0.03125^2*8 + 2*0.03125*(-0.0078125)*8 + 0.0078125^2*16 = 0.0078125 - 0.00390625 + 0.0009765625 = 0.0048828125 margin sd = sqrt(2 * 0.0048828125) = sqrt(0.009765625)
+    /**
+     * AVG = H/AB, hand-computed end to end.
+     *   per player-week: H mean 2, AB mean 8; Var(H) 2, Var(AB) 4, Cov 2
+     *   4 seats give team H 8, AB 32, team AVG 0.25
+     *   gradient: d/dH = 1/32 = 0.03125 ; d/dAB = -H/AB^2 = -8/1024 = -0.0078125
+     *   team covariance = 4 x the per-player-week figures = Var(H) 8, Var(AB) 16, Cov 8
+     *   Var(AVG) = 0.03125^2*8 + 2*0.03125*(-0.0078125)*8 + 0.0078125^2*16
+     *            = 0.0078125 - 0.00390625 + 0.0009765625 = 0.0048828125
+     *   margin sd = sqrt(2 * 0.0048828125) = sqrt(0.009765625)
+     */
     const specs = [{ out: '2', num: ['1'], den: ['0'] }];
     const withCov = rateMarginSd({
         categoryId: '2', rateSpecs: specs, componentIds: ['1', '0'],
@@ -223,7 +232,7 @@ test('the two-category toy: margins by hand, flips exact, inverse and unknown in
         { categoryId: 'A', flip: rawA.flip }, { categoryId: 'B', flip: rawB.flip }
     ]).total, (PHI_1_5 - 0.5) - (PHI_1 - 0.5), REACH_ERR, 'raw: the good outweighs the bad');
 
-    // THE VALUE READING, against the player displaced: 1 above the pool in A and 0.5 above it in B, which is half a sigma in BOTH - so the running is a wash, and the total is exactly zero. Nothing about the two categories' different scales survives except through the sigmas, which is the entire point of measuring leverage instead of percentiles.
+    // The value reading, against the player displaced: 1 above the pool in A and 0.5 above it in B, which is half a sigma in both, so the total is exactly zero. Nothing about the two categories' different scales survives except through the sigmas, which is the point of measuring leverage and not percentiles.
     const valA = categoryFlip(countingShift(3, A.mean), sdA, { inverse: false });
     const valB = categoryFlip(countingShift(1, B.mean), sdB, { inverse: true });
     assertClose(valA.flip, PHI_0_5 - 0.5, REACH_ERR, 'half a sigma of A');

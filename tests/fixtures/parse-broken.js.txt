@@ -1,0 +1,12 @@
+// A COPY OF THE LINE THAT BROKE room-reader.js, kept as .js.txt ON PURPOSE (B267, 2026-09-28).
+//
+// It is not .js because every list in this repository that walks JavaScript - the packer, the mirror's
+// own lists, the coverage gate, tests/parse-all.test.js's own derivation - would then have to learn an
+// exception for a file that is deliberately broken. A .txt cannot be imported by accident.
+//
+// This is the exact shape written in B267 item 7 (66b4d55) and fixed in item 4b: an apostrophe inside a
+// single-quoted string. It was a SyntaxError, so room-reader.js did not parse at all for two days, and
+// no suite noticed because no suite loaded that file. tests/parse-all.test.js compiles this text through
+// the SAME check it runs over every shipped classic script, so the belt is proven to reject the real
+// thing rather than only to pass over files that happen to be fine.
+console.log('Leaguewise: resumed ' + facts.length + ' picks from this room's own snapshot');

@@ -1,0 +1,18 @@
+{
+  "_synthetic": "Invented for B265 item 6a. Five teams, five categories chosen so every position on every track is a clean fraction a person can check by hand: a normal track with a tie above the reader, an inverse track with a team level with the reader and one team missing, a level track, a track the reader has no value in, and a track where the reader is tied with one team while two more are tied just above. No league, team or player here is real.",
+  "readerTeamId": 101,
+  "categories": [
+    { "id": "G", "label": "G", "inverse": false },
+    { "id": "GAA", "label": "GAA", "inverse": true },
+    { "id": "PIM", "label": "PIM", "inverse": false },
+    { "id": "SV", "label": "SV", "inverse": false },
+    { "id": "A", "label": "A", "inverse": false }
+  ],
+  "teams": [
+    { "id": 101, "totals": { "G": 6, "GAA": 3, "PIM": 5, "A": 4 } },
+    { "id": 102, "totals": { "G": 8, "GAA": 2, "PIM": 5, "SV": 0, "A": 4 } },
+    { "id": 103, "totals": { "G": 2, "GAA": 4, "PIM": 5, "SV": 1, "A": 6 } },
+    { "id": 104, "totals": { "G": 8, "GAA": null, "PIM": 5, "SV": 2, "A": 6 } },
+    { "id": 105, "totals": { "G": 0, "GAA": 3, "PIM": 5, "SV": 4, "A": 2 } }
+  ]
+}

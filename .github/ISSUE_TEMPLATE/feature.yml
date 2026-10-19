@@ -1,0 +1,52 @@
+name: Feature request
+description: A specific change you'd like made. Open-ended ideas go in Discussions.
+title: "Feature: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is an idea you'd like to talk through, the **Ideas** category in Discussions is the better place: other people can weigh in there, and nothing gets closed.
+
+        Use this form when you can say exactly what should change.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The league question you wanted answered, or the step that took too long.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: The change
+      description: What Leaguewise should show or do.
+    validations:
+      required: true
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Sport
+      multiple: true
+      options:
+        - Baseball
+        - Hockey
+        - Football
+        - All of them
+  - type: dropdown
+    id: format
+    attributes:
+      label: League format
+      multiple: true
+      options:
+        - Head-to-head categories
+        - Head-to-head points
+        - Rotisserie
+        - All of them
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Before you submit
+      options:
+        - label: "This request keeps Leaguewise in the browser: no account, no server, no tracking."
+          required: true

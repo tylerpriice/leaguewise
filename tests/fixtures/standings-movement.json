@@ -1,0 +1,429 @@
+{
+ "_synthetic": "Hand-written for B265 item 5b. Four invented teams over six matchups in data.js's own teamStats shape, each matchup's results summing to 2 as a four-team league's must. Every expectation is computed by hand in standings-movement.md, never by running the module.",
+ "_shape": "weeklyMatchWins is the 1/0.5/0 RESULT here, which is what data.js writes for a category league; a points league's own shape (the points total, with the result in weeklyMatchResult) is exercised by pointsTeamStats below.",
+ "teamStats": [
+  {
+   "id": 1,
+   "name": "Alpha",
+   "weeklyMatchWins": {
+    "1": 1,
+    "2": 1,
+    "3": 0,
+    "4": 0.5,
+    "5": 1,
+    "6": 0
+   },
+   "weeklyMatchResult": {}
+  },
+  {
+   "id": 2,
+   "name": "Bravo",
+   "weeklyMatchWins": {
+    "1": 0,
+    "2": 0,
+    "3": 1,
+    "4": 0.5,
+    "5": 0,
+    "6": 1
+   },
+   "weeklyMatchResult": {}
+  },
+  {
+   "id": 3,
+   "name": "Charlie",
+   "weeklyMatchWins": {
+    "1": 1,
+    "2": 0,
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "6": 1
+   },
+   "weeklyMatchResult": {}
+  },
+  {
+   "id": 4,
+   "name": "Delta",
+   "weeklyMatchWins": {
+    "1": 0,
+    "2": 1,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0
+   },
+   "weeklyMatchResult": {}
+  }
+ ],
+ "cumulative": {
+  "1": [
+   1,
+   2,
+   2,
+   2.5,
+   3.5,
+   3.5
+  ],
+  "2": [
+   0,
+   0,
+   1,
+   1.5,
+   1.5,
+   2.5
+  ],
+  "3": [
+   1,
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "4": [
+   0,
+   1,
+   1,
+   1,
+   1,
+   1
+  ]
+ },
+ "places": {
+  "1": [
+   1,
+   1,
+   1,
+   2,
+   2,
+   2
+  ],
+  "2": [
+   3,
+   4,
+   3,
+   3,
+   3,
+   3
+  ],
+  "3": [
+   1,
+   2,
+   1,
+   1,
+   1,
+   1
+  ],
+  "4": [
+   3,
+   2,
+   3,
+   4,
+   4,
+   4
+  ]
+ },
+ "movement": [
+  {
+   "teamId": 1,
+   "window": 1,
+   "expect": {
+    "window": 1,
+    "matchupsUsed": 1,
+    "unit": "wins",
+    "placeNow": 2,
+    "placeThen": 2,
+    "delta": 0,
+    "best": {
+     "place": 2,
+     "matchup": 6
+    },
+    "worst": {
+     "place": 2,
+     "matchup": 6
+    },
+    "run": {
+     "dir": "lost",
+     "length": 1
+    },
+    "gapAbove": {
+     "teamId": "3",
+     "amount": 1.5
+    },
+    "gapBelow": {
+     "teamId": "2",
+     "amount": 1
+    },
+    "figureNow": 3.5,
+    "figureThen": 3.5
+   }
+  },
+  {
+   "teamId": 1,
+   "window": 4,
+   "expect": {
+    "window": 4,
+    "matchupsUsed": 4,
+    "unit": "wins",
+    "placeNow": 2,
+    "placeThen": 1,
+    "delta": -1,
+    "best": {
+     "place": 1,
+     "matchup": 3
+    },
+    "worst": {
+     "place": 2,
+     "matchup": 4
+    },
+    "run": {
+     "dir": "lost",
+     "length": 1
+    },
+    "gapAbove": {
+     "teamId": "3",
+     "amount": 1.5
+    },
+    "gapBelow": {
+     "teamId": "2",
+     "amount": 1
+    },
+    "figureNow": 3.5,
+    "figureThen": 2
+   }
+  },
+  {
+   "teamId": 1,
+   "window": 6,
+   "expect": {
+    "window": 6,
+    "matchupsUsed": 6,
+    "unit": "wins",
+    "placeNow": 2,
+    "placeThen": null,
+    "delta": null,
+    "best": {
+     "place": 1,
+     "matchup": 1
+    },
+    "worst": {
+     "place": 2,
+     "matchup": 4
+    },
+    "run": {
+     "dir": "lost",
+     "length": 1
+    },
+    "gapAbove": {
+     "teamId": "3",
+     "amount": 1.5
+    },
+    "gapBelow": {
+     "teamId": "2",
+     "amount": 1
+    },
+    "figureNow": 3.5,
+    "figureThen": null
+   }
+  },
+  {
+   "teamId": 1,
+   "window": 7,
+   "expect": null
+  },
+  {
+   "teamId": 2,
+   "window": 4,
+   "expect": {
+    "window": 4,
+    "matchupsUsed": 4,
+    "unit": "wins",
+    "placeNow": 3,
+    "placeThen": 4,
+    "delta": 1,
+    "best": {
+     "place": 3,
+     "matchup": 3
+    },
+    "worst": {
+     "place": 3,
+     "matchup": 3
+    },
+    "run": {
+     "dir": "won",
+     "length": 1
+    },
+    "gapAbove": {
+     "teamId": "1",
+     "amount": 1
+    },
+    "gapBelow": {
+     "teamId": "4",
+     "amount": 1.5
+    },
+    "figureNow": 2.5,
+    "figureThen": 0
+   }
+  },
+  {
+   "teamId": 3,
+   "window": 4,
+   "expect": {
+    "window": 4,
+    "matchupsUsed": 4,
+    "unit": "wins",
+    "placeNow": 1,
+    "placeThen": 2,
+    "delta": 1,
+    "best": {
+     "place": 1,
+     "matchup": 3
+    },
+    "worst": {
+     "place": 1,
+     "matchup": 3
+    },
+    "run": {
+     "dir": "won",
+     "length": 4
+    },
+    "gapAbove": null,
+    "gapBelow": {
+     "teamId": "1",
+     "amount": 1.5
+    },
+    "figureNow": 5,
+    "figureThen": 1
+   }
+  },
+  {
+   "teamId": 4,
+   "window": 4,
+   "expect": {
+    "window": 4,
+    "matchupsUsed": 4,
+    "unit": "wins",
+    "placeNow": 4,
+    "placeThen": 2,
+    "delta": -2,
+    "best": {
+     "place": 3,
+     "matchup": 3
+    },
+    "worst": {
+     "place": 4,
+     "matchup": 4
+    },
+    "run": {
+     "dir": "lost",
+     "length": 4
+    },
+    "gapAbove": {
+     "teamId": "2",
+     "amount": 1.5
+    },
+    "gapBelow": null,
+    "figureNow": 1,
+    "figureThen": 1
+   }
+  },
+  {
+   "teamId": 4,
+   "window": 6,
+   "expect": {
+    "window": 6,
+    "matchupsUsed": 6,
+    "unit": "wins",
+    "placeNow": 4,
+    "placeThen": null,
+    "delta": null,
+    "best": {
+     "place": 2,
+     "matchup": 2
+    },
+    "worst": {
+     "place": 4,
+     "matchup": 4
+    },
+    "run": {
+     "dir": "lost",
+     "length": 4
+    },
+    "gapAbove": {
+     "teamId": "2",
+     "amount": 1.5
+    },
+    "gapBelow": null,
+    "figureNow": 1,
+    "figureThen": null
+   }
+  },
+  {
+   "teamId": 9,
+   "window": 4,
+   "expect": null
+  }
+ ],
+ "_points": "The same six matchups as a POINTS league: weeklyMatchWins holds the points total and weeklyMatchResult the 1/0.5/0, which is data.js's own split. Two teams only, and the points are ordered so the table differs from the category one above - a module reading weeklyMatchWins blind would rank these as wins and be wrong. Team 2 trails after matchup 1 (95 against 110) and leads after matchup 6 (640 against 630), so a window of 5 is a climb of one place with a gap of 10 points below.",
+ "pointsTeamStats": [
+  {
+   "id": 1,
+   "name": "Alpha",
+   "weeklyMatchWins": {
+    "1": 110,
+    "2": 120,
+    "3": 90,
+    "4": 100,
+    "5": 130,
+    "6": 80
+   },
+   "weeklyMatchResult": {
+    "1": 1,
+    "2": 1,
+    "3": 0,
+    "4": 0.5,
+    "5": 1,
+    "6": 0
+   }
+  },
+  {
+   "id": 2,
+   "name": "Bravo",
+   "weeklyMatchWins": {
+    "1": 95,
+    "2": 85,
+    "3": 140,
+    "4": 100,
+    "5": 70,
+    "6": 150
+   },
+   "weeklyMatchResult": {
+    "1": 0,
+    "2": 0,
+    "3": 1,
+    "4": 0.5,
+    "5": 0,
+    "6": 1
+   }
+  }
+ ],
+ "pointsExpect": {
+  "teamId": 2,
+  "window": 5,
+  "unit": "points",
+  "placeNow": 1,
+  "placeThen": 2,
+  "delta": 1,
+  "run": {
+   "dir": "won",
+   "length": 1
+  },
+  "figureNow": 640,
+  "figureThen": 95,
+  "gapAbove": null,
+  "gapBelow": {
+   "teamId": "1",
+   "amount": 10
+  }
+ }
+}

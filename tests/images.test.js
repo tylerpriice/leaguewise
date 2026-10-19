@@ -1,5 +1,5 @@
-// Unit tests for the headshot/avatar helpers. Open tests/images.test.html through any static server - green means every assertion held. These are pure string functions; the URLs they build were validated by loading them (see the comment on HEADSHOT_BASE), which is a claim no unit test can make - what IS testable is that the right id gets the right URL and the wrong kind of id gets none at all.
-import { headshotUrl, initialsFor, buildPlayerAvatarHtml, proTeamLogoUrl, buildProTeamLogoHtml } from '../images.js';
+// Unit tests for the headshot/avatar helpers. Open tests/images.test.html through any static server; green means every assertion held. These are pure string functions. The URLs they build were validated by loading them (see the comment on HEADSHOT_BASE), a claim no unit test can make. What is testable is that the right id gets the right URL and the wrong kind of id gets none at all.
+import { headshotUrl, initialsFor, buildPlayerAvatarHtml, proTeamLogoUrl, buildProTeamLogoHtml, imageKindOf } from '../src/views/images.js';
 
 const results = [];
 function test(name, fn) {
@@ -26,7 +26,7 @@ test('headshotUrl: an unsupported sport or a missing id yields null, not a broke
 });
 
 test('headshotUrl: a NEGATIVE id is never a person, so it gets no URL', () => {
-    // Football's team defences carry negative ids - real ones from the captured pool. Requesting a headshot for one is a 404 by construction.
+    // Football's team defences carry negative ids, real ones from the captured pool. Requesting a headshot for one is a 404 by construction.
     assertEq(headshotUrl('ffl', -16007), null, 'a D/ST id');
     assertEq(headshotUrl('ffl', -16034), null, 'another D/ST id');
     // The rule is about the id, not the sport: no league has negative athlete ids.
@@ -68,12 +68,12 @@ test('buildPlayerAvatarHtml: a D/ST produces NO img tag at all', () => {
 });
 
 test('buildPlayerAvatarHtml: the name is escaped into the tile', () => {
-    // initialsFor takes the first letter of each part, so a crafted name reaches the markup as initials rather than text - but the escaping is what guarantees it, not that assumption.
+    // initialsFor takes the first letter of each part, so a crafted name reaches the markup as initials rather than text, but the escaping is what guarantees it, not that assumption.
     const html = buildPlayerAvatarHtml('ffl', -1, '<script>x</script> Bad');
     assert(!html.includes('<script'), `expected escaping, got: ${html}`);
 });
 
-// ==== proTeamLogoUrl The URL pattern itself was validated live (LAD/Ath/Wsh flb, nj fhl, kc ffl - see images.js's own comment) - what a unit test can check is that this app's own proAbbrev passes through unchanged and that a missing sport or abbreviation yields null rather than a broken URL. ====
+// ==== proTeamLogoUrl. The URL pattern itself was validated live (LAD/Ath/Wsh flb, nj fhl, kc ffl; see images.js's own comment). What a unit test can check is that this app's own proAbbrev passes through unchanged and that a missing sport or abbreviation yields null rather than a broken URL. ====
 
 test('proTeamLogoUrl: each sport gets its own league path, the abbreviation passed straight through', () => {
     assertEq(proTeamLogoUrl('flb', 'LAD'), 'https://a.espncdn.com/i/teamlogos/mlb/500/LAD.png', 'flb, uppercase kept as-is');
@@ -100,6 +100,14 @@ test('buildProTeamLogoHtml: a mapped abbreviation gets a lazy img in its own fix
 test('buildProTeamLogoHtml: no abbreviation renders NOTHING, not an empty box - the backlog\'s own "no logo, exactly today\'s layout" rule', () => {
     assertEq(buildProTeamLogoHtml('flb', null), '', 'no proAbbrev to show');
     assertEq(buildProTeamLogoHtml('fba', 'LAL'), '', 'unsupported sport, same as the URL builder');
+});
+
+test('imageKindOf: the request log\'s kind, read off the url this file built (B262 item 1b)', () => {
+    assertEq(imageKindOf(headshotUrl('fhl', 3041969)), 'headshot', 'a headshot');
+    assertEq(imageKindOf(proTeamLogoUrl('flb', 'LAD')), 'pro logo', 'a pro-team logo');
+    assertEq(imageKindOf('https://g.espncdn.com/lm-static/logo-packs/x.svg'), 'team logo', 'a logo pack');
+    assertEq(imageKindOf('https://mystique-api.fantasy.espn.com/apis/v1/domains/lm/images/x'), 'team logo', 'an upload');
+    assertEq(imageKindOf('https://a.espncdn.com/combiner/i?img=x'), 'team logo', 'the CDN off both paths');
 });
 
 const passed = results.filter(r => r.ok).length;

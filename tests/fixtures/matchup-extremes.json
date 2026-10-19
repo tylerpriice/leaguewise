@@ -1,0 +1,96 @@
+{
+ "_synthetic": "Hand-written for B266 item 7.2. Rows only, in the shape seasonRows and recap.js both build. Every team is invented; the margins and tie placements are the shapes measured on the three captures. Every expectation is computed by hand in matchup-extremes.md, never by running the module.",
+ "_shape": "A row is { week, home, away, decided, tie, margin }. home and away carry a key and a name so a test can read who; matchupExtremes itself reads only decided, tie and margin.",
+
+ "noTies": {
+  "_case": "The unchanged path, which must stay byte-identical: no tie in the set, so the narrowest margin is the closest.",
+  "rows": [
+   { "week": 2, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "B", "name": "Bravos" }, "decided": true, "tie": false, "margin": 1 },
+   { "week": 5, "home": { "key": "C", "name": "Charlies" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 5 },
+   { "week": 8, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "C", "name": "Charlies" }, "decided": true, "tie": false, "margin": 3 },
+   { "week": 11, "home": { "key": "B", "name": "Bravos" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 7 },
+   { "week": 14, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 9 }
+  ],
+  "expect": { "blowoutWeek": 14, "blowoutMargin": 9, "closestWeek": 2, "closestMargin": 1, "tieWeeks": [] }
+ },
+
+ "oneTie": {
+  "_case": "THE OWNER'S MLB SHAPE: one tie, at M9. The margin-1 game at M2 is deliberately still in the set, so a function that forgot to null closest would return it and this case would catch it.",
+  "rows": [
+   { "week": 2, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "B", "name": "Bravos" }, "decided": true, "tie": false, "margin": 1 },
+   { "week": 5, "home": { "key": "C", "name": "Charlies" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 5 },
+   { "week": 8, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "C", "name": "Charlies" }, "decided": true, "tie": false, "margin": 3 },
+   { "week": 9, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "C", "name": "Charlies" }, "decided": true, "tie": true, "margin": 0 },
+   { "week": 11, "home": { "key": "B", "name": "Bravos" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 7 },
+   { "week": 14, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 9 }
+  ],
+  "expect": {
+   "blowoutWeek": 14, "blowoutMargin": 9, "closest": null, "tieWeeks": [9],
+   "tiesFact": { "count": 1, "games": [{ "keys": ["A", "C"], "when": "M9" }] },
+   "seasonLine": "1 tie: Alphas v Charlies (matchup 9)"
+  }
+ },
+
+ "fourTies": {
+  "_case": "THE HOCKEY SHAPE, and the sharper case: the margin-1 game is itself at M1, the same week as a tie. Four ties, reported in schedule order.",
+  "rows": [
+   { "week": 1, "home": { "key": "E", "name": "Echoes" }, "away": { "key": "F", "name": "Foxes" }, "decided": true, "tie": true, "margin": 0 },
+   { "week": 1, "home": { "key": "G", "name": "Golfs" }, "away": { "key": "H", "name": "Hotels" }, "decided": true, "tie": false, "margin": 1 },
+   { "week": 4, "home": { "key": "F", "name": "Foxes" }, "away": { "key": "G", "name": "Golfs" }, "decided": true, "tie": true, "margin": 0 },
+   { "week": 5, "home": { "key": "E", "name": "Echoes" }, "away": { "key": "H", "name": "Hotels" }, "decided": true, "tie": false, "margin": 4 },
+   { "week": 6, "home": { "key": "H", "name": "Hotels" }, "away": { "key": "E", "name": "Echoes" }, "decided": true, "tie": true, "margin": 0 },
+   { "week": 7, "home": { "key": "F", "name": "Foxes" }, "away": { "key": "H", "name": "Hotels" }, "decided": true, "tie": true, "margin": 0 },
+   { "week": 12, "home": { "key": "G", "name": "Golfs" }, "away": { "key": "E", "name": "Echoes" }, "decided": true, "tie": false, "margin": 6 },
+   { "week": 18, "home": { "key": "E", "name": "Echoes" }, "away": { "key": "G", "name": "Golfs" }, "decided": true, "tie": false, "margin": 13 }
+  ],
+  "expect": {
+   "blowoutWeek": 18, "blowoutMargin": 13, "closest": null, "tieWeeks": [1, 4, 6, 7],
+   "tiesFact": {
+    "count": 4,
+    "games": [
+     { "keys": ["E", "F"], "when": "M1" },
+     { "keys": ["F", "G"], "when": "M4" },
+     { "keys": ["H", "E"], "when": "M6" },
+     { "keys": ["F", "H"], "when": "M7" }
+    ]
+   },
+   "seasonLine": "4 ties: Echoes v Foxes (matchup 1), Foxes v Golfs (matchup 4), Hotels v Echoes (matchup 6), Foxes v Hotels (matchup 7)"
+  }
+ },
+
+ "onlyTies": {
+  "_case": "Nothing decided but ties. No game was widest, which is true of a set with no won game in it - a 0-margin blowout would read as a rout that never happened.",
+  "rows": [
+   { "week": 3, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "B", "name": "Bravos" }, "decided": true, "tie": true, "margin": 0 },
+   { "week": 6, "home": { "key": "C", "name": "Charlies" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": true, "margin": 0 }
+  ],
+  "expect": { "blowout": null, "closest": null, "tieWeeks": [3, 6] }
+ },
+
+ "oneGame": {
+  "_case": "The existing one-row rule, unchanged: a one-game set has no narrowest distinct from its widest.",
+  "rows": [
+   { "week": 4, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "B", "name": "Bravos" }, "decided": true, "tie": false, "margin": 5 }
+  ],
+  "expect": { "blowoutWeek": 4, "blowoutMargin": 5, "closest": null, "tieWeeks": [] }
+ },
+
+ "sameGameBoth": {
+  "_case": "Two rows of equal margin, so the two reductions land on the same row. Closest is null rather than the same game reported twice.",
+  "rows": [
+   { "week": 2, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "B", "name": "Bravos" }, "decided": true, "tie": false, "margin": 4 },
+   { "week": 3, "home": { "key": "C", "name": "Charlies" }, "away": { "key": "D", "name": "Deltas" }, "decided": true, "tie": false, "margin": 4 }
+  ],
+  "expect": { "blowoutWeek": 2, "blowoutMargin": 4, "closest": null, "tieWeeks": [] }
+ },
+
+ "undecidedTie": {
+  "_case": "A tie flag on a row that was never decided is not a tie. A matchup still being played has not finished level.",
+  "rows": [
+   { "week": 7, "home": { "key": "A", "name": "Alphas" }, "away": { "key": "B", "name": "Bravos" }, "decided": false, "tie": true, "margin": 0 }
+  ],
+  "expect": { "blowout": null, "closest": null, "tieWeeks": [] }
+ },
+
+ "none": { "_case": "An empty set and a null one both answer the same way.", "rows": [], "expect": { "blowout": null, "closest": null, "tieWeeks": [] } }
+}

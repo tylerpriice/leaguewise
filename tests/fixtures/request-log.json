@@ -1,0 +1,36 @@
+{
+ "_synthetic": "Hand-written for B262 item 1. Fifteen invented requests on the real origins, one unknown host and one address that is not a url. League 1001, players 9001 and 9002, the logo file names and the SWID are all invented. The expected rows are computed by hand in request-log.md, never by running the code.",
+ "_at": "Every `at` is ms since epoch, as the caller would stamp it. The base is 2026-09-26T18:00:00Z, a date and nothing more.",
+ "swid": "{11111111-2222-3333-4444-555555555555}",
+ "requests": [
+  { "url": "https://fan.api.espn.com/apis/v2/fans/%7B11111111-2222-3333-4444-555555555555%7D", "kind": "league list", "at": 1790445600000, "bytes": 2048, "ok": true },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/segments/0/leagues/1001?view=mTeam&view=mSettings", "kind": "league", "at": 1790445601000, "bytes": 50000, "ok": true },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/players?view=kona_player_info", "kind": "pool", "at": 1790445602000, "bytes": 300000, "ok": true },
+  { "url": "https://a.espncdn.com/i/headshots/nhl/players/full/9001.png", "kind": "headshot", "at": 1790445602500, "bytes": null, "ok": true },
+  { "url": "https://a.espncdn.com/i/headshots/nhl/players/full/9002.png", "kind": "headshot", "at": 1790445602600, "bytes": null, "ok": false },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/segments/0/leagues/1001?view=mRoster", "kind": "rosters", "at": 1790445603000, "bytes": 120000, "ok": true },
+  { "url": "https://a.espncdn.com/i/teamlogos/nhl/500/tor.png", "kind": "pro logo", "at": 1790445603500, "bytes": null, "ok": true },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/segments/0/leagues/1001?view=mTeam&view=mSettings", "kind": "league", "at": 1790445660000, "bytes": 51000, "ok": true },
+  { "url": "https://g.espncdn.com/lm-static/logos/invented-1.svg", "kind": "team logo", "at": 1790445604000, "bytes": null, "ok": true },
+  { "url": "https://mystique-api.fantasy.espn.com/apis/v1/domains/lm/images/invented-2", "kind": "logo colour", "at": 1790445604100, "bytes": null, "ok": true },
+  { "url": "https://stats.example.net/v1/lines", "kind": "other", "at": 1790445605000, "bytes": 900, "ok": true },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/leagueHistory/1001", "kind": "history", "at": 1790445606000, "bytes": 4000, "ok": false },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/leagueHistory/1001", "kind": "history", "at": 1790445606200, "bytes": 4100, "ok": true },
+  { "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/fhl/seasons/2026/players?view=kona_player_info", "kind": "", "at": 1790445607000, "bytes": null, "ok": true },
+  { "url": "not a url", "kind": "pool", "at": "soon", "bytes": -5, "ok": "yes" }
+ ],
+ "rows": [
+  { "origin": "https://fan.api.espn.com", "name": "ESPN's account lookup", "known": true, "purpose": "the leagues on your account", "count": 1, "bytes": 2048, "failed": 0, "first": 1790445600000, "last": 1790445600000 },
+  { "origin": "https://lm-api-reads.fantasy.espn.com", "name": "ESPN's fantasy API", "known": true, "purpose": "the league: teams, matchups, transactions, and the draft", "count": 2, "bytes": 101000, "failed": 0, "first": 1790445601000, "last": 1790445660000 },
+  { "origin": "https://lm-api-reads.fantasy.espn.com", "name": "ESPN's fantasy API", "known": true, "purpose": "the player pool", "count": 1, "bytes": 300000, "failed": 0, "first": 1790445602000, "last": 1790445602000 },
+  { "origin": "https://a.espncdn.com", "name": "ESPN's headshots", "known": true, "purpose": "a player headshot", "count": 2, "bytes": null, "failed": 1, "first": 1790445602500, "last": 1790445602600 },
+  { "origin": "https://lm-api-reads.fantasy.espn.com", "name": "ESPN's fantasy API", "known": true, "purpose": "every team's roster", "count": 1, "bytes": 120000, "failed": 0, "first": 1790445603000, "last": 1790445603000 },
+  { "origin": "https://a.espncdn.com", "name": "ESPN's pro-team logos", "known": true, "purpose": "a pro-team logo", "count": 1, "bytes": null, "failed": 0, "first": 1790445603500, "last": 1790445603500 },
+  { "origin": "https://g.espncdn.com", "name": "ESPN's image server", "known": true, "purpose": "a fantasy team logo", "count": 1, "bytes": null, "failed": 0, "first": 1790445604000, "last": 1790445604000 },
+  { "origin": "https://mystique-api.fantasy.espn.com", "name": "ESPN's uploaded team logos", "known": true, "purpose": "a team logo, read for its colour", "count": 1, "bytes": null, "failed": 0, "first": 1790445604100, "last": 1790445604100 },
+  { "origin": "https://stats.example.net", "name": "another host: https://stats.example.net", "known": false, "purpose": "no purpose recorded", "count": 1, "bytes": 900, "failed": 0, "first": 1790445605000, "last": 1790445605000 },
+  { "origin": "https://lm-api-reads.fantasy.espn.com", "name": "ESPN's fantasy API", "known": true, "purpose": "the league's past seasons", "count": 2, "bytes": 8100, "failed": 1, "first": 1790445606000, "last": 1790445606200 },
+  { "origin": "https://lm-api-reads.fantasy.espn.com", "name": "ESPN's fantasy API", "known": true, "purpose": "no purpose recorded", "count": 1, "bytes": null, "failed": 0, "first": 1790445607000, "last": 1790445607000 },
+  { "origin": null, "name": "an unreadable address", "known": false, "purpose": "the player pool", "count": 1, "bytes": null, "failed": 0, "first": null, "last": null }
+ ]
+}

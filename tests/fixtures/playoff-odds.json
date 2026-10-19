@@ -1,0 +1,125 @@
+{
+ "_synthetic": "Hand-written for B254. No capture is involved: four invented teams, three invented categories (one inverse), two played weeks each and one remaining week, so every remaining matchup has exactly four equiprobable week-pairs and the odds are ENUMERABLE BY HAND. The enumeration, all sixteen sixteenths of it, is in tests/fixtures/playoff-odds.md; the suite asserts the seeded run against those figures rather than against a run of the code.",
+ "_categories": "'10' and '20' are counting categories (higher wins). '30' is INVERSE (lower wins) - the fixture carries one so the flip is exercised, the way a league's real ERA or GA does.",
+
+ "teams": [
+  { "id": 1, "name": "Alpha", "divisionId": 0 },
+  { "id": 2, "name": "Bravo", "divisionId": 0 },
+  { "id": 3, "name": "Charlie", "divisionId": 0 },
+  { "id": 4, "name": "Delta", "divisionId": 0 }
+ ],
+
+ "scoredStatIds": ["10", "20", "30"],
+ "inverseStatIds": ["30"],
+
+ "settings": {
+  "scoringSettings": { "scoringType": "H2H_MOST_CATEGORIES", "matchupTieRule": "NONE", "matchupTieRuleBy": 0 },
+  "scheduleSettings": {
+   "matchupPeriodCount": 3,
+   "playoffTeamCount": 2,
+   "playoffSeedingRule": "H2H_RECORD",
+   "playoffSeedingRuleBy": 0,
+   "playoffReseed": false,
+   "divisions": [{ "id": 0, "name": "League Standings" }]
+  }
+ },
+ "status": { "currentMatchupPeriod": 3 },
+
+ "_weeklyCats": "Each team's own two played weeks, which ARE its resample basis. weeklyCats is the shape data.js builds: team -> week -> statId -> value.",
+ "weeklyCats": {
+  "1": { "1": { "10": 10, "20": 4, "30": 9 },  "2": { "10": 6, "20": 9, "30": 5 } },
+  "2": { "1": { "10": 7,  "20": 7, "30": 9 },  "2": { "10": 9, "20": 2, "30": 6 } },
+  "3": { "1": { "10": 7,  "20": 6, "30": 8 },  "2": { "10": 4, "20": 8, "30": 4 } },
+  "4": { "1": { "10": 8,  "20": 5, "30": 7 },  "2": { "10": 5, "20": 3, "30": 11 } }
+ },
+
+ "_schedule": "Periods 1 and 2 are played and carry their winner; period 3 is the one remaining matchup pair. playoffTierType NONE throughout, so the regular season runs to matchupPeriodCount, which is the live-league case measured on full-nfl-2026-week2.",
+ "schedule": [
+  { "matchupPeriodId": 1, "playoffTierType": "NONE", "winner": "TIE",  "home": { "teamId": 1 }, "away": { "teamId": 2 } },
+  { "matchupPeriodId": 1, "playoffTierType": "NONE", "winner": "AWAY", "home": { "teamId": 3 }, "away": { "teamId": 4 } },
+  { "matchupPeriodId": 2, "playoffTierType": "NONE", "winner": "HOME", "home": { "teamId": 1 }, "away": { "teamId": 3 } },
+  { "matchupPeriodId": 2, "playoffTierType": "NONE", "winner": "HOME", "home": { "teamId": 2 }, "away": { "teamId": 4 } },
+  { "matchupPeriodId": 3, "playoffTierType": "NONE", "winner": "UNDECIDED", "home": { "teamId": 1 }, "away": { "teamId": 4 } },
+  { "matchupPeriodId": 3, "playoffTierType": "NONE", "winner": "UNDECIDED", "home": { "teamId": 2 }, "away": { "teamId": 3 } }
+ ],
+
+ "_played": "The records the two played periods leave, with a tie counting half - the weight measured on full-mlb-2025-2 (6-14-2 -> 0.31818) and full-nhl-fgb (11-9-1 -> 0.547619).",
+ "playedRecords": {
+  "1": { "wins": 1, "losses": 0, "ties": 1, "points": 1.5 },
+  "2": { "wins": 1, "losses": 0, "ties": 1, "points": 1.5 },
+  "3": { "wins": 0, "losses": 2, "ties": 0, "points": 0 },
+  "4": { "wins": 1, "losses": 1, "ties": 0, "points": 1 }
+ },
+
+ "_truth": "The enumerated answer, in sixteenths, worked by hand in playoff-odds.md. odds is the chance of a top-2 finish; seeds[i] is the chance of seed i+1. An unbroken tie is split evenly across the tied seats, which is where the halves come from.",
+ "enumerated": {
+  "1": { "odds": 0.8125, "seeds": [0.65625, 0.15625, 0.1875, 0], "expectedWins": 2.25,  "clinched": false, "eliminated": false },
+  "2": { "odds": 0.9375, "seeds": [0.21875, 0.71875, 0.0625, 0], "expectedWins": 1.875, "clinched": false, "eliminated": false },
+  "3": { "odds": 0,      "seeds": [0, 0, 0, 1],                  "expectedWins": 0.625, "clinched": false, "eliminated": true },
+  "4": { "odds": 0.25,   "seeds": [0.125, 0.125, 0.75, 0],       "expectedWins": 1.25,  "clinched": false, "eliminated": false }
+ },
+
+ "_everyoneQualifies": "The same fixture read with playoffTeamCount 4 - the full-nhl-fgb case, 6 of 6 - where every team's odds are 1 and the SEED spread is the whole answer.",
+ "enumeratedAllIn": {
+  "1": { "odds": 1, "seeds": [0.65625, 0.15625, 0.1875, 0] },
+  "2": { "odds": 1, "seeds": [0.21875, 0.71875, 0.0625, 0] },
+  "3": { "odds": 1, "seeds": [0, 0, 0, 1] },
+  "4": { "odds": 1, "seeds": [0.125, 0.125, 0.75, 0] }
+ },
+ "_roto": "THE ROTO SIBLING (B254 item 2). A roto season has no matchups, so the draw is the rest of the season's PRODUCTION: each team's two remaining periods are drawn from its own two played periods and summed onto its current total, per category. Charlie and Delta have identical played periods, so their finals are deterministic and only Alpha and Bravo vary - which keeps the whole thing to nine joint outcomes in sixteenths and enumerable by hand. Worked in playoff-odds.md.",
+ "roto": {
+  "settings": {
+   "scoringSettings": { "scoringType": "ROTO" },
+   "scheduleSettings": { "matchupPeriodCount": 1, "playoffTeamCount": 0 }
+  },
+  "periodsPlayed": 2,
+  "periodsRemaining": 2,
+  "perPeriod": {
+   "1": [{ "10": 5, "20": 3, "30": 4 }, { "10": 3, "20": 5, "30": 2 }],
+   "2": [{ "10": 5, "20": 3, "30": 5 }, { "10": 4, "20": 4, "30": 3 }],
+   "3": [{ "10": 2, "20": 2, "30": 1 }, { "10": 2, "20": 2, "30": 1 }],
+   "4": [{ "10": 1, "20": 1, "30": 7 }, { "10": 1, "20": 1, "30": 7 }]
+  },
+  "currentTotals": {
+   "1": { "10": 8, "20": 8, "30": 6 },
+   "2": { "10": 9, "20": 7, "30": 8 },
+   "3": { "10": 4, "20": 4, "30": 2 },
+   "4": { "10": 2, "20": 2, "30": 14 }
+  },
+  "_leaders": "By the CURRENT totals: Bravo leads '10', Alpha leads '20', Charlie leads '30' because it is inverse and 2 is the lowest.",
+  "leaders": { "10": 2, "20": 1, "30": 3 },
+  "enumerated": {
+   "1": { "titleOdds": 0.96875, "expectedPoints": 9.96875,
+          "perCategory": [{ "statId": "10", "chanceAboveLeader": 0.0625 },
+                          { "statId": "20", "chanceAboveLeader": null },
+                          { "statId": "30", "chanceAboveLeader": 0 }] },
+   "2": { "titleOdds": 0.03125, "expectedPoints": 9.03125,
+          "perCategory": [{ "statId": "10", "chanceAboveLeader": null },
+                          { "statId": "20", "chanceAboveLeader": 0.0625 },
+                          { "statId": "30", "chanceAboveLeader": 0 }] },
+   "3": { "titleOdds": 0, "expectedPoints": 8,
+          "perCategory": [{ "statId": "10", "chanceAboveLeader": 0 },
+                          { "statId": "20", "chanceAboveLeader": 0 },
+                          { "statId": "30", "chanceAboveLeader": null }] },
+   "4": { "titleOdds": 0, "expectedPoints": 3,
+          "perCategory": [{ "statId": "10", "chanceAboveLeader": 0 },
+                          { "statId": "20", "chanceAboveLeader": 0 },
+                          { "statId": "30", "chanceAboveLeader": 0 }] }
+  }
+ },
+
+ "_prior": "Amendment 4's instance, synthetic: two teams in a points league, one played week (team 1 scored 100 and beat team 2's 90), two remaining matchups between them, one seat, TOTAL_POINTS_SCORED. Enumerated by hand in playoff-odds.md, in 4096ths.",
+ "prior": {
+  "settings": { "scheduleSettings": { "playoffTeamCount": 1, "playoffSeedingRule": "TOTAL_POINTS_SCORED", "matchupPeriodCount": 3 },
+                "scoringSettings": { "scoringType": "H2H_POINTS" } },
+  "teamStats": [ { "id": 1, "weeklyCats": { "1": {} }, "weeklyMatchWins": { "1": 100 } },
+                 { "id": 2, "weeklyCats": { "1": {} }, "weeklyMatchWins": { "1": 90 } } ],
+  "pointsFor": { "1": 100, "2": 90 },
+  "schedule": [
+   { "matchupPeriodId": 1, "playoffTierType": "NONE", "winner": "HOME", "home": { "teamId": 1 }, "away": { "teamId": 2 } },
+   { "matchupPeriodId": 2, "playoffTierType": "NONE", "winner": "UNDECIDED", "home": { "teamId": 2 }, "away": { "teamId": 1 } },
+   { "matchupPeriodId": 3, "playoffTierType": "NONE", "winner": "UNDECIDED", "home": { "teamId": 1 }, "away": { "teamId": 2 } }
+  ],
+  "enumerated": { "1": { "odds": 0.914306640625, "expectedWins": 2.25 }, "2": { "odds": 0.085693359375, "expectedWins": 0.75 } }
+ }
+}

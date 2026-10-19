@@ -1,11 +1,25 @@
-// DEV-ONLY stub of the WebExtension `browser` API, used solely by dev-preview.html (which is not referenced by manifest.json and never ships). Lets the full dashboard run on a plain static server with a REAL captured league payload (one of the espn-debug-*.json dumps in the JSON_debug/ folder) preloaded as if it were the extension's session cache - no ESPN cookies or network needed. Anything that does hit the network (fan-profile discovery, the player pool) fails and takes its normal, already-handled error path. Pick a different payload with ?payload=<filename>, e.g. dev-preview.html?payload=espn-debug-1783444838686.json (bare filenames resolve into JSON_debug/; pass a path with "/" to point anywhere else) Two extra switches for screenshots and offline player work: ?anon=1 - renames every fantasy team to an invented one with its own abbreviation (and blanks member names) before the dashboard sees the payload, so screenshots of real league data carry no real team names. Player rows inherit the renamed teams because players.js maps teamId -> team through the league payload, not through the player payload's own strings. ?capture=<dir> - loads a WHOLE captured league from a Download All directory (team.json, roster.json, draft-detail.json, player-pool.json). The app fetches those through four different ESPN views, so a surface that reads all four - the graded card wants rosters AND picks AND the pool - cannot be staged from any single ?payload= file. ?players= still wins if given. ?preseason=1 - rewinds the loaded league AND ITS POOL to the day after its draft, by REMOVING the evidence of play (each team's valuesByStat and record) before the dashboard sees it. Not a flag the app reads: season-state.js still reads the payload and answers honestly, so there is no override the product could ever take by accident. Lets a mid-season capture stage the two preseason faces with its own real rosters, picks and projections. ?players=<file> - serves a captured player-pool JSON (the debug panel's "Player Pool Schema" download) for the pool fetch, so the Player Metrics tab runs offline. Weekly-stats fetches (same endpoint, but sent with a filterStatsForTopScoringPeriodIds filter header) are answered with an empty-but-valid pool - see the interception comment below. ?poolstatus=<code> - refuses the pool fetch with that HTTP status, everything else normal. ?txstatus=<code> - refuses every per-period transaction request AFTER the first &txokfirst=<n> ?txokfirst=<n> with that status (429 for a throttle, 401 for an expired session). Stages a host that starts refusing partway through a walk, which is the only way to measure what a circuit breaker actually saves. ?poolstatus=405 is the logged-out session. ?proteam=<file> - serves a captured proTeamSchedules_wl response, which is what My Team's Schedule face needs to place projected starts on days. Without it that one request goes to real ESPN, so offline every calendar day renders empty - the face loads but has nothing in it to size against. ?noleague=1 - the FRESH-INSTALL state: no stored league, no cached payload, so nothing auto-fetches and the page renders only its entry chrome. This is what the browser-action popup shows the first time it is ever opened, and until now the harness could not produce it - which is how a header row with no header row silently stopped redirecting to a full tab. ?seasons=<y:file,..> - serves captured league payloads for PAST seasons, which is what the League History view fetches one per year. Also answers the leagueHistory year list from the same argument, so the view discovers exactly these years. Without it a history view has only the current season to show. ?seasonpools=<y:file,..> - serves a captured PLAYER POOL per season, which is what the career table fetches when it is opened - the live season included, since careers count it. Pass captures filtered to season totals, since that is what the real request asks for: the same league unfiltered is 52 MB against 2 MB filtered, and replaying the fat one stages a response the extension never receives. ?historyomit=<y,..> - drops those years from the leagueHistory ANSWER while still serving their payloads. That is what ESPN really does: the stub omits unfinished seasons (docs/DATA-SOURCES.md section 9), so the current season is missing from it while being perfectly fetchable. Without this the harness could not stage item 3 at all, because ?seasons= answered the stub with every year it could serve and the bug needs the two lists to differ. ?scoreboard=<file> - serves a captured scoreboard response, which is where the betting lines on the Schedule cards come from. Without it that request goes to real ESPN, so offline no card carries a line - which is also the shape to stage deliberately, since odds cover today's slate only and most cards never have one. Pass a no-odds capture to test that path. ?playersDelay=<ms> - holds the player pool back. Captures resolve off disk in a few ms, so a ?payloadDelay=<ms> driven click can never land BEFORE the pool settles and the LOADING state ?proteamDelay=<ms> the owner keeps entering had never once been rendered here - which is why three rounds of My Team fit bugs were reasoned about rather than staged. payloadDelay does the same for the league payload, which is the league-switch variant. Timing assertions belong against these clocks: a driven click lands late and reflexes are not evidence.
+// Dev-only stand-in for the WebExtension browser API, used by dev-preview.html on a static server with a captured league payload preloaded as the session cache. Query switches choose the payload and stage states (anonymized names, preseason, rosters, delays, refusals), and each is explained beside the code that reads it.
 (function () {
     if (window.browser) return;
 
     const params = new URLSearchParams(location.search);
-    // The bundled anonymized sample league, and it is declared HERE rather than beside its fetch because it is now the DEFAULT rather than only the fallback - see payloadFile just below.
+    // A capture is one moment, so a cell that depends on the day is staged at the capture's own time rather than at the day the preview is opened. The clock starts at the given instant and runs on, which keeps every elapsed duration real.
+    const pinnedNow = Date.parse(params.get('now') || '');
+    if (Number.isFinite(pinnedNow)) {
+        const RealDate = Date;
+        const offset = pinnedNow - RealDate.now();
+        class PreviewDate extends RealDate {
+            constructor(...args) {
+                if (args.length) super(...args);
+                else super(RealDate.now() + offset);
+            }
+            static now() { return RealDate.now() + offset; }
+        }
+        window.Date = PreviewDate;
+    }
+    // The bundled anonymized sample league. It is declared here rather than beside its fetch because it is the default, not only the fallback (see payloadFile just below).
     const SAMPLE_FILE = 'tests/sample-league.json';
-    // ASKING FOR NOTHING GETS THE SAMPLE, not a capture that is not there. This used to default to a named file under JSON_debug/, a directory that is never committed and never mirrored. That was harmless here, where the file exists, and wrong in the public repo: a contributor or a store reviewer cloning it and opening dev-preview.html got, as the page's FIRST console line, a 404 naming the owner's private capture directory and one specific private capture's filename. The page then worked - the fallback below is deliberate and lands on the committed sample - but a published file should not open by announcing the shape and name of something only its author has. The loud error is not weakened, only aimed: it now fires when a capture somebody ACTUALLY NAMED failed to load, which is the case S10 wrote it for, and never on a clone that asked for nothing at all.
+    // Asking for nothing loads the bundled sample league, not a capture that may not exist. The loud error is kept for a capture that was named and failed to load, so a clone that asked for nothing never logs a 404 for a private directory.
     const payloadName = params.get('payload');
     const payloadFile = payloadName
         ? (payloadName.includes('/') ? payloadName : `JSON_debug/${payloadName}`)
@@ -17,14 +31,14 @@
     const noLeague = params.get('noleague') === '1';
     const poolStatus = parseInt(params.get('poolstatus'), 10) || 0;
     window.__stubLoggedOut = params.get('nocookies') === '1';
-    // Flips the fake session to logged in and pokes the same watcher a real login would, so the recovery runs through the real path rather than a hand-fired event. Clears ?poolstatus too, since a login that leaves the pool still refused is not a login.
+    // Flips the fake session to logged in and pokes the same watcher a real login would, so the recovery runs through the real path rather than a hand-fired event. Clears ?poolstatus too, since a login that leaves the pool refused is not a login.
     window.__stubLogIn = () => {
         window.__stubLoggedOut = false;
         window.__stubPoolStatusCleared = true;
         window.dispatchEvent(new Event('focus'));
     };
 
-    // Invented names, in the register a real fantasy league writes in, because "Team 1" through "Team 4" reads as a broken screenshot rather than an anonymized one - and these shots go on store listings. Each carries its own abbreviation, since the standings bars, the leaderboard's team column and the heatmap axis all show the short form and a mechanical "T1" gives the same placeholder impression the long name just escaped. Location and nickname are split the way ESPN splits them so a surface joining the two still reads correctly. Nothing here is drawn from any real league. The list wraps, so a league larger than it still anonymizes - with a numeric suffix, so two teams never collide.
+    // Invented team names in the register a real league writes in, each with its own abbreviation, so anonymized screenshots do not read as broken placeholders. The list wraps with a numeric suffix so a larger league never collides.
     const ANON_TEAMS = [
         ['Bunt', 'Force Trauma', 'BFT'], ['Big', 'Inning', 'BIG'], ['Walk Off', 'Warriors', 'WOW'],
         ['Rally', 'Caps', 'RC'], ['Designated', 'Sitters', 'DS'], ['Full', 'Count Club', 'FCC'],
@@ -58,7 +72,7 @@
     const held = (ms, make) => (ms ? new Promise(resolve => setTimeout(() => resolve(make()), ms)) : make());
     const payloadDelayMs = delayMs('payloadDelay');
     const playersDelayMs = delayMs('playersDelay');
-    // ONE LEAGUE OUT OF FOUR FILES. The capture directory holds what four separate ESPN views returned, so putting them back together here is what the app's own fetches do across a session - the rosters ride the team in mRoster, and the picks live in mDraftDetail.
+    // One league out of four files: the capture directory holds what four ESPN views returned, so they are put back together here as the app's own fetches do, with the rosters riding the team in mRoster and the picks living in mDraftDetail.
     const composeCapture = async () => {
         const [league, rosters, draft] = await Promise.all([
             fetchJson(captureFile('team.json')),
@@ -72,7 +86,7 @@
         return league;
     };
 
-    // REWOUND BY SUBTRACTION, never by a flag. A league is in preseason when nobody has posted a stat line, so taking the stat lines away is not a lie about the payload - it IS the payload a league has the week before it starts. season-state.js reads it and answers for itself, which is why this can never leak into the product as a fallback: there is nothing here for the product to read. Everything the faces then draw - rosters, picks, projections - is the real capture's own.
+    // The preseason rewind works by subtraction, never by a flag: a league is in preseason when nobody has posted a stat line, so removing them reproduces the real payload of the week before the season. season-state.js reads it and answers for itself, so nothing here can leak into the product.
     const rewindToPreseason = (data) => {
         (data?.teams || []).forEach(t => {
             delete t.valuesByStat;
@@ -80,7 +94,7 @@
             delete t.points;
             delete t.pointsAdjusted;
         });
-        // THE FIXTURES SURVIVE, THE RESULTS DO NOT. season-state.js keeps a second witness for head-to-head formats - a game with a decided winner is play by definition - so a rewind that only emptied the teams would still read as underway, and did. A preseason league really does carry its whole schedule with every game undecided and no score on it.
+        // The fixtures survive, the results do not. season-state.js keeps a second witness for head-to-head formats (a decided game is play by definition), so a rewind that only emptied the teams would still read as underway. A preseason league carries its whole schedule with every game undecided and no score.
         (data?.schedule || []).forEach(g => {
             g.winner = 'UNDECIDED';
             ['home', 'away'].forEach(side => {
@@ -98,7 +112,7 @@
     const payloadPromise = held(payloadDelayMs, () => (captureDir ? composeCapture() : fetchJson(payloadFile)))
         .then(data => {
             if (data) return data;
-            // S10: a capture dir that 404s (most often the JSON_debug/ prefix left off a bare ?capture= name) used to fall back to the sample league SILENTLY - a shot of the sample staged as if it were the real fixture, caught only by someone reading team names in the frame. Loud now: whichever request failed, named, before the fallback. THE SAMPLE ITSELF FAILING IS A DIFFERENT SENTENCE. Now that it is also the default, "could not load the payload X - falling back to X" is a message this branch can reach, and a reader told to fall back to the file that just failed learns nothing.
+            // A capture directory that fails to load is reported by name before the fallback, so a screenshot of the sample is never staged as if it were the real fixture. If the sample itself is what failed, the message says so instead of naming the file as its own fallback.
             if (!captureDir && payloadFile === SAMPLE_FILE) {
                 console.error(`browser-stub: could not load ${SAMPLE_FILE}. Serve this page from the repository root - it is fetched by a path relative to the page.`);
                 return null;
@@ -110,7 +124,7 @@
         .then(data => (data && asPreseason) ? rewindToPreseason(data) : data)
         .then(data => (data && anonymize) ? anonymizePayload(data) : data);
 
-    // kona_player_info interception, two cases told apart by the scoring-period filter header: - The pool request is served from the captured ?players= file when one is given, and passes through otherwise (its failure is the tab's own already-handled error state). - Weekly-stats requests are answered with an empty-but-valid pool. A static page can never complete them for real (they need ESPN cookie auth), and letting them fail put two red fetch errors in the console on EVERY dev-preview load (the leaderboard warm-up in players.js prefetchPlayerData fires them unprompted), burying real errors during verification. The empty success means the app caches empty per-player weekly stubs, so offline a WINDOWED timeframe computes empty aggregates instead of showing the bulk- fetch error state - the honest trade was console noise on every load vs a degraded state only on a view the offline harness can't support anyway; the info line below is the breadcrumb for anyone testing windowed timeframes offline. A fresh Response per call, since a Response body can only be consumed once and the bulk fetch is chunked.
+    // The player pool request is served from the captured players file when one is given and passes through otherwise. Weekly-stats requests, told apart by the scoring-period filter header, get an empty but valid pool, since a static page cannot complete them and failing them would bury real errors in the console. A fresh Response is built per call because a body is consumed once.
     const playersName = params.get('players');
     const playersFile = playersName
         ? (playersName.includes('/') ? playersName : `JSON_debug/${playersName}`)
@@ -126,7 +140,7 @@
         if (y && f) seasonFiles.set(String(y).trim(), f.includes('/') ? f.trim() : `JSON_debug/${f.trim()}`);
     });
 
-    // year -> captured PLAYER POOL file, e.g. ?seasonpools=2024:hockey-roto-2024-pool.json,2025:... Separate from ?players= because they answer different questions of the same endpoint: that one is the pool Player Metrics reads, this one is what a career sums. They overlap on the live season and are still not the same request - the career fetch drops projections.
+    // Year to captured player pool file, e.g. ?seasonpools=2024:hockey-roto-2024-pool.json,2025:... It is separate from ?players= because the two answer different requests of the same endpoint: that one is the pool Player Metrics reads, this one is what a career sums. They overlap on the live season, and the career fetch drops projections.
     const poolsArg = params.get('seasonpools');
     const poolFiles = new Map();
     (poolsArg ? poolsArg.split(',') : []).forEach(pair => {
@@ -138,10 +152,10 @@
 
     const proteamName = params.get('proteam');
     const proteamFile = proteamName && (proteamName.includes('/') ? proteamName : `JSON_debug/${proteamName}`);
-    // &proteamDelay=<ms> holds the schedule back the way the real fetch does. Served instantly, the Schedule face exists before the tab is ever entered and the re-fit that arriving starts triggers can never land while that face is on screen - which is the one moment the fit is decided against a layout the other face has to live with too.
+    // &proteamDelay=<ms> holds the schedule back the way the real fetch does. Served instantly, the Schedule face exists before the tab is entered and the re-fit that the arrival triggers can never land while that face is on screen, which is the one moment the fit is decided against a layout the other face has to live with too.
     const proteamDelayMs = delayMs('proteamDelay');
 
-    // ?weekly=<file>&weeklyDelay=<ms> - the weekly-loading harness. Without it, weekly requests answer with an empty pool (see the note below), which is enough for "does the page survive offline" but can't exercise anything about HOW the weekly data arrives. With it, the stub indexes a real captured bulk weekly payload by player id and answers each chunk request with exactly the ids that request asked for, after an artificial per-chunk delay - so chunk ORDER, progressive pop-in, scroll/sort reprioritization, and a drill-down jumping the queue are all observable and deterministic offline. Every served chunk is appended to window.__stubWeeklyChunks ({at, count, ids}) as the record to assert ordering against. ?weekly=<file>[,<file>...] - SEVERAL FILES MERGE INTO ONE INDEX, which is what makes a single-player drill-down capture usable here. Those captures are the drill-down fetch's own response and already carry the shape this harness indexes - { players: [entry] } keyed by player id - so a comma-separated list needs no second parameter and no second code path: the bulk chunk request and the one-player request are answered out of the same map. Naming a player twice is harmless; the later file wins, which is what a fresher capture should do.
+    // ?weekly=<file>&weeklyDelay=<ms> replays a captured bulk weekly payload indexed by player id, answering each chunk request with exactly the ids asked for after a per-chunk delay, and records every served chunk in window.__stubWeeklyChunks. Several files merge into one index, the later file winning, so single-player drill-down captures work too.
     const weeklyName = params.get('weekly');
     const weeklyFiles = weeklyName
         ? weeklyName.split(',').map(n => n.trim()).filter(Boolean)
@@ -149,21 +163,50 @@
         : [];
     const weeklyDelayMs = Number(params.get('weeklyDelay') || 250);
     window.__stubWeeklyChunks = [];
-    // Parsed once and shared. These captures run to tens of MB, so re-reading per chunk would dwarf the very latency the harness is trying to simulate.
+    // ?capture=<dir> also offers its own player-weekly.json when no ?weekly= is given, the explicit parameter winning, so one capture query stages the whole roto race. A capture without that file answers with the empty pool and its once-per-page note.
+    const captureWeekly = !weeklyFiles.length && captureDir ? captureFile('player-weekly.json') : null;
+    const indexWeekly = (datas, label) => {
+        const index = new Map();
+        datas.forEach(data => (data?.players || []).forEach(entry => {
+            const id = entry?.id ?? entry?.player?.id;
+            if (id != null) index.set(Number(id), entry);
+        }));
+        console.info(`browser-stub: weekly harness ready: ${index.size} players indexed from ${label}, ${weeklyDelayMs}ms per chunk.`);
+        return index;
+    };
+    // Parsed once and shared. These captures run to tens of MB, so re-reading per chunk would dwarf the very latency the harness is trying to simulate. NULL means NOT SERVING.
     const weeklyIndexPromise = weeklyFiles.length
         ? Promise.all(weeklyFiles.map(fetchJson)).then(datas => {
-            const index = new Map();
-            datas.forEach(data => (data?.players || []).forEach(entry => {
-                const id = entry?.id ?? entry?.player?.id;
-                if (id != null) index.set(Number(id), entry);
-            }));
-            console.info(`browser-stub: weekly harness ready: ${index.size} players indexed from ${weeklyFiles.length} file(s), ${weeklyDelayMs}ms per chunk.`);
-            return index;
+            // A named file that did not load is reported as missing, never counted as zero players, which was the silent zero the roster harness used to give a file in the wrong shape.
+            datas.forEach((data, i) => {
+                if (data === null) console.error(`browser-stub: could not load the weekly file ${weeklyFiles[i]} - it adds no players.`);
+            });
+            return indexWeekly(datas, weeklyFiles.join(', '));
         })
-        : null;
+        : captureWeekly
+            ? fetchJson(captureWeekly).then(data => {
+                if (data === null) {
+                    console.info(`browser-stub: no player-weekly.json in ${captureDir} - weekly stats answer with the empty pool as before.`);
+                    return null;
+                }
+                return indexWeekly([data], captureWeekly);
+            })
+            : null;
+
+    // The empty pool is the answer when nothing replays the weekly stats. It is one function because a stub with no ?weekly= and a capture with no player-weekly.json must answer identically.
+    function emptyWeeklyResponse() {
+        // Window-scoped once-flag (not a closure let) so the note prints once per page no matter how many chunked requests, or stub instances, ever run.
+        if (!window.__stubWeeklyNoted) {
+            window.__stubWeeklyNoted = true;
+            console.info('browser-stub: weekly player stats are unavailable offline. This serves an empty pool, so the leaderboard falls back to season totals and windowed timeframes stay empty. Pass ?weekly=<file> to replay a captured bulk payload instead.');
+        }
+        return new Response('{"players": []}', { headers: { 'Content-Type': 'application/json' } });
+    }
 
     async function serveWeeklyChunk(filterHeader) {
         const index = await weeklyIndexPromise;
+        // A capture with no player-weekly.json: answered exactly as a stub with no ?weekly= always was.
+        if (index === null) return emptyWeeklyResponse();
         let ids = [];
         try { ids = JSON.parse(filterHeader)?.players?.filterIds?.value || []; } catch { /* unparseable filter - serve empty */ }
         const players = ids.map(id => index.get(Number(id))).filter(Boolean);
@@ -172,7 +215,7 @@
         return new Response(JSON.stringify({ players }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // ?draft=<file>&transactions=<file> - the transaction-accurate roster harness. The draft request (view=mDraftDetail) is answered with the draft file; each per-period transaction request (view=mTransactions2&scoringPeriodId=N) is answered by filtering the merged transaction fixture down to that period, exactly as the real harvest sees ESPN's per-period slices. Without these params the requests fall through to the real network (and fail offline), so the race stays on its current-roster fallback - which is itself a valid thing to test.
+    // ?draft=<file>&transactions=<file> answers the draft request with the draft file and each per-period transaction request with the merged fixture filtered to that period, as the real harvest sees it. Without them the requests fall through to the network and the race stays on its current-roster fallback.
     const draftName = params.get('draft');
     const draftFile = draftName && (draftName.includes('/') ? draftName : `JSON_debug/${draftName}`);
     const txName = params.get('transactions');
@@ -191,7 +234,7 @@
         return byPeriod;
     }) : null;
 
-    // &txDelay=<ms> - holds every transaction and draft request that long, which is the only way to measure a harvest here at all: the fixture answers off disk in under a millisecond, so a change that reorders ~400 requests reads as noise without a modelled network. ?txstatus=<code>&txokfirst=<n> - THE REFUSAL HARNESS. The first n period requests are answered normally and every one after is refused with that status, which is the shape a walk meets when a host starts saying no partway through: 429 for a throttle, 401 for a session that expired mid-harvest. Without it a circuit breaker can only be reasoned about, and the thing being tested is precisely what happens AFTER the refusal starts - a count of requests not made, which needs a run that would otherwise have made them. 429 carries no Retry-After on purpose: throttleOf treats a bare 429 as a 30s throttle, and that is the branch worth staging, since a Retry-After makes the queue's own gate the actor.
+    // ?txDelay=<ms> holds every transaction and draft request that long, since the fixture answers off disk too fast to measure a harvest. ?txstatus=<code>&txokfirst=<n> answers the first n period requests normally and refuses the rest with that status, the shape of a host that starts saying no partway through a walk. A bare 429 is used on purpose because it stages the 30 second throttle branch.
     const txStatus = Number(params.get('txstatus')) || 0;
     const txOkFirst = Number(params.get('txokfirst') || 0);
     async function serveTransactionPeriod(url) {
@@ -207,18 +250,46 @@
         return new Response(JSON.stringify({ transactions }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // ?rosters=<file> - the started-accurate roster harness. Each per-period roster request (view=mRoster&scoringPeriodId=N) is answered from the distilled snapshot fixture ({ days: { N: [{ id, entries: [{ p, slot }] }] } }), REBUILT into ESPN's raw mRoster shape (teams[].roster.entries[].playerId/lineupSlotId) so fetchRosterPeriod's real parser runs against it offline, not just the distilled form. Without the param the request falls through to the real network (and fails offline), so the race stays on the transaction/current fallback tiers.
+    // ?rosters=<file> answers each per-period roster request from the distilled snapshot fixture, rebuilt into ESPN's raw mRoster shape so the real parser runs against it. Two shapes are accepted, the wrapped { days } form and the bare form Download All writes, detected by roster-timeline.js's rosterDaysOf. An explicit ?rosters= wins, otherwise ?capture=<dir> offers its own roster-days.json.
     const rostersName = params.get('rosters');
-    const rostersFile = rostersName && (rostersName.includes('/') ? rostersName : `JSON_debug/${rostersName}`);
-    const rostersPromise = rostersFile ? fetchJson(rostersFile).then(data => {
-        const days = (data && data.days) || {};
-        window.__stubRosterPeriods = 0;
-        console.info(`browser-stub: roster snapshot harness ready: ${Object.keys(days).length} daily snapshots from ${rostersFile}.`);
-        return days;
-    }) : null;
+    const explicitRosters = rostersName && (rostersName.includes('/') ? rostersName : `JSON_debug/${rostersName}`);
+    const rostersFile = explicitRosters || (captureDir ? captureFile('roster-days.json') : null);
 
-    async function serveRosterPeriod(url) {
+    // Null means not serving, so the harvest's requests fall through to the network. An object, even an empty one, means this harness answers every period from it.
+    async function loadRosterDays(file, explicit) {
+        const data = await fetchJson(file);
+        if (data === null) {
+            if (explicit) {
+                console.error(`browser-stub: could not load the roster snapshot file ${file} - answering the harvest with ZERO snapshots.`);
+                return {};
+            }
+            console.info(`browser-stub: no roster-days.json in ${captureDir} - the roster harvest falls through to the network as before.`);
+            return null;
+        }
+        // A literal specifier, as room-feed.js's below: the parse belt and the coverage gate both follow it.
+        const { rosterDaysOf } = await import('../src/engines/roster-timeline.js');
+        const { days, shape } = rosterDaysOf(data);
+        window.__stubRosterShape = shape;
+        window.__stubRosterPeriods = 0;
+        if (shape === 'unrecognised') {
+            console.error(`browser-stub: ${file} is neither roster-days shape - not { days: { N: [...] } } and not { N: [...] } - so ZERO snapshots were loaded from it.`);
+            return explicit ? {} : null;
+        }
+        // A UNIFORM FILE IS SAID TO BE ONE, measured rather than recognised by name: the generated fixture carries the SAME snapshot on every day, and a race drawn from it is a league where nobody ever moved. Fine for layout; never for attribution (make-roster-days.ps1's own first warning).
+        const periods = Object.keys(days);
+        const first = periods.length ? JSON.stringify(days[periods[0]]) : null;
+        const uniform = periods.length > 1 && periods.every(k => JSON.stringify(days[k]) === first);
+        window.__stubRosterUniform = uniform;
+        console.info(`browser-stub: roster snapshot harness ready: ${periods.length} daily snapshots from ${file} (${shape})`
+            + (uniform ? ' - EVERY DAY IDENTICAL: layout proofs only, never attribution.' : '.'));
+        return days;
+    }
+    const rostersPromise = rostersFile ? loadRosterDays(rostersFile, !!explicitRosters) : null;
+
+    async function serveRosterPeriod(url, options) {
         const days = await rostersPromise;
+        // A capture with no roster-days.json: not this harness's request after all.
+        if (days === null) return realFetch(url, options);
         const m = /[?&]scoringPeriodId=(\d+)/.exec(url);
         const period = m ? m[1] : null;
         const dayTeams = (period != null && days[period]) || [];
@@ -230,7 +301,7 @@
         return new Response(JSON.stringify({ teams }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    // THE POOL HALF OF THE REWIND. rewindToPreseason above empties the LEAGUE payload and for a long time that was the whole of ?preseason=1 - which staged a league that cannot exist: nobody has played, and every player carries a full season of statistics. Measured on full-nfl, whose pool profiles (source,split) (0,0):1091 - a completed 2025 actual line on all 1,091 players - so the Player Metrics leaderboard ranked a "preseason" league on a finished one and looked entirely credible doing it. WHAT GOES, AND ONLY THIS: the CURRENT season's ACTUAL line (statSourceId 0, statSplitTypeId 0, seasonId equal to the league's). That is the line a league genuinely does not have the week before it starts. WHAT STAYS: the projections (source 1), which are the whole point of a preseason face, and every PRIOR season's line, which estimateUnprojected reads to fill a category ESPN does not forecast. Stripping those would break the estimator and make the rewind a different lie. Parsed once and memoised: the pool is 3.7MB on the football capture and 15MB on the baseball one, and the careers table asks for one per season.
+    // The pool half of the rewind: it removes the current season's actual line (source 0, split 0, the league's own season) from every player, since a preseason league has none. Projections and prior seasons' lines stay, because the preseason faces and estimateUnprojected read them. The pool is parsed once and memoised, as it is 3.7MB for football and 15MB for baseball.
     let rewoundPool = null;
     const rewindPoolIfPreseason = async (response) => {
         if (!asPreseason) return response;
@@ -256,19 +327,22 @@
         return new Response(body, { headers: { 'Content-Type': 'application/json' } });
     };
 
-    // ?fresh=<file>&freshDelay=<ms> - the REVALIDATE harness. dev-preview always takes the restore path (the fake session storage always answers with the payload), so the background revalidate always fires here; without this it fails against the real host and the cached view stays put, which is itself the "failed revalidate" case worth testing. Given a file, the league request is answered with it instead, after freshDelay - so the cached paint and the fresh one are separated by a visible gap and can be told apart by a changed figure. Counted, so a test can assert the request happened exactly once.
+    // ?fresh=<file>&freshDelay=<ms> answers the background revalidate with that file after the delay, so the cached paint and the fresh one are separated by a visible gap and told apart by a changed figure. Without it the revalidate fails against the real host and the cached view stays, which is the failed-revalidate case. The requests are counted so a test can assert exactly one.
     const freshName = params.get('fresh');
     const freshFile = freshName && (freshName.includes('/') ? freshName : `JSON_debug/${freshName}`);
     const freshPromise = freshFile ? fetchJson(freshFile).then(d => (d && anonymize) ? anonymizePayload(d) : d) : null;
     window.__stubLeagueRequests = 0;
-    // Every URL the app asked for, in order, with the cache mode it asked with. The cache-busting acceptance is a statement about URLS - that two live reads of the same endpoint never carry the same query, and that a historical read is byte-identical every time - so the harness has to remember the strings rather than just the count.
+    // Every URL the app asked for, in order, with the cache mode it asked with. The cache-busting check is about URLs, that two live reads of the same endpoint never share a query and a historical read is identical every time, so the strings are kept rather than a count.
     window.__stubSeenUrls = [];
 
     const realFetch = window.fetch.bind(window);
     window.fetch = (url, options) => {
         const u = typeof url === 'string' ? url : '';
-        if (u.includes('espn.com')) {
-            // The CALLER, not just the url. The tally in utils.js can say what kind a request was and which host it went to; it cannot say what made it happen, and "what triggered this" is the whole question an efficiency review has to answer. The stack is trimmed to the app's own frames so a bucket reads as a call path rather than as noise.
+        // The whole host, not a substring: "espn.com" can sit anywhere in a string.
+        let host = '';
+        try { host = new URL(u).hostname.toLowerCase(); } catch (e) { host = ''; }
+        if (host === 'espn.com' || host.endsWith('.espn.com')) {
+            // The caller, not just the url. The tally in utils.js says what kind of request it was and which host it went to but not what triggered it, which is the question an efficiency review has to answer. The stack is trimmed to the app's own frames so a bucket reads as a call path rather than as noise.
             let via = '';
             try {
                 via = (new Error().stack || '').split(String.fromCharCode(10))
@@ -276,7 +350,7 @@
                     .filter(f => f && !/^(fetch|Object|Promise|window)/.test(f))
                     .slice(1, 5).join(' < ');
             } catch (e) { /* stacks are best effort */ }
-            // The FILTER'S OWN KEYS, because a weekly-stats request and a plain pool request are the SAME URL - api.js's requestKindOf tells them apart by looking inside X-Fantasy-Filter, and a reader with only the url cannot. Recording the keys rather than the whole filter keeps this small (filterIds carries 75 player ids) and leaves the RULE to the reader, which is where it belongs. Without this a request tally counts the race's weekly harvest as pool reads, which is exactly the misreading it exists to prevent.
+            // The filter's own keys are recorded because a weekly-stats request and a plain pool request share one URL, and api.js's requestKindOf tells them apart by looking inside X-Fantasy-Filter. Keys rather than the whole filter keep the record small, and the rule stays with the reader.
             let filterKeys = [];
             try {
                 const raw = options && options.headers && options.headers['X-Fantasy-Filter'];
@@ -301,7 +375,7 @@
             return serveTransactionPeriod(u);
         }
         if (rostersPromise && u.includes('view=mRoster')) {
-            return serveRosterPeriod(u);
+            return serveRosterPeriod(u, options);
         }
         if (scoreboardFile && u.includes('/scoreboard')) {
             return held(delayMs('scoreboardDelay'), () => realFetch(scoreboardFile));
@@ -327,11 +401,11 @@
         if (captureDir && typeof url === 'string' && url.includes('mDraftDetail')) {
             return realFetch(captureFile('draft-detail.json'));
         }
-        // The pro clubs' own season. Every schedule-derived lens - playoff density, off nights, two- start pitchers, games left - is null without it, so a capture that omitted it could stage only the empty states of the features that most need staging.
+        // The pro clubs' own season. Every schedule-derived lens (playoff density, off nights, two-start pitchers, games left) is null without it, so a capture that omitted it could stage only the empty states of the features that most need staging.
         if (captureDir && typeof url === 'string' && url.includes('proTeamSchedules')) {
             return realFetch(captureFile('pro-schedule.json'));
         }
-        // A PAYLOAD THAT CARRIES ITS OWN DRAFT answers for it. The app fetches mDraftDetail through a separate view, so a fixture with picks in it would otherwise be asked for them over the network and get nothing - the graded card stuck on "reading the draft" beside a file that holds the very picks it is waiting for. Only the fixture's own draft is served, never invented, and a payload without one still answers empty.
+        // A payload that carries its own draft answers for it. The app fetches mDraftDetail through a separate view, so a fixture with picks would otherwise be asked for them over the network and get nothing, leaving the graded card stuck on reading the draft. Only the fixture's own draft is served, never invented, and a payload without one still answers empty.
         if (!captureDir && u.includes('mDraftDetail')) {
             return payloadPromise.then(p => new Response(
                 JSON.stringify({ draftDetail: (p && p.draftDetail) || {} }),
@@ -341,22 +415,17 @@
         if (!isKona) return realFetch(url, options);
         const filterHeader = options?.headers?.['X-Fantasy-Filter'] || '';
         if (filterHeader.includes('filterStatsForTopScoringPeriodIds')) {
-            if (weeklyFiles.length) return serveWeeklyChunk(filterHeader);
-            // Window-scoped once-flag (not a closure let) so the note prints once per page no matter how many chunked requests, or stub instances, ever run.
-            if (!window.__stubWeeklyNoted) {
-                window.__stubWeeklyNoted = true;
-                console.info('browser-stub: weekly player stats are unavailable offline. This serves an empty pool, so the leaderboard falls back to season totals and windowed timeframes stay empty. Pass ?weekly=<file> to replay a captured bulk payload instead.');
-            }
-            return Promise.resolve(new Response('{"players": []}', { headers: { 'Content-Type': 'application/json' } }));
+            if (weeklyIndexPromise) return serveWeeklyChunk(filterHeader);
+            return Promise.resolve(emptyWeeklyResponse());
         }
-        // ?poolstatus=<code> refuses the pool with that status and nothing else, which is exactly what a logged-out ESPN session looks like. The league read still succeeds when restrictionType is NONE, and only the filtered pool request is turned away, with 405 rather than the 401 anyone would expect. Without this the state can be described but not reproduced, and it is the first thing a new user sees if they are not logged in.
+        // ?poolstatus=<code> refuses only the pool request with that status, which is what a logged-out ESPN session looks like. The league read still succeeds and the filtered pool is turned away with 405 rather than 401. Without it the state can be described but not reproduced.
         if (poolStatus && !window.__stubPoolStatusCleared) {
             return Promise.resolve(new Response('', { status: poolStatus, statusText: 'Stubbed' }));
         }
         const servePool = () => (playersFile
             ? held(playersDelayMs, () => realFetch(playersFile).then(rewindPoolIfPreseason))
             : realFetch(url, options).then(rewindPoolIfPreseason));
-        // One season's pool, which the career table asks for a year at a time. Matched on the year in the path, and checked here rather than earlier so the weekly branch above still owns its own requests. A season with no file of its own is REFUSED, not left to fall through. It used to fall through to ?players=, so a run staging pools for two of three seasons quietly served the current season's players as the third one's, and the career table came back with 220 rows where the data supports 183 - a harness agreeing with itself and with nothing real. A refusal is also what a season ESPN will not serve actually looks like.
+        // One season's pool, which the career table asks for a year at a time, matched on the year in the path after the weekly branch has had its turn. A season with no file of its own is refused rather than falling through to ?players=, which once served the current season's players as another season's and let the career table agree with itself and nothing real.
         if (poolFiles.size) {
             const m = u.match(/\/seasons\/(\d{4})\//);
             if (m && poolFiles.has(m[1])) return held(delayMs('seasonPoolDelay'), () => realFetch(poolFiles.get(m[1])));
@@ -369,9 +438,13 @@
         return servePool();
     };
 
+    // ?room=<fixture>, below, is the harness half of the draft room feed. This is declared outside that block because runtime.onMessage.addListener registers into roomListeners before the replay's async chain has resolved, and a listener array only the replay closure could see would miss every registration that beat it there.
+    const roomListeners = [];
+    let roomSendMessageHandler = null;
+
     window.browser = {
         cookies: {
-            // Fake cookies so checkAuth passes and the dashboard renders clean; the league picker's fan-profile fetch fails harmlessly (it's already best-effort). SWID is derived from whichever payload is loaded (the first team's own primaryOwner), not hardcoded - so "My Team" auto-detection (recap.js detectMyTeamId) has a real match against ANY payload passed via ?payload=, not just one fixed league.
+            // Fake cookies so checkAuth passes and the dashboard renders clean; the league picker's fan-profile fetch fails harmlessly because it is already best-effort. SWID is derived from whichever payload is loaded (the first team's own primaryOwner), not hardcoded, so My Team auto-detection (recap.js detectMyTeamId) has a real match against any payload passed via ?payload=.
             get: async ({ name }) => {
                 // ?nocookies=1 starts the page logged OUT. window.__stubLogIn() then flips it, which is the only way to exercise the mid-session login recovery. The real trigger is checkAuth going green, and it can only go green if it was red first.
                 if (window.__stubLoggedOut) return null;
@@ -381,10 +454,10 @@
             }
         },
         storage: {
-            // A REAL KEY-VALUE STORE, not a fixed answer. This used to return { sport, leagueId, year } for EVERY key asked for and drop every write on the floor, which was enough while the only reader was the league selector and is not enough for anything that stores something and reads it back later. The preseason snapshot could not be staged at all against it: the write path fired and stored nothing, and the read path could only ever answer null. Seeded with the same derived triple, so the selector behaves exactly as it did.
+            // A real key-value store rather than a fixed answer: it used to return the same triple for every key and drop every write, which was enough while only the league selector read it. Anything that stores a value and reads it back, such as the preseason snapshot, needs writes that stick. It is seeded with the same derived triple so the selector behaves as before.
             local: (() => {
                 let store = null;
-                // Sport and year are derived from the loaded payload (gameId: 2 = baseball/flb, 4 = hockey/fhl; seasonId is the year) so any capture loads with the right stat maps and the right season - processPlayerData matches player stat lines by seasonId === year, so a hardcoded year would leave every player with empty season totals whenever the payload is from a different season. Falls back to flb.
+                // Sport and year are derived from the loaded payload (gameId 2 is baseball/flb, 4 is hockey/fhl; seasonId is the year) so any capture loads with the right stat maps and season. processPlayerData matches player stat lines by seasonId === year, so a hardcoded year would leave every player with empty season totals whenever the payload is from a different season. Falls back to flb.
                 const seeded = async () => {
                     if (store) return store;
                     store = {};
@@ -393,6 +466,45 @@
                     store.sport = apiData?.gameId === 4 ? 'fhl' : 'flb';
                     store.leagueId = 'dev-preview';
                     store.year = String(apiData?.seasonId || '2025');
+                    // ?nicknames=<teamId>:<name>,... seeds api.js's nicknames storage key before the page asks for it, since this stub has no keyboard to type into the sheet. It is keyed by the stub's own 'dev-preview' league id rather than the payload's numeric id, because the app builds that key from the #league-id input, which loadStoredSettings fills from this stub's storage.
+                    if (params.get('nicknames')) {
+                        const obj = {};
+                        params.get('nicknames').split(',').forEach(pair => {
+                            const at = pair.indexOf(':');
+                            if (at === -1) return;
+                            const teamId = pair.slice(0, at);
+                            const name = decodeURIComponent(pair.slice(at + 1));
+                            if (teamId && name) obj[teamId] = name;
+                        });
+                        if (Object.keys(obj).length) store[`nicknames:${store.sport}:${store.leagueId}`] = obj;
+                    }
+                    // ?snapshot=1 seeds the preseason snapshot the app itself would have written, under the app's own key, which uses AppState.loadedSport and the payload's league id rather than the 'dev-preview' selector id. takenInState is 'post-draft-preseason', one of the two isPreseasonSnapshot accepts, and the lines are the capture's own projected totals so the frozen board ranks its pool.
+                    if (params.get('snapshot') === '1') {
+                        const sport = { 1: 'ffl', 2: 'flb', 4: 'fhl' }[apiData?.gameId] || store.sport;
+                        const players = {};
+                        if (playersFile) {
+                            const pool = await fetchJson(playersFile);
+                            const list = Array.isArray(pool) ? pool : (pool?.players || []);
+                            list.forEach(entry => {
+                                const player = entry?.player || entry;
+                                if (!player || player.id === undefined || player.id === null) return;
+                                const line = (player.stats || []).find(st => st && st.statSourceId === 1 && st.statSplitTypeId === 0);
+                                if (line && line.stats) players[String(player.id)] = { ...line.stats };
+                            });
+                        }
+                        store[`preseason:${sport}:${apiData?.id}:${apiData?.seasonId}`] = {
+                            takenAt: Date.now(),
+                            takenInState: 'post-draft-preseason',
+                            seasonId: apiData?.seasonId ?? null,
+                            players
+                        };
+                    }
+                    // ?rankingsStaging=1 seeds the reader's own rankings file under the app's own key, with the text and name exactly as the panel's file input would have written them, so the loaded state can be staged headless with no file dialog. tests/fixtures/rankings-staging.csv names real players out of the loaded pool, not synthetic ids.
+                    if (params.get('rankingsStaging') === '1') {
+                        const sport = { 1: 'ffl', 2: 'flb', 4: 'fhl' }[apiData?.gameId] || store.sport;
+                        const text = await fetch('tests/fixtures/rankings-staging.csv').then(r => r.text());
+                        store[`rankingsFile:${sport}:${apiData?.id}`] = { name: 'rankings-staging.csv', text };
+                    }
                     return store;
                 };
                 // The real API's shapes: null or undefined asks for everything, a string for one key, an array for several. An absent key is missing from the answer, which is what every caller here already handles.
@@ -412,27 +524,200 @@
                     }
                 };
             })(),
-            session: {
-                get: async () => {
-                    if (noLeague) return {};
+            // A real key-value store, the same fix as storage.local above and for the same reason: this used to answer every get with one fixed pair and drop every set. That hid in api.js's own caches, which read it and fell back to a fresh fetch, but the room state needs a write that a later get reads back.
+            session: (() => {
+                let store = null;
+                const seeded = async () => {
+                    if (store) return store;
+                    store = {};
+                    if (noLeague) return store;
                     const apiData = await payloadPromise;
                     if (!apiData) {
                         console.error(`browser-stub: couldn't load payload "${payloadFile}"`);
-                        return {};
+                        return store;
                     }
+                    store.apiData = apiData;
                     // The real fetch fills this from the leagueHistory endpoint; dev-preview restores from the session cache and never runs that call, so ?seasons= seeds it here or League History would only ever see the loaded season.
-                    return { apiData, leagueHistoryYears: [...seasonFiles.keys()].map(Number) };
-                },
-                set: async () => {}
-            }
+                    store.leagueHistoryYears = [...seasonFiles.keys()].map(Number);
+                    return store;
+                };
+                const pick = (all, keys) => {
+                    if (keys === null || keys === undefined) return { ...all };
+                    const list = Array.isArray(keys) ? keys : [keys];
+                    const out = {};
+                    list.forEach(k => { if (k in all) out[k] = all[k]; });
+                    return out;
+                };
+                return {
+                    get: async (keys) => pick(await seeded(), keys),
+                    set: async (obj) => { Object.assign(await seeded(), obj || {}); },
+                    remove: async (keys) => {
+                        const all = await seeded();
+                        (Array.isArray(keys) ? keys : [keys]).forEach(k => { delete all[k]; });
+                    }
+                };
+            })()
         },
-        // RECORDED, not swallowed. main.js redirects a popup to a full tab through this call, and whether it fires is the single fact that separates a working popup from the sliver - so the harness needs to see it happen. Still a no-op otherwise, because the harness is a tab.
-        tabs: { create: async (arg) => { (window.__stubTabsCreated = window.__stubTabsCreated || []).push(arg); } },
+        // Recorded, not swallowed. main.js redirects a popup to a full tab through this call, and whether it fires is the single fact that separates a working popup from a sliver, so the harness needs to see it happen. Still a no-op otherwise, because the harness is a tab.
+        tabs: {
+            create: async (arg) => { (window.__stubTabsCreated = window.__stubTabsCreated || []).push(arg); },
+            // The Draft push's transport, page to content script: draftToRoom queries for the room's tab and messages it directly, because a runtime message never reaches a content script. One fake tab is offered when a room replay is running (?room=<fixture>) and none otherwise, which draftToRoom reads as no room tab.
+            query: async () => (roomSendMessageHandler ? [{ id: 1 }] : []),
+            sendMessage: async (_tabId, msg) => (roomSendMessageHandler ? roomSendMessageHandler(msg) : undefined)
+        },
         // Always granted, so the dev flow never sees the Firefox opt-in prompt checkAuth renders for a store install (see hasEspnHostAccess in api.js). request() is here for shape only: nothing in dev-preview can reach it while contains() answers true.
         permissions: {
             contains: async () => true,
             request: async () => true
         },
-        runtime: { getURL: (p) => p }
+        runtime: {
+            getURL: (p) => p,
+            // The page's own listener (draft-view.js). The real signature is (message, sender, sendResponse); sender is never read by a page-side listener, so an empty object stands in for it.
+            onMessage: {
+                addListener: (fn) => { roomListeners.push(fn); },
+                removeListener: (fn) => {
+                    const i = roomListeners.indexOf(fn);
+                    if (i !== -1) roomListeners.splice(i, 1);
+                }
+            },
+            // Unused by product code now that the Draft push moved to tabs.sendMessage above, since a runtime message from the page never reaches a content script. Kept as a plain stub, matching a real sendMessage with no listener on the other end, rather than removed, because the shape still has to exist for anything else that calls it.
+            sendMessage: async () => undefined
+        }
     };
+
+    // ?room=<fixture> is the stub's own replay of a draft room feed, never product code. It writes the roomState shape from tests/fixtures/<fixture>.json so Following the room can be staged with no room, and remaps the fixture's synthetic ids onto the loaded league's own teams and players. room-feed.js is imported dynamically so this file stays a classic script that sets window.browser before compat.js runs.
+    if (params.get('room')) {
+        setupRoomReplay(params.get('room')).catch(err => console.error('browser-stub: room replay failed', err));
+    }
+
+    async function setupRoomReplay(fixtureName) {
+        const [{ parseRoomLine, applyRoomFacts, roomStatus }, fixture, apiData] = await Promise.all([
+            import('../src/data/room-feed.js'),
+            fetchJson(`tests/fixtures/${fixtureName}.json`),
+            payloadPromise
+        ]);
+        if (!fixture || !apiData) return;
+
+        // The i-th team in draft order is read from settings.draftSettings.pickOrder, the same field firstRoundOrder and companionOrder read, because plain team-list order made the wrong team read as mine for a reader on the clock fourth. Reading it directly needs no snake expansion, which this classic script could not import anyway.
+        const realTeamIds = (Array.isArray(apiData.settings?.draftSettings?.pickOrder) && apiData.settings.draftSettings.pickOrder.length
+            ? apiData.settings.draftSettings.pickOrder
+            : (apiData.teams || []).map(t => t.id)).filter(id => id !== undefined && id !== null);
+        const teamMap = new Map((fixture.teams || []).map((synthId, i) =>
+            [synthId, realTeamIds.length ? realTeamIds[i % realTeamIds.length] : synthId]));
+
+        let realPlayersByAdp = [];
+        if (playersFile) {
+            const pool = await fetchJson(playersFile);
+            const list = Array.isArray(pool) ? pool : (pool?.players || []);
+            realPlayersByAdp = list
+                .map(entry => {
+                    const player = entry?.player || entry;
+                    const own = entry?.ownership || player?.ownership || {};
+                    const adp = Number(own.averageDraftPosition);
+                    return player && player.id !== undefined && player.id !== null
+                        ? { id: player.id, adp: adp > 0 ? adp : Infinity, name: player.fullName || '', pos: player.defaultPositionId }
+                        : null;
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.adp - b.adp);
+        }
+        const playerMap = new Map((fixture.players || []).map((synthId, i) =>
+            [synthId, realPlayersByAdp.length ? realPlayersByAdp[i % realPlayersByAdp.length].id : synthId]));
+        const reversePlayerMap = new Map([...playerMap].map(([synth, real]) => [real, synth]));
+
+        const sport = { 1: 'ffl', 2: 'flb', 4: 'fhl' }[apiData.gameId] || 'flb';
+        const leagueId = apiData.id;
+        const seasonId = apiData.seasonId;
+        const teams = realTeamIds.length || (fixture.teams || []).length;
+
+        // Grown one fact at a time, in real ids throughout, so applyRoomFacts and roomStatus never see a synthetic id and a Draft press (below) can push straight onto the same array without a second remap step back.
+        const facts = [];
+
+        // &roomBoard=N synthesizes the room's own board read: the first N overalls, each a real pool player's name (the players the replay drafts, by ADP) so the page's name lookup has something to resolve. Club is empty, position is the coarse F/D/G pill, and every cell carries a name and no id, as the real page does. &roomBoardBad=K names overall K something no pool holds.
+        const boardN = Number(params.get('roomBoard') || 0);
+        const boardBad = Number(params.get('roomBoardBad') || 0);
+        const buildBoard = () => {
+            if (!(boardN > 0) || !realPlayersByAdp.length) return null;
+            const cols = teams || 1;
+            const picks = [];
+            for (let overall = 1; overall <= boardN; overall++) {
+                const round = Math.ceil(overall / cols);
+                const inRound = ((overall - 1) % cols) + 1;
+                const real = realPlayersByAdp[(overall - 1) % realPlayersByAdp.length];
+                const name = overall === boardBad ? 'Nobody Nowhere' : real.name;
+                const parts = name.split(' ');
+                picks.push({
+                    overall, round, pickInRound: inRound, column: round % 2 ? inRound : cols + 1 - inRound, mine: false,
+                    name, firstName: parts[0], lastName: parts.slice(1).join(' '), proTeam: '',
+                    position: real.pos >= 1 && real.pos <= 3 ? 'F' : (real.pos === 4 ? 'D' : (real.pos === 5 ? 'G' : ''))
+                });
+            }
+            return { at: Date.now(), why: 'start', columns: cols, rounds: Math.ceil(boardN / cols), picks, refused: [] };
+        };
+        const writeSnapshot = async (overrides) => {
+            const merged = applyRoomFacts(null, facts, { teams }).log;
+            const status = roomStatus(facts, { teams, now: Date.now() });
+            const snapshot = {
+                leagueId, seasonId, sport, status: 'open', at: Date.now(),
+                onClock: status.onClock, msRemaining: status.msRemaining,
+                picks: merged.picks.map(p => ({ overall: p.overall, teamId: p.teamId, playerId: p.playerId, at: p.at ?? null })),
+                lastPickAt: status.lastPickAt,
+                ...(boardN > 0 ? { board: buildBoard() } : {}),
+                ...overrides
+            };
+            // storage.local, not storage.session, because the real reader's api.js pair reads and writes local now, so a replay that still wrote session would leave the page reading nothing at all.
+            await browser.storage.local.set({ roomState: snapshot });
+            roomListeners.forEach(fn => { try { fn({ kind: 'lw-room', roomState: snapshot }, {}, () => {}); } catch { /* a listener's own render error is not this stub's to swallow silently, but it also must not stop the next one firing */ } });
+            return snapshot;
+        };
+
+        // &roomStatus=closed / &roomAt=stale skip the timed replay, so the whole feed lands at once and then the one override that state is for is applied, and a capture aiming at stale or closed is not also racing the animation to get there.
+        const forceStatus = params.get('roomStatus');
+        const forceStale = params.get('roomAt') === 'stale';
+        if (forceStatus === 'closed' || forceStale) {
+            (fixture.feed || []).forEach(({ line, at }) => {
+                const fact = parseRoomLine(line, at);
+                if (!fact) return;
+                facts.push(remapFact(fact, teamMap, playerMap));
+            });
+            const overrides = {};
+            if (forceStatus === 'closed') overrides.status = 'closed';
+            if (forceStale) overrides.at = Date.now() - 60000; // past ROOM_STALE_MS (30000) with room to spare
+            await writeSnapshot(overrides);
+        } else {
+            const delayMs = Number(params.get('roomDelay') || 150);
+            const maxLines = params.get('roomLines') ? Number(params.get('roomLines')) : (fixture.feed || []).length;
+            const lines = (fixture.feed || []).slice(0, maxLines);
+            for (const { line, at } of lines) {
+                const fact = parseRoomLine(line, at);
+                if (fact) {
+                    facts.push(remapFact(fact, teamMap, playerMap));
+                    await writeSnapshot();
+                }
+                if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+
+        // The Draft press stands in for the room having taken the pick: a real playerId arrives, teamId is read off the last written snapshot's onClock, and the fact is pushed directly, synthesized fresh and never a fixture line. &roomDraftHold=1 makes the room never answer, so the client's ten-second refusal can be staged deterministically.
+        const draftHold = params.get('roomDraftHold') === '1';
+        roomSendMessageHandler = async (msg) => {
+            if (!msg || msg.kind !== 'lw-draft') return undefined;
+            if (draftHold) return undefined;
+            const onClockTeam = facts.length ? roomStatus(facts, { teams }).onClock?.teamId : realTeamIds[0];
+            setTimeout(() => {
+                facts.push({ kind: 'selected', teamId: onClockTeam ?? null, playerId: msg.playerId, at: Date.now() });
+                writeSnapshot();
+            }, 2000);
+            return undefined;
+        };
+
+        console.info(`browser-stub: room replay ready (${fixtureName}), ${facts.length ? '' : 'starting '}${(fixture.feed || []).length} lines, ${teamMap.size} teams and ${playerMap.size} players remapped.`);
+    }
+
+    function remapFact(fact, teamMap, playerMap) {
+        const mapped = { ...fact };
+        if ('teamId' in mapped && teamMap.has(mapped.teamId)) mapped.teamId = teamMap.get(mapped.teamId);
+        if ('playerId' in mapped && playerMap.has(mapped.playerId)) mapped.playerId = playerMap.get(mapped.playerId);
+        return mapped;
+    }
 })();

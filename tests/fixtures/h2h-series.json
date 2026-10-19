@@ -1,0 +1,27 @@
+{
+  "seasonId": 2026,
+  "status": { "latestScoringPeriod": 4, "finalScoringPeriod": 4 },
+  "settings": {
+    "scoringSettings": {
+      "scoringType": "H2H_CATEGORY",
+      "scoringItems": [{ "statId": 0 }]
+    }
+  },
+  "teams": [
+    { "id": 1, "abbrev": "T1", "name": "Team One", "record": { "overall": { "wins": 2, "losses": 2, "ties": 0 } }, "rankCalculatedFinal": 2 },
+    { "id": 2, "abbrev": "T2", "name": "Team Two", "record": { "overall": { "wins": 2, "losses": 1, "ties": 1 } }, "rankCalculatedFinal": 1 },
+    { "id": 3, "abbrev": "T3", "name": "Team Three", "record": { "overall": { "wins": 3, "losses": 1, "ties": 0 } }, "rankCalculatedFinal": 1 },
+    { "id": 4, "abbrev": "T4", "name": "Team Four", "record": { "overall": { "wins": 0, "losses": 3, "ties": 1 } }, "rankCalculatedFinal": 4 }
+  ],
+  "schedule": [
+    { "matchupPeriodId": 1, "winner": "HOME", "playoffTierType": "NONE", "home": { "teamId": 1 }, "away": { "teamId": 2 } },
+    { "matchupPeriodId": 1, "winner": "HOME", "playoffTierType": "NONE", "home": { "teamId": 3 }, "away": { "teamId": 4 } },
+    { "matchupPeriodId": 2, "winner": "AWAY", "playoffTierType": "NONE", "home": { "teamId": 1 }, "away": { "teamId": 3 } },
+    { "matchupPeriodId": 2, "winner": "TIE", "playoffTierType": "NONE", "home": { "teamId": 2 }, "away": { "teamId": 4 } },
+    { "matchupPeriodId": 3, "winner": "HOME", "playoffTierType": "NONE", "home": { "teamId": 1 }, "away": { "teamId": 4 } },
+    { "matchupPeriodId": 3, "winner": "HOME", "playoffTierType": "NONE", "home": { "teamId": 2 }, "away": { "teamId": 3 } },
+    { "matchupPeriodId": 4, "winner": "AWAY", "playoffTierType": "NONE", "home": { "teamId": 1 }, "away": { "teamId": 2 } },
+    { "matchupPeriodId": 4, "winner": "HOME", "playoffTierType": "NONE", "home": { "teamId": 3 }, "away": { "teamId": 4 } },
+    { "matchupPeriodId": 5, "winner": "HOME", "playoffTierType": "WINNERS_BRACKET", "home": { "teamId": 1 }, "away": { "teamId": 3 } }
+  ]
+}

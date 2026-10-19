@@ -1,0 +1,93 @@
+# Checks every published release against the tag it names, on GitHub's own runner. Three links, and
+# any one of them fails the run:
+#
+#   1. the hash file is signed by the key the tag carries (RELEASE-KEY.asc at the tag's root)
+#   2. each package matches the signed hash file
+#   3. each package matches the tag, file by file, through the tag's own scripts/verify-release.ps1
+#
+# NO THIRD-PARTY ACTION IS USED. Every step is a tool the hosted Ubuntu runner already carries - git,
+# the GitHub CLI, gpg, sha256sum, jq and PowerShell 7 - so there is no action to pin to a commit and
+# none that could change underneath this check.
+#
+# This file is generated: the mirror's build copies it here from its source, so an edit made in this
+# repository is overwritten by the next build.
+
+name: Verify release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # Read once, from the event, and only ever used as a variable - never pasted into a script.
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      # The TAG is checked out, not the default branch: a release is verified by its own code. Line-end
+      # conversion is turned off first, so the files are the tag's own bytes.
+      - name: Fetch the release's tag
+        shell: bash
+        run: |
+          git init --quiet release
+          cd release
+          git config core.autocrlf false
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --quiet --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          git checkout --quiet --detach "refs/tags/$TAG"
+          echo "VERSION=$(jq -r .version manifest.json)" >> "$GITHUB_ENV"
+
+      - name: Download the release's assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
+          for f in "leaguewise-$VERSION-firefox.xpi" "leaguewise-$VERSION-chrome.zip" \
+                   "leaguewise-$VERSION.sha256" "leaguewise-$VERSION.sha256.asc"; do
+            if [ ! -f "assets/$f" ]; then echo "::error::the release has no $f"; exit 1; fi
+          done
+
+      # Imported into a keyring of the run's own, so the only key a good signature can come from is the
+      # one the tag carries. A good signature is GOODSIG and nothing less: an expired or revoked key
+      # reports a different word, and fails here.
+      - name: "1. The hash file is signed by the key the tag carries"
+        shell: bash
+        run: |
+          if [ ! -f release/RELEASE-KEY.asc ]; then echo "::error::$TAG carries no RELEASE-KEY.asc"; exit 1; fi
+          export GNUPGHOME="$RUNNER_TEMP/keyring"
+          mkdir -m 700 "$GNUPGHOME"
+          gpg --batch --quiet --import release/RELEASE-KEY.asc
+          gpg --batch --status-fd 1 --verify "assets/leaguewise-$VERSION.sha256.asc" "assets/leaguewise-$VERSION.sha256" > "$RUNNER_TEMP/gpg-status"
+          if ! grep -q '^\[GNUPG:\] GOODSIG ' "$RUNNER_TEMP/gpg-status"; then
+            cat "$RUNNER_TEMP/gpg-status"
+            echo "::error::the hash file's signature is not good"
+            exit 1
+          fi
+
+      # Both packages must be NAMED in the hash file before it is checked: a package the file does not
+      # list would otherwise pass by never being read.
+      - name: "2. Each package matches the signed hash file"
+        shell: bash
+        working-directory: assets
+        run: |
+          for f in "leaguewise-$VERSION-firefox.xpi" "leaguewise-$VERSION-chrome.zip"; do
+            if ! awk -v f="$f" '$2 == f { found = 1 } END { exit !found }' "leaguewise-$VERSION.sha256"; then
+              echo "::error::the hash file does not list $f"
+              exit 1
+            fi
+          done
+          sha256sum --check --strict "leaguewise-$VERSION.sha256"
+
+      # Each package in a process of its own, so one run's exit code cannot be read as the other's.
+      - name: "3. Each package matches the tag"
+        shell: pwsh
+        run: |
+          foreach ($kind in 'firefox.xpi', 'chrome.zip') {
+            pwsh -NoProfile -File ./release/scripts/verify-release.ps1 -Repo ./release -Tag $env:TAG -Artifact "assets/leaguewise-$env:VERSION-$kind"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

@@ -1,0 +1,61 @@
+name: League format not handled
+description: Your league's scoring, roster, or schedule is set up in a way Leaguewise reads wrongly or not at all.
+title: "League format: "
+labels: ["league format"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ESPN leagues can be set up in a lot of ways, and we have only seen some of them. Tell us how yours is set up and what Leaguewise does with it.
+
+        **Please don't attach a Diagnostic export or a league payload.** Those files hold your league's data. Describing the settings in words is enough to start.
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Sport
+      options:
+        - Baseball
+        - Hockey
+        - Football
+        - A sport Leaguewise does not support yet
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Scoring format
+      options:
+        - Head-to-head categories
+        - Head-to-head points
+        - Rotisserie
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: What is unusual about the league
+      description: The scored categories or point values, the roster slots, divisions, playoff length, keepers. Whatever sets it apart.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What Leaguewise does with it
+      description: A wrong number, a missing category, an empty tab, an error message.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and Leaguewise version
+      placeholder: Firefox 131, Leaguewise 1.7.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have not pasted a Diagnostic export here. It contains my league's data.
+          required: true

@@ -1,6 +1,6 @@
 <p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball, Football and Hockey. Nothing leaves your browser."></p>
 
-<p align="center">A browser extension for Firefox and Chrome.</p>
+<p align="center">A browser extension for Firefox, Firefox for Android and Chrome.</p>
 
 <p align="center">
   <a href="https://addons.mozilla.org/en-US/firefox/addon/leaguewise/"><img src="https://img.shields.io/amo/v/leaguewise?label=Firefox&color=e8792e" alt="Firefox version"></a>
@@ -8,7 +8,7 @@
 </p>
 
 
-Analytics for your ESPN Fantasy Baseball, Football and Hockey league: how every team is doing, how every player rates, and everything the league has ever done. Head to head, points, and roto formats are all supported.
+League analytics for ESPN Fantasy Baseball, Football and Hockey. Everything behind the standings: how every team got where it is, how every player rates in your league's own categories, and what your roster needs next, from the ESPN login already in your browser. Works with head-to-head categories, head-to-head points and season-long roto.
 
 ## Built with AI, reviewed by humans
 
@@ -26,30 +26,31 @@ AI is actively used for developing and maintaining this project. Humans review a
 
 Each tab provides a different view into your league.
 
-- **Team Metrics**, how the league is doing. Season trend lines, per-category rankings, a category heatmap, and live scoreboards for the matchup being played.
+- **Team Metrics**: season trend lines for every team over the whole season or the last few matchups, category rankings, a category heatmap, a head-to-head series matrix, and playoff odds run on your league's own played weeks.
 
-<p align="center"><img src="screenshots/1.6.0/team-metrics-1.6.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
+<p align="center"><img src="screenshots/1.7.0/team-metrics-1.7.0.png" width="900" alt="Team Metrics tab showing season trend lines, team rankings and the category heatmap"></p>
 
-- **Player Metrics**. Every player in your league ranked in your league's own categories. Open any player for a more in depth view, the pace of every category, and player comparisons.
+- **Player Metrics**: every player in your league ranked against your league's own categories and adjusted for playing time, with a player drill down showing the matchup-by-matchup trend and a comparison with any other player.
 
-<p align="center"><img src="screenshots/1.6.0/player-metrics-1.6.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
+<p align="center"><img src="screenshots/1.7.0/player-metrics-1.7.0.png" width="900" alt="Player Metrics tab showing the ranked player leaderboard"></p>
 
-<p align="center"><img src="screenshots/1.6.0/player-drill-down-1.6.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
+<p align="center"><img src="screenshots/1.7.0/player-drill-down-1.7.0.png" width="900" alt="A single player opened, showing headshot, rank against the whole pool and against each position, season stat cards and a weekly trend chart"></p>
 
-- **My Team**, your roster at a glance. Every player with their rank and category line, a comparison with any opponent, and coverage: the categories you are losing, who carries them, and the best free-agent add for each. Pitchers have a schedule view with projected matchup difficulties based on the opponent's batting and park factor.
+- **My Team**: your roster with each player's rank and category line, comparison against any opponent category by category. Includes a schedule view for all positions showing matchup difficulty, off nights and more.
 
-<p align="center"><img src="screenshots/1.6.0/my-team-schedule-1.6.0.png" width="900" alt="My Team tab: the roster grouped by role with each player's rank and category line, and the pitchers' projected starts on the matchup calendar"></p>
+<p align="center"><img src="screenshots/1.7.0/my-team-schedule-1.7.0.png" width="900" alt="My Team tab: the roster grouped by role with each player's rank and category line, and the pitchers' projected starts on the matchup calendar"></p>
 
-- **League History**, everything the league has ever done. Every season it has played, with the champions down the side as pennants for baseball and rafter banners for hockey.
+- **Draft**: ranked projections, last season's standings and a post draft recap that tracks how your picks are faring.
 
+- **League History**: every season your league has played, with all-time standings, a rivalry page for any opponent, and career totals for every player who has appeared.
 
-<p align="center"><img src="screenshots/1.6.0/league-history-1.6.0.png" width="900" alt="League History tab: champions down the side as pennants, all-time standings, and a rivalry opened to its season bars and facts"></p>
+<p align="center"><img src="screenshots/1.7.0/league-history-1.7.0.png" width="900" alt="League History tab: champions down the side as pennants, all-time standings, and a rivalry opened to its season bars and facts"></p>
 
 One timeframe control drives Team Metrics, Player Metrics, and My Team. Pick a part of the season you want to see in more detail.
 
 Two looks, Boxscore and Modern, each in light and dark, under Display in the settings.
 
-- **Export and Recap**: CSV or clipboard export of any view, and a shareable image recap of a matchup week for the league group chat.
+- **Export and share**: CSV or clipboard export of any view, and a recap image for the league group chat.
 
 ## Install
 
@@ -67,9 +68,9 @@ For development, load it temporarily instead: in Firefox, go to `about:debugging
 python -m http.server 8123
 ```
 
-Then open `http://localhost:8123/dev-preview.html`. It has to be served over `http://` because ES module imports won't load from `file://`.
+Then open `http://localhost:8123/dev-preview.html`.
 
-To use your own league's data: load the real extension, download a JSON dump from the Diagnostic Data panel, put it in a `JSON_debug/` folder at the repository root, and pick it with `?payload=<filename>`. That folder is gitignored because it holds real league data. Don't commit it.
+To use your own league's data: load the real extension, download a JSON dump from the Diagnostic Data panel, put it in a `JSON_debug/` folder at the repository root, and pick it with `?payload=<filename>`. That folder is gitignored. Don't commit it.
 
 ## Tests
 
@@ -90,11 +91,14 @@ What changed in each release is in the [changelog](CHANGELOG.md).
 
 ## Work in progress
 
-- **Microsoft Edge.**
-- **Firefox for Android.**
+- **Microsoft Edge.** The Chrome package installs in Edge today; the Edge Add-ons listing follows this release.
 
 ## License
 
 See `LICENSE` (Mozilla Public License 2.0).
 
 See [DISCLAIMER.md](DISCLAIMER.md).
+
+To check that a download is exactly this repository's tagged source, see [Verifying a release](SECURITY.md#verifying-a-release).
+
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tylerpriice/leaguewise/badge)](https://scorecard.dev/viewer/?uri=github.com/tylerpriice/leaguewise)

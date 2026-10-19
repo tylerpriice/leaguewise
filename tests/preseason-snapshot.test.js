@@ -1,5 +1,5 @@
-// Unit tests for the pure preseason snapshot (preseason-snapshot.js, O21). Open tests/preseason-snapshot.test.html through any static server - green means every assertion held. Every expected value is hand-computed from tests/fixtures/preseason-snapshot.md.
-import { snapshotKey, staleKeys, shouldTake, buildSnapshot, preseasonLineFor, isPreseasonSnapshot } from '../preseason-snapshot.js';
+// Unit tests for the pure preseason snapshot (preseason-snapshot.js). Open tests/preseason-snapshot.test.html through any static server; green means every assertion held. Every expected value is hand-computed from tests/fixtures/preseason-snapshot.md.
+import { snapshotKey, staleKeys, shouldTake, buildSnapshot, preseasonLineFor, isPreseasonSnapshot } from '../src/data/preseason-snapshot.js';
 
 const results = [];
 function test(name, fn) {
@@ -15,10 +15,10 @@ function assertEq(actual, expected, msg) {
 // ==== The key ====
 
 test('the key carries sport and season, because a league id is unique across neither', () => {
-    assertEq(snapshotKey('ffl', 699939233, 2026), 'preseason:ffl:699939233:2026', 'football 2026');
-    // The same league id in another sport and another year must not collide - the O2 trap, where one sport's map read as another's and printed a plausible wrong answer.
-    assert(snapshotKey('flb', 699939233, 2026) !== snapshotKey('ffl', 699939233, 2026), 'sport separates');
-    assert(snapshotKey('ffl', 699939233, 2025) !== snapshotKey('ffl', 699939233, 2026), 'season separates');
+    assertEq(snapshotKey('ffl', 700000001, 2026), 'preseason:ffl:700000001:2026', 'football 2026');
+    // The same league id in another sport and another year must not collide, or one sport's snapshot would read as another's and print a plausible wrong answer.
+    assert(snapshotKey('flb', 700000001, 2026) !== snapshotKey('ffl', 700000001, 2026), 'sport separates');
+    assert(snapshotKey('ffl', 700000001, 2025) !== snapshotKey('ffl', 700000001, 2026), 'season separates');
 });
 
 // ==== When to take one ====
@@ -29,10 +29,15 @@ test('shouldTake: only before a game is played', () => {
     assertEq(shouldTake('underway', null), false, 'a league in progress has no preseason line left');
 });
 
-test('shouldTake: an existing snapshot is NEVER replaced', () => {
-    // The whole point. A second write once play has started would store the rest-of-season line under a key that reads as a preseason projection - silently wrong, and worse than absent.
-    assertEq(shouldTake('pre-draft', { players: {} }), false, 'even in preseason');
-    assertEq(shouldTake('post-draft-preseason', { players: {} }), false, 'even drafted and unplayed');
+test('shouldTake: pre-draft overwrites, and the draft freezes it (B234 Q17)', () => {
+    // The snapshot is the projection closest to the draft, so every load before the draft replaces the last. Keeping the first one ever seen would rank a league opened in July and drafted in September on a forecast ESPN had since revised.
+    assertEq(shouldTake('pre-draft', { players: {} }), true, 'replaced while the draft is ahead');
+    // The moment the draft has happened it stops moving. A league first seen HERE still gets the only snapshot it can ever have, because there is no earlier one to keep.
+    assertEq(shouldTake('post-draft-preseason', null), true, 'first seen drafted and unplayed');
+    assertEq(shouldTake('post-draft-preseason', { players: {} }), false, 'never replaced once drafted');
+    // The rule the old sentence existed to keep: a write after a game is still refused, so the rest-of-season line can never be stored under a key that reads as a preseason projection.
+    assertEq(shouldTake('underway', null), false, 'no snapshot once play has started');
+    assertEq(shouldTake('underway', { players: {} }), false, 'and the stored one stands');
 });
 
 // ==== Retention ====
@@ -47,7 +52,7 @@ test('staleKeys: keeps this season and the one before, drops older', () => {
 });
 
 test('staleKeys: scoped to THIS league, never another', () => {
-    // A retention pass reaching across leagues would delete another league's only snapshot on the day this one happened to be opened - and that one is not replaceable.
+    // A retention pass reaching across leagues would delete another league's only snapshot on the day this one happened to be opened, and that one cannot be replaced.
     const keys = ['preseason:ffl:1:2020', 'preseason:ffl:2:2020', 'preseason:flb:1:2020'];
     assertEq(staleKeys(keys, 'ffl', 1, 2026), ['preseason:ffl:1:2020'], 'only this league and sport');
 });
@@ -87,7 +92,7 @@ test('buildSnapshot: three decimals, because no surface prints more', () => {
 });
 
 test('buildSnapshot: nothing to store answers NULL, never an empty shape', () => {
-    // A stored {} reads as "we took one and the league had nobody", which does not happen - and it would stop a later attempt that could have succeeded.
+    // A stored empty shape reads as a snapshot taken of a league with nobody in it, which does not happen, and it would stop a later attempt that could have succeeded.
     assertEq(buildSnapshot([], SCORED, {}), null, 'an empty pool');
     assertEq(buildSnapshot([{ id: 13, projectedTotals: { '99': 3 } }], SCORED, {}), null, 'nobody scored');
     assertEq(buildSnapshot(POOL, [], {}), null, 'a league that scores nothing');
@@ -106,7 +111,7 @@ test('buildSnapshot: a zero is a real projection and is kept', () => {
     assertEq(s.players['21'], { '5': 0, '20': 3 }, 'the zero survives');
 });
 
-// ==== The read guard - refusing a snapshot that is not one ====
+// ==== The read guard: refusing a snapshot that is not one ====
 
 test('isPreseasonSnapshot: only a snapshot taken before play counts', () => {
     assertEq(isPreseasonSnapshot({ takenInState: 'pre-draft' }), true, 'taken before the draft');

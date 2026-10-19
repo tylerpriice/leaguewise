@@ -1,0 +1,59 @@
+# The OpenSSF Scorecard: an independent score of this repository's supply-chain practices, published so
+# the README's badge can show it. It runs on every push to main and once a week.
+#
+# EVERY ACTION IS PINNED TO A FULL COMMIT HASH, never a tag, so what runs cannot change without a
+# commit here. Until each hash is filled in, the uses: line carries a marker instead of a hash, GitHub
+# refuses to run the workflow, and the mirror's build refuses to publish it.
+#
+# To pin one: list the action's release tags, choose the one to use, and read its commit. For an
+# action at github.com/OWNER/REPO and a chosen tag TAG:
+#
+#   git ls-remote --tags https://github.com/OWNER/REPO
+#   git ls-remote https://github.com/OWNER/REPO "refs/tags/TAG" "refs/tags/TAG^{}"
+#
+# When the second command prints a line ending ^{}, that line's hash is the commit (the tag is
+# annotated); when it prints only the plain line, that hash is the commit. Replace the marker with the
+# hash and write the tag in the comment after it - Dependabot reads that comment to propose updates.
+#
+# This file is generated: the mirror's build copies it here from its source, so an edit made in this
+# repository is overwritten by the next build.
+
+name: Scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+
+# Read-only at the top, as the Scorecard's own README sets it. The one job below names its own
+# permissions, which REPLACE these for that job: it holds exactly the two writes it needs and nothing
+# else.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # To upload the results to the repository's code-scanning page.
+      security-events: write
+      # To publish the results, which the badge reads.
+      id-token: write
+    steps:
+      # github.com/actions/checkout
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # github.com/ossf/scorecard-action
+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      # github.com/github/codeql-action (the upload-sarif action lives inside it)
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: results.sarif

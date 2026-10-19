@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and help
+    url: https://github.com/tylerpriice/leaguewise/discussions/categories/q-a
+    about: How something works, or whether what you see is right. Ask here first. You can also write to support@leaguewise.net.
+  - name: Ideas
+    url: https://github.com/tylerpriice/leaguewise/discussions/categories/ideas
+    about: Something you'd like Leaguewise to do, talked through before it becomes a request.
+  - name: Leaguewise for Firefox
+    url: https://addons.mozilla.org/firefox/addon/leaguewise/
+    about: The Firefox Add-ons listing, for installing and for reviews.
+  - name: Leaguewise for Chrome
+    url: https://chromewebstore.google.com/detail/leaguewise/emnepcdlpnnphjgfiajhkciijciifdoj
+    about: The Chrome Web Store listing, for installing and for reviews.
+  - name: Security reports
+    url: https://github.com/tylerpriice/leaguewise/security/advisories/new
+    about: Report a vulnerability privately. Please don't open a public issue for one.

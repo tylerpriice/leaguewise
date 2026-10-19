@@ -1,0 +1,19 @@
+{
+  "seasonId": 2026,
+  "status": { "latestScoringPeriod": 20, "finalScoringPeriod": 20 },
+  "settings": {
+    "scoringSettings": {
+      "scoringType": "ROTO",
+      "scoringItems": [{ "statId": 0 }]
+    }
+  },
+  "teams": [
+    { "id": 1, "abbrev": "T1", "name": "Team One", "points": 40 },
+    { "id": 2, "abbrev": "T2", "name": "Team Two", "points": 30 },
+    { "id": 3, "abbrev": "T3", "name": "Team Three", "points": 55 },
+    { "id": 4, "abbrev": "T4", "name": "Team Four", "points": 15 }
+  ],
+  "schedule": [
+    { "matchupPeriodId": 1, "winner": "UNDECIDED", "playoffTierType": "NONE", "home": { "teamId": 1 }, "away": { "teamId": 2 } }
+  ]
+}

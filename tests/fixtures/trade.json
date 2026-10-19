@@ -1,0 +1,313 @@
+{
+  "_synthetic": "Hand-written for B257. No capture is involved: two invented rosters of six, a third team so the ranks mean something, three categories with '30' INVERSE, and a two-for-one. Every figure in `expected` was computed by hand and then checked, after two hand expectations turned out wrong in the ledgerFor commit.",
+  "categoryIds": [
+    "10",
+    "20",
+    "30"
+  ],
+  "inverseIds": [
+    "30"
+  ],
+  "slots": {
+    "C": 2,
+    "D": 2,
+    "G": 1
+  },
+  "mine": [
+    {
+      "id": "m1",
+      "name": "M1",
+      "seasonTotals": {
+        "10": 10,
+        "20": 4,
+        "30": 3
+      },
+      "eligiblePositions": [
+        "C"
+      ]
+    },
+    {
+      "id": "m2",
+      "name": "M2",
+      "seasonTotals": {
+        "10": 8,
+        "20": 6,
+        "30": 2
+      },
+      "eligiblePositions": [
+        "C"
+      ]
+    },
+    {
+      "id": "m3",
+      "name": "M3",
+      "seasonTotals": {
+        "10": 6,
+        "20": 8,
+        "30": 4
+      },
+      "eligiblePositions": [
+        "D"
+      ]
+    },
+    {
+      "id": "m4",
+      "name": "M4",
+      "seasonTotals": {
+        "10": 4,
+        "20": 10,
+        "30": 1
+      },
+      "eligiblePositions": [
+        "D"
+      ]
+    },
+    {
+      "id": "m5",
+      "name": "M5",
+      "seasonTotals": {
+        "10": 2,
+        "20": 2,
+        "30": 5
+      },
+      "eligiblePositions": [
+        "G"
+      ]
+    },
+    {
+      "id": "m6",
+      "name": "M6",
+      "seasonTotals": {
+        "10": 5,
+        "20": 5,
+        "30": 2
+      },
+      "eligiblePositions": [
+        "C"
+      ]
+    }
+  ],
+  "theirs": [
+    {
+      "id": "t1",
+      "name": "T1",
+      "seasonTotals": {
+        "10": 12,
+        "20": 3,
+        "30": 6
+      },
+      "eligiblePositions": [
+        "C"
+      ]
+    },
+    {
+      "id": "t2",
+      "name": "T2",
+      "seasonTotals": {
+        "10": 9,
+        "20": 5,
+        "30": 1
+      },
+      "eligiblePositions": [
+        "D"
+      ]
+    },
+    {
+      "id": "t3",
+      "name": "T3",
+      "seasonTotals": {
+        "10": 7,
+        "20": 7,
+        "30": 3
+      },
+      "eligiblePositions": [
+        "D"
+      ]
+    },
+    {
+      "id": "t4",
+      "name": "T4",
+      "seasonTotals": {
+        "10": 3,
+        "20": 9,
+        "30": 2
+      },
+      "eligiblePositions": [
+        "C"
+      ]
+    },
+    {
+      "id": "t5",
+      "name": "T5",
+      "seasonTotals": {
+        "10": 1,
+        "20": 1,
+        "30": 4
+      },
+      "eligiblePositions": [
+        "G"
+      ]
+    },
+    {
+      "id": "t6",
+      "name": "T6",
+      "seasonTotals": {
+        "10": 4,
+        "20": 6,
+        "30": 2
+      },
+      "eligiblePositions": [
+        "C"
+      ]
+    }
+  ],
+  "myTeamId": "1",
+  "theirTeamId": "2",
+  "_third": "A third team, static throughout, so a rank is a rank of three rather than of two.",
+  "sumsByTeam": {
+    "1": {
+      "10": 35,
+      "20": 35,
+      "30": 17
+    },
+    "2": {
+      "10": 36,
+      "20": 31,
+      "30": 18
+    },
+    "3": {
+      "10": 30,
+      "20": 33,
+      "30": 16
+    }
+  },
+  "give": [
+    "m1",
+    "m5"
+  ],
+  "get": [
+    "t1"
+  ],
+  "_expected": "Both sides move AT ONCE, which is what the after ranks are measured against. My '20' of 32 ranks 3rd against their after-row of 34; against their before-row of 31 it would rank 2nd, so this fixture tells a correct implementation from a plausible one.",
+  "expected": {
+    "mine": {
+      "perCategory": [
+        {
+          "statId": "10",
+          "before": 35,
+          "after": 35,
+          "delta": 0,
+          "rankBefore": 2,
+          "rankAfter": 2
+        },
+        {
+          "statId": "20",
+          "before": 35,
+          "after": 32,
+          "delta": -3,
+          "rankBefore": 1,
+          "rankAfter": 3
+        },
+        {
+          "statId": "30",
+          "before": 17,
+          "after": 15,
+          "delta": -2,
+          "rankBefore": 2,
+          "rankAfter": 1
+        }
+      ],
+      "seats": {
+        "C": {
+          "before": 3,
+          "after": 3,
+          "slots": 2,
+          "openBefore": 0,
+          "openAfter": 0
+        },
+        "D": {
+          "before": 2,
+          "after": 2,
+          "slots": 2,
+          "openBefore": 0,
+          "openAfter": 0
+        },
+        "G": {
+          "before": 1,
+          "after": 0,
+          "slots": 1,
+          "openBefore": 0,
+          "openAfter": 1
+        }
+      },
+      "verdict": {
+        "categoriesUp": 1,
+        "categoriesDown": 1,
+        "netRankPlaces": -1
+      }
+    },
+    "theirs": {
+      "perCategory": [
+        {
+          "statId": "10",
+          "before": 36,
+          "after": 36,
+          "delta": 0,
+          "rankBefore": 1,
+          "rankAfter": 1
+        },
+        {
+          "statId": "20",
+          "before": 31,
+          "after": 34,
+          "delta": 3,
+          "rankBefore": 3,
+          "rankAfter": 1
+        },
+        {
+          "statId": "30",
+          "before": 18,
+          "after": 20,
+          "delta": 2,
+          "rankBefore": 3,
+          "rankAfter": 3
+        }
+      ],
+      "seats": {
+        "C": {
+          "before": 3,
+          "after": 3,
+          "slots": 2,
+          "openBefore": 0,
+          "openAfter": 0
+        },
+        "D": {
+          "before": 2,
+          "after": 2,
+          "slots": 2,
+          "openBefore": 0,
+          "openAfter": 0
+        },
+        "G": {
+          "before": 1,
+          "after": 2,
+          "slots": 1,
+          "openBefore": 0,
+          "openAfter": 0
+        }
+      },
+      "verdict": {
+        "categoriesUp": 1,
+        "categoriesDown": 0,
+        "netRankPlaces": 2
+      }
+    },
+    "fairness": {
+      "summary": "You gain 1 category and lose 1; they gain 1 and lose none.",
+      "places": "You are 1 rank place worse off; they are 2 better.",
+      "warnings": [
+        "You would have no G, and your league starts 1."
+      ]
+    }
+  }
+}

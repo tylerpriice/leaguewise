@@ -1,4 +1,4 @@
-// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static server (file:// won't work - browsers block ES module imports without a real origin; python -m http.server is a zero-dependency option) - green means every assertion held. Every expected value here is hand-computed from the documented formulas, so a failure means the ENGINE changed behavior, not that a snapshot went stale.
+// Unit tests for the pure rank engine. Open tests/rank-engine.test.html through any static server; file:// will not work, since browsers block ES module imports without a real origin, and python -m http.server will do.Green means every assertion held. Every expected value here is hand-computed from the documented formulas, so a failure means the engine changed behavior, not that a snapshot went stale.
 import {
     MIN_PLAYING_TIME_FRACTION, MIN_OPPORTUNITY_FRACTION,
     countLessThan, countGreaterThan, percentileFor,
@@ -6,11 +6,12 @@ import {
     computeRotoRanks, computePointsRanks, computeCategoryBreakdown, computeStatRankInPool,
     buildCategoryRateBasis, buildWeeklyValueBasis, scoreWeekAgainstBasis, scoreWeekByCategory,
     rotoPointsForCategory, scoreRotoWeek, competitionRanks, formatRank, comparePlayerCategories,
+    comparePlayerGroup, groupMatchupSeries,
     perDayAverages, scoreDayAgainstSelf, dayVerdict, typicalDayScore, presentDayScore, DAY_SCORE_TYPICAL, DAY_SCORE_CAP,
     DAY_SIGNATURE_RATIO, DAY_ORDINARY_BAND,
     windowProjectedLine, windowLineRanks
-} from '../rank-engine.js';
-import { buildRosterTimeline, ownerTeamIdsByPlayer, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod } from '../roster-timeline.js';
+} from '../src/engines/rank-engine.js';
+import { buildRosterTimeline, ownerTeamIdsByPlayer, teamForPlayerAtPeriod, buildStartedTimeline, startedTeamForPlayerAtPeriod, buildStartedSeats, creditedStats, rosterDaysOf, dayBucketScope, startedDaySums, weightedTotal, needsEveryDay } from '../src/engines/roster-timeline.js';
 
 const results = [];
 function test(name, fn) {
@@ -18,18 +19,23 @@ function test(name, fn) {
     catch (e) { results.push({ name, ok: false, err: e.message }); }
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
+// Deep-compares by JSON, the same helper the other suites carry. The group comparison's answers are arrays and objects, not single numbers.
+function assertEq(actual, expected, msg) {
+    const a = JSON.stringify(actual), e = JSON.stringify(expected);
+    if (a !== e) throw new Error(`${msg}: got ${a}, expected ${e}`);
+}
 function assertClose(actual, expected, msg, tol = 1e-9) {
     if (actual === null || actual === undefined || Math.abs(actual - expected) > tol) {
         throw new Error(`${msg}: got ${actual}, expected ${expected}`);
     }
 }
 
-// Player factory - the engine only ever needs id + seasonTotals.
+// Player factory: the engine only ever needs id and seasonTotals.
 const P = (id, totals) => ({ id, seasonTotals: totals });
 
 // Baseline ctx for batter-style pools: one workload measure for both shrinkage and threshold (games played, id '81'), no inverse stats unless a test says so.
 const ctx = (over = {}) => ({
-    // Every id in this file is a BASEBALL id, so the ctx says so. The engine's opportunity gates and its RP per-nine rule are keyed by sport now, and a ctx without one gets neither - which is the point: another sport's id numbered 57 must not inherit a save-chances gate.
+    // Every id in this file is a baseball id, so the ctx says so. The engine's opportunity gates and its RP per-nine rule are keyed by sport, and a ctx without one gets neither, which is the point: another sport's id numbered 57 must not inherit a save-chances gate.
     sport: 'flb',
     relevantStatIds: ['5'],
     inverseStatIds: new Set(),
@@ -233,7 +239,7 @@ test('computeRotoRanks: inverse stat ranks the LOWER value first', () => {
 });
 
 test('computeRotoRanks: hockey goalie pool: inverse GAA, games-played workload, backup shrinkage', () => {
-    // Validates the engine handles a hockey-shaped ctx end to end (the fhl stat-id validation and the games-played-for-both-groups workload landed ): W(1) counting, GAA(10) inverse and lower-is-better, games played (id 30) as BOTH the shrinkage and threshold workload. Two full-season starters plus a small-sample backup whose elite 1.00 GAA must be shrunk.
+    // Validates that the engine handles a hockey-shaped ctx end to end: W(1) counting, GAA(10) inverse and lower-is-better, games played (id 30) as both the shrinkage and the threshold workload. Two full-season starters plus a small-sample backup whose elite 1.00 GAA must be shrunk.
     const A = P(1, { '1': 30, '10': 2.00, '30': 60 }); // starter, best record
     const B = P(2, { '1': 20, '10': 2.50, '30': 60 }); // starter, worst rate
     const C = P(3, { '1': 5, '10': 1.00, '30': 12 });  // backup: elite rate, 12 games = 20% of 60
@@ -298,7 +304,7 @@ test('computeRotoRanks: a zero cohort scores the midrank block average, not 0', 
 });
 
 test('computeRotoRanks: a dense mid-pool tie splits the block percentile (midrank)', () => {
-    // Two players tied at 20 in a non-sparse category both take the block average, not the worse edge - the same midrank rule, nothing to do with zero-fill.
+    // Two players tied at 20 in a non-sparse category both take the block average, not the worse edge. It is the same midrank rule and has nothing to do with zero-fill.
     const A = P(1, { '5': 30, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const C = P(3, { '5': 20, '81': 100 });
@@ -339,7 +345,7 @@ test('computeCategoryBreakdown: avg reproduces the roto score exactly', () => {
 });
 
 test('computeCategoryBreakdown: zero-fills a missing counting cat and reports the qualified pool size', () => {
-    // B lacks '20'. D is unqualified (10 games < 20% of 100), so the qualified basis is {A, B}. B's breakdown must include a '20' row (zero-filled) ranked against that basis, and report the qualified size (2) - not the full 3-player group the score is NOT computed against.
+    // B lacks '20'. D is unqualified (10 games is under 20% of 100), so the qualified basis is {A, B}. B's breakdown must include a '20' row, zero-filled, ranked against that basis, and report the qualified size (2) and not the full 3-player group the score is not computed against.
     const A = P(1, { '5': 10, '20': 5, '81': 100 });
     const B = P(2, { '5': 20, '81': 100 });
     const D = P(3, { '5': 40, '20': 9, '81': 10 });
@@ -387,7 +393,7 @@ test('computeCategoryBreakdown: RP K row is labeled "(as K/9)" and valued as a r
 });
 
 test('computeCategoryBreakdown: a true full-precision rate tie yields equal percentiles', () => {
-    // adds display decimals to rate rows so two SV% that ROUND to.912 (.9118 vs.9123) stop looking like an engine bug. That fix is only sound because the engine already ties by value, not by rounded display. Two rates equal at full precision must score the same percentile. If distinct raw values ever collapsed here, extra decimals would expose it - this pins that the tie is on the real value, so the drill-down's precision only reveals differences, never invents them.
+    // Rate rows carry display decimals so two SV% that round to.912 (.9118 and.9123) stop looking like an engine fault. That is only sound because the engine ties by value and not by rounded display. Two rates equal at full precision must score the same percentile, so the drill-down's precision only reveals differences and never invents them.
     const A = P(1, { '47': 0.9200, '81': 100 });
     const B = P(2, { '47': 0.9100, '81': 100 }); // identical full-precision rate...
     const C = P(3, { '47': 0.9100, '81': 100 }); // ...as B
@@ -447,7 +453,7 @@ test('scoreWeekByCategory: the rows the explainer draws, and their mean IS the s
     const pool = [P(1, { '5': 20, '2': 0.300, '47': 3.0 }), P(2, { '5': 10, '2': 0.250, '47': 4.0 })];
     const bctx = { sport: 'flb', sport: 'flb', relevantStatIds: ['5', '2', '47'], inverseStatIds: new Set(['47']), avgStatIds: new Set(['2', '47']), weeksElapsed: 10 };
     const basis = buildCategoryRateBasis(pool, bctx);
-    // Every figure here beats one of a TWO-member basis, and on the season engine's n-1 scale that is 1/(2-1) = 100 for each - so the rows are 100, 100, 100 and the mean is 100. The old strictly-worse/n rule read each as 50. Two peers cannot express an interior percentile; the real basis is hundreds of weeks, where the two denominators differ by a fraction of a point.
+    // Every figure here beats one of a two-member basis, and on the season engine's n-1 scale that is 1/(2-1) = 100 for each, so the rows are 100, 100, 100 and the mean is 100. A strictly-worse over n rule would read each as 50. Two peers cannot express an interior percentile; the real basis is hundreds of weeks, where the two denominators differ by a fraction of a point.
     const rows = scoreWeekByCategory(pool[0], { '5': 2.5, '2': 0.280, '47': 3.5 }, basis);
     assert(rows.length === 3, 'one row per scoreable category');
     assertClose(rows.find(r => r.id === '5').percentile, 100, 'HR row');
@@ -488,9 +494,9 @@ test('scoreWeekAgainstBasis: opportunity-gated player skips the category', () =>
     assert(scoreWeekAgainstBasis(closer, { '57': 2 }, basis) !== null, 'gated basis still scores the closer');
 });
 
-// ==== : real-weekly-value basis (buildWeeklyValueBasis) - see its own comment in rank-engine.js for the full diagnosis of why the season-average basis above read flat for everyday players. ====
+// The real-weekly-value basis (buildWeeklyValueBasis). Its own comment in rank-engine.js carries the full diagnosis of why the season-average basis above read flat for everyday players.
 
-// Weekly-pool player factory - id + seasonTotals (read only for opportunity gating) + a list of real per-matchup-week entries ({ stats, games }), matching what players.js's buildWeeklyRateBasis assembles from AppState.playerWeeklyCache.
+// Weekly-pool player factory: id, seasonTotals (read only for opportunity gating) and a list of real per-matchup-week entries ({ stats, games }), matching what players.js's buildWeeklyRateBasis assembles from AppState.playerWeeklyCache.
 const WP = (id, seasonTotals, weeks) => ({ id, seasonTotals, weeks });
 
 test('buildWeeklyValueBasis: counting stats collect raw per-week totals, rate stats collect real per-week rates (no division)', () => {
@@ -532,14 +538,14 @@ test('buildWeeklyValueBasis: a category nobody has any real week for is dropped 
     assert(basis[0].id === '2', 'the populated category survives');
 });
 
-// End-to-end proof: a synthetic pool built to mirror the exact shape of the real bug report (a full-time slugger with a genuine cold week and a genuine hot week, sitting in a pool that also has a bunch of part-time bench bats who only have a game log for a week or two each - the other weeks have 0 games and are absent, matching how buildWeeklySums never creates an entry for a week nobody played any part of). Every rate below is hand-computed from the pool's own numbers, not generated by running the code.
+// End-to-end proof on a synthetic pool: a full-time slugger with a genuine cold week and a genuine hot week, in a pool that also has part-time bench bats with a game log for only a week or two each. Their other weeks have 0 games and are absent, since buildWeeklySums never creates an entry for a week nobody played any part of. Every rate below is hand-computed from the pool's own numbers.
 const b14WeeksElapsed = 4;
 // Subject: 1 HR in the cold week, 6 HR in the hot week.
 const b14Subject = WP('R1', {}, [
     { stats: { '5': 1 }, games: 6 }, { stats: { '5': 3 }, games: 6 },
     { stats: { '5': 3 }, games: 6 }, { stats: { '5': 6 }, games: 6 }
 ]);
-// Another full-time peer - plays every week, real values spread across the season (season total 14).
+// Another full-time peer: plays every week, real values spread across the season (season total 14).
 const b14RegularPeer = WP('R2', {}, [
     { stats: { '5': 2 }, games: 6 }, { stats: { '5': 3 }, games: 6 },
     { stats: { '5': 4 }, games: 6 }, { stats: { '5': 5 }, games: 6 }
@@ -565,7 +571,7 @@ test('Matchup Score bug, reproduced: the OLD season-average basis saturates: a r
     // Typical weeks sorted: [0,0,0,0, 0.25,0.25,0.25,0.25, 3.5] (9 members).
     const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, oldBasis);
     const hotScore = scoreWeekAgainstBasis(b14Subject, { '5': 6 }, oldBasis);
-    // Under the shared season convention (midrank over n-1) the cold week beats eight of nine and lands exactly at the ceiling: 8/(9-1) = 100. The bug reads WORSE now, not better - on the old basis the bad week and the hot week become literally the same number.
+    // Under the shared season convention, midrank over n-1, the cold week beats eight of nine and lands exactly at the ceiling: 8/(9-1) = 100. On the season-average basis the bad week and the hot week become literally the same number.
     assertClose(coldScore, 100, 'a genuinely bad 1-HR week saturates the smoothed basis outright');
     assertClose(hotScore, 100, 'the hot week also caps at 100, indistinguishable from the "bad" week at a glance');
     assert(coldScore >= 80, `THE BUG: cold week saturates near the ceiling instead of reading low (got ${coldScore})`);
@@ -574,12 +580,12 @@ test('Matchup Score bug, reproduced: the OLD season-average basis saturates: a r
 test('Matchup Score fix, verified: the NEW real-weekly-value basis scores the same cold week meaningfully lower than the hot week', () => {
     const pool = [b14RegularPeer, ...b14PartTimers];
     const basis = buildWeeklyValueBasis(pool, { sport: 'flb', sport: 'flb', relevantStatIds: ['5'], inverseStatIds: new Set(), avgStatIds: new Set() });
-    // Real weekly pool sorted: [0,0,0,0, 1,1,1,1, 2,3,4,5] (12 real weeks). The cold week's 1 HR TIES the four 1-HR weeks: four strictly worse, plus half of the three other ties = 5.5, over n-1 = 11 -> 50.0. The old strictly-worse/n rule read 33.3 and counted a tied week as beaten - exactly the tie block fixed for the season number and P2 ports here.
+    // Real weekly pool sorted: [0,0,0,0, 1,1,1,1, 2,3,4,5], twelve real weeks. The cold week's 1 HR ties the four 1-HR weeks: four strictly worse, plus half of the three other ties, is 5.5, over n-1 = 11, which is 50.0. A strictly-worse over n rule would read 33.3 and count a tied week as beaten.
     const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, basis);
     const hotScore = scoreWeekAgainstBasis(b14Subject, { '5': 6 }, basis);
     assertClose(coldScore, 50, 'the cold week sits exactly at the median of this pool');
     assertClose(hotScore, 100, 'hot week still beats every real peer week');
-    // NOT "below average" any more, and the honest reading is better: against a pool where eight of twelve weeks are one home run or none, a 1-HR week IS the median week. The old rule called it 33rd because it counted the four weeks tied with it as beating it. What this test pins is the SPREAD - the thing was about - and that is unchanged at fifty points.
+    // Not below average: against a pool where eight of twelve weeks are one home run or none, a 1-HR week is the median week. A rule that counted the four tied weeks as beating it would call it 33rd. What this test pins is the spread between the cold week and the hot one, which is fifty points.
     assert(coldScore <= 50, `cold week reads no better than the median (got ${coldScore})`);
     // Exactly fifty now rather than sixty-seven: the cold week rose to the median it belongs at, the hot week was already capped, so the spread narrowed by the same amount the tie correction moved the cold week. Half the scale between a bad week and a great one is still the point.
     assert(hotScore - coldScore >= 50, `the fix restores real week-to-week spread (got ${hotScore - coldScore} points)`);
@@ -591,7 +597,7 @@ test('Matchup Score min-games decision: excluding part-timers from the weekly-va
     // Real weekly pool: [2,3,4,5] (the full-time peer's real weeks only).
     const coldScore = scoreWeekAgainstBasis(b14Subject, { '5': 1 }, basis);
     assertClose(coldScore, 0, 'a 1-HR week beats none of a true regular peer\'s real weeks');
-    // DECISION (see buildWeeklyRateBasis in players.js): exclude part-timers. Comparing a regular's week to OTHER REGULARS' real weeks is the more diagnostic peer group - the previous test (part-timers included) still let the same bad week read 33% instead of this sharper 0%, because the part-timers' real-but-weak weeks acted as a soft floor under the whole distribution - a milder version of the exact problem this basis exists to fix.
+    // Part-timers are excluded (see buildWeeklyRateBasis in players.js). Comparing a regular's week to other regulars' real weeks is the more diagnostic peer group. With part-timers included the same bad week read 33% and not this sharper 0%, since their real but weak weeks acted as a soft floor under the whole distribution.
 });
 
 // ==== Roto standings scoring ====
@@ -608,7 +614,7 @@ test('rotoPointsForCategory: position points, best gets n and worst gets 1', () 
 });
 
 test('rotoPointsForCategory: a two-way tie splits the block average, mirroring ESPN halves', () => {
-    // The exact shape validated against the FGB payload: 5 teams, values 13, 10, 10, 8, 4. Positions (0-based) 0..4 are worth 5,4,3,2,1. The two 10s sit at positions 1 and 2, so they share (4+3)/2 = 3.5 each - the.5 ESPN's own pointsByStat shows for that tie.
+    // The exact shape validated against a real payload: 5 teams, values 13, 10, 10, 8, 4. Positions (0-based) 0..4 are worth 5, 4, 3, 2, 1. The two 10s sit at positions 1 and 2, so they share (4+3)/2 = 3.5 each, the.5 ESPN's own pointsByStat shows for that tie.
     const pts = rotoPointsForCategory([
         { id: 'a', value: 13 }, { id: 'b', value: 10 }, { id: 'c', value: 10 },
         { id: 'd', value: 8 }, { id: 'e', value: 4 }
@@ -653,7 +659,7 @@ test('scoreRotoWeek: sums per-category points, with a tie and an inverse categor
     assertClose(totals.get('C'), 2, 'C: worst in both (1 + 1)');
 });
 
-// ==== Roster timeline ====
+// ==== Roster timeline: transaction-accurate rosters ====
 
 // Item factory (only the fields buildRosterTimeline reads).
 const IT = (playerId, type, toTeamId) => ({ playerId, type, toTeamId });
@@ -730,7 +736,7 @@ test('buildRosterTimeline: non-EXECUTED transactions never change a roster', () 
 });
 
 test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () => {
-    // LINEUP is a bench/start slot move (skipped - that history is ); a DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
+    // LINEUP is a move between a bench and a starting slot and is skipped here. A DRAFT item mirrors the pick that already seeded the roster, so it must not double-count or override a later drop.
     const tl = buildRosterTimeline({
         picks: [{ playerId: 10, teamId: 1 }],
         transactions: [
@@ -739,7 +745,7 @@ test('buildRosterTimeline: LINEUP and DRAFT items do not move membership', () =>
             TX(25, [IT(10, 'DRAFT', 1)]) // stray DRAFT-typed item after a drop must be ignored
         ]
     });
-// item 5: the careers table asks "who ever held this player", not "who held them on day 87".
+// The careers table asks who ever held this player, not who held the player on one day.
 test('ownerTeamIdsByPlayer: every franchise a player was ever on, first-held first', () => {
     const tl = buildRosterTimeline({
         picks: [{ playerId: 10, teamId: 1 }],
@@ -766,7 +772,150 @@ test('ownerTeamIdsByPlayer: a player nobody ever held is absent, not empty', () 
     assertClose(teamForPlayerAtPeriod(tl, 10, 30), 0, 'stays dropped, since the DRAFT item is skipped');
 });
 
-// ==== buildStartedTimeline / startedTeamForPlayerAtPeriod - started-day crediting from the daily roster snapshots. STARTING = { 3,4,5,6 } here (hockey F/D/G/UTIL), bench 7, IR 8. ====
+// buildStartedTimeline and startedTeamForPlayerAtPeriod: started-day crediting from the daily roster snapshots. STARTING is { 3, 4, 5, 6 } here (hockey F/D/G/UTIL), with the bench at 7 and IR at 8.
+
+// needsEveryDay: a starter table is not a pitcher's.
+test('needsEveryDay: a listed start or a pitching seat, and never a batter with a table', () => {
+    assertEq(needsEveryDay({ starterStatusByProGame: { 401: 'NOTSTARTING' }, pitcherEligible: false }), false,
+        'a batter carries a one-entry table and keeps nothing');
+    assertEq(needsEveryDay({ starterStatusByProGame: { 401: 'NOTSTARTING', 402: 'PROBABLE' }, pitcherEligible: false }), true,
+        'a listed start is a start, whatever the seat says');
+    assertEq(needsEveryDay({ starterStatusByProGame: { 401: 'NOTSTARTING' }, pitcherEligible: true }), true,
+        'a pitcher between listings is still a pitcher');
+});
+
+test('needsEveryDay: no starter table is no start to print, eligible or not', () => {
+    assertEq(needsEveryDay({ starterStatusByProGame: {}, pitcherEligible: true }), false, 'an empty table');
+    assertEq(needsEveryDay({ pitcherEligible: true }), false, 'no table: a hockey goalie');
+    assertEq(needsEveryDay({ starterStatusByProGame: null, pitcherEligible: 'yes' }), false, 'nor a truthy guess');
+    assertEq(needsEveryDay({ starterStatusByProGame: { 401: 'NOTSTARTING' }, pitcherEligible: 'yes' }), false, 'eligibility is exactly true');
+    assertEq(needsEveryDay(), false, 'nothing in');
+});
+
+// dayBucketScope: which of a player's days the weekly harvest keeps.
+test('dayBucketScope: a rostered player keeps the matchup days and nobody else keeps any', () => {
+    const opts = { everyDayIds: new Set([7]), rosteredIds: new Set([10, 11, 7]), matchupPeriods: [8, 9, 10] };
+    assertEq([...dayBucketScope(10, opts)], [8, 9, 10], 'rostered: the three days of the matchup');
+    assertEq(dayBucketScope(99, opts), null, 'a free agent keeps nothing');
+    assertEq(dayBucketScope(7, opts), 'all', 'a whole-season player stays whole-season, rostered or not');
+    assertEq(dayBucketScope(7, { everyDayIds: new Set([7]) }), 'all', 'and needs no roster to be');
+});
+
+test('dayBucketScope: no matchup to bound by is NOTHING, never every day', () => {
+    const rostered = new Set([10]);
+    assertEq(dayBucketScope(10, { rosteredIds: rostered }), null, 'no periods at all');
+    assertEq(dayBucketScope(10, { rosteredIds: rostered, matchupPeriods: [] }), null, 'an empty matchup');
+    assertEq(dayBucketScope(10, { rosteredIds: rostered, matchupPeriods: [0, null, 'x'] }), null, 'no real period among them');
+    assertEq([...dayBucketScope(10, { rosteredIds: rostered, matchupPeriods: ['8', 9, 0] })], [8, 9], 'periods are numbers, and 0 is not one');
+    assertEq(dayBucketScope(10), null, 'no tables, no days');
+});
+
+/**
+ * startedDaySums and weightedTotal. Two teams, three days, hockey's seats: 3 to 6 start and 7 is
+ * the bench. Stat 13 is goals, 14 assists, and 20 a third the fixture leaves unweighted.
+ *   day 8: team 1 starts p10 (2 G, 1 A) and benches p11 (1 G); team 2 starts p20 (1 G)
+ *   day 9: team 1 starts p11 (3 A) and benches p10 (5 G, the benched goals count for nobody);
+ *          team 2 starts p20, who has no line that day
+ *   day 10: no lineup was fetched at all
+ */
+const SDS_DAYS = {
+    8: [{ id: 1, entries: [{ p: 10, slot: 3 }, { p: 11, slot: 7 }] }, { id: 2, entries: [{ p: 20, slot: 5 }] }],
+    9: [{ id: 1, entries: [{ p: 10, slot: 7 }, { p: 11, slot: 4 }] }, { id: 2, entries: [{ p: 20, slot: 5 }] }]
+};
+const SDS_LINES = {
+    10: { 8: { sums: { 13: 2, 14: 1 }, games: 1 }, 9: { sums: { 13: 5 }, games: 1 } },
+    11: { 8: { sums: { 13: 1 }, games: 1 }, 9: { sums: { 14: 3 }, games: 1 } },
+    20: { 8: { sums: { 13: 1 }, games: 1 } }
+};
+const sds = (over = {}) => startedDaySums({
+    rosterDays: SDS_DAYS, startingSlots: new Set([3, 4, 5, 6]), dailyByPlayer: SDS_LINES, periods: [8, 9, 10], ...over });
+
+test('startedDaySums: a day is credited to the team that STARTED the player, and to nobody when benched', () => {
+    const out = sds();
+    assertEq(out.byTeam.get(1), { 8: { sums: { 13: 2, 14: 1 }, games: 1 }, 9: { sums: { 14: 3 }, games: 1 } },
+        'team 1: p10 on day 8, p11 on day 9; neither benched line');
+    assertEq(out.byTeam.get(2), { 8: { sums: { 13: 1 }, games: 1 } }, 'team 2: one goal on day 8, no line on day 9');
+});
+
+test('startedDaySums: a day with no lineup is missing, and a day nobody played is still a day', () => {
+    const out = sds();
+    assertEq([out.periods, out.missing], [[8, 9], [10]], 'day 10 has no lineup; day 9 stays although team 2 scored nothing');
+    assertEq(sds({ rosterDays: { 8: SDS_DAYS[8], 9: [] } }).missing, [9, 10], 'an empty snapshot is no lineup');
+});
+
+test('startedDaySums: a started player with no table is UNKNOWN, never a silent zero', () => {
+    const lines = { 10: SDS_LINES[10], 11: SDS_LINES[11] };           // p20 never handed in
+    const out = sds({ dailyByPlayer: lines });
+    assertEq(out.unknown, [20], 'named by id');
+    assertEq(out.byTeam.get(2), {}, 'and nothing invented for the team');
+    assertEq(sds({ dailyByPlayer: { ...lines, 20: {} } }).unknown, [], 'an empty table is a known player who did not play');
+    assertEq(sds({ dailyByPlayer: lines, rosterDays: { 8: [{ id: 1, entries: [{ p: 20, slot: 7 }] }] } }).unknown, [],
+        'a BENCHED player is never asked about');
+});
+
+test('startedDaySums: a Map reads as an object does, and teamIds bounds and seeds the answer', () => {
+    const asMap = new Map(Object.entries(SDS_LINES).map(([k, v]) => [Number(k), v]));
+    assertEq([...sds({ dailyByPlayer: asMap }).byTeam], [...sds().byTeam], 'the same sums');
+    const only = sds({ teamIds: [2, 3] });
+    assertEq([...only.byTeam.keys()], [2, 3], 'team 1 left out, team 3 present with nothing');
+    assertEq(only.byTeam.get(3), {}, 'a team with no lineup entry has no days');
+    assertEq(startedDaySums().periods, [], 'no tables, no days');
+});
+
+/**
+ * A seat's role. One two-way player, p30, whose day line holds both halves: stat 5 is a home run
+ * and stat 48 a strikeout thrown. Seat 12 is a hitter's, 14 a pitcher's, 16 the bench. The rule the
+ * caller hands in is baseball's: 48 counts in seat 14 only.
+ *   day 8: team 1 starts p30 in the hitter seat (1 HR, 6 K thrown), so the HR counts and the K do not
+ *   day 9: team 1 starts p30 in the pitcher seat (2 HR, 9 K thrown), so the K count and the HR do not
+ */
+const SEAT_DAYS = {
+    8: [{ id: 1, entries: [{ p: 30, slot: 12 }] }],
+    9: [{ id: 1, entries: [{ p: 30, slot: 14 }] }]
+};
+const SEAT_LINES = { 30: { 8: { sums: { 5: 1, 48: 6 }, games: 1 }, 9: { sums: { 5: 2, 48: 9 }, games: 1 } } };
+const seatRule = (slot, id) => (slot === 14) === (String(id) === '48');
+
+test('startedDaySums: a started player is credited with the stats of the seat, not the whole line', () => {
+    const out = startedDaySums({ rosterDays: SEAT_DAYS, startingSlots: new Set([12, 14]), dailyByPlayer: SEAT_LINES,
+        periods: [8, 9], countsFor: seatRule });
+    assertEq(out.byTeam.get(1), { 8: { sums: { 5: 1 }, games: 1 }, 9: { sums: { 48: 9 }, games: 1 } },
+        'the hitter day keeps the home run, the pitcher day the strikeouts; the appearance counts both days');
+});
+
+test('startedDaySums: with no rule handed in every stat on the line counts, as it always has', () => {
+    const out = startedDaySums({ rosterDays: SEAT_DAYS, startingSlots: new Set([12, 14]), dailyByPlayer: SEAT_LINES, periods: [8, 9] });
+    assertEq(out.byTeam.get(1), { 8: { sums: { 5: 1, 48: 6 }, games: 1 }, 9: { sums: { 5: 2, 48: 9 }, games: 1 } }, 'unscoped');
+    // Anything that is not a function is no rule, never a rule that refuses everything.
+    const junk = startedDaySums({ rosterDays: SEAT_DAYS, startingSlots: new Set([12, 14]), dailyByPlayer: SEAT_LINES, periods: [8], countsFor: 'yes' });
+    assertEq(junk.byTeam.get(1), { 8: { sums: { 5: 1, 48: 6 }, games: 1 } }, 'a non-function is ignored');
+});
+
+// The roto race's half of the same rule. The race knows who started a player from buildStartedTimeline and reads the seat from buildStartedSeats, then credits the line through creditedStats, the one function the matchup race's startedDaySums also calls. Same player and days as above, plus day 10 on the bench.
+test('the roto race: the seat is read beside the team, and one function credits the line', () => {
+    const days = { ...SEAT_DAYS, 10: [{ id: 1, entries: [{ p: 30, slot: 16 }] }] };
+    const seats = buildStartedSeats({ rosterDays: days, startingSlots: new Set([12, 14]) });
+    assertEq([...seats.get(30)], [[8, 12], [9, 14]], 'the hitter seat on day 8, the pitcher seat on day 9, no seat on the bench');
+    // Day 8 in the hitter seat: 1 HR and 6 K on the line, the HR counts. Day 9 in the pitcher seat: 2 HR and 9 K, the K count. A season of those two days is 1 HR and 9 K, not 3 HR and 15 K.
+    const season = {};
+    [8, 9].forEach(d => {
+        const credited = creditedStats(SEAT_LINES[30][d].sums, seats.get(30).get(d), seatRule);
+        Object.keys(credited).forEach(id => { season[id] = (season[id] || 0) + credited[id]; });
+    });
+    assertEq(season, { 5: 1, 48: 9 }, 'each day by its seat');
+    assertEq(creditedStats({ 5: 2, 48: 9 }, 14, null), { 5: 2, 48: 9 }, 'no rule, the whole line');
+    assertEq(creditedStats({ 5: 'x', 48: 3 }, 14, null), { 48: 3 }, 'a value that is not a number is left out, never NaN');
+    assertEq(creditedStats(null, 12, seatRule), {}, 'no line, nothing');
+});
+
+test('weightedTotal: the sums in points, and what the total left out', () => {
+    // Goals 2 each, assists 1.5: day 8 for team 1 is 2*2 + 1*1.5 = 5.5.
+    assertEq(weightedTotal({ 13: 2, 14: 1 }, { 13: 2, 14: 1.5 }), { total: 5.5, missing: 0 }, 'day 8');
+    assertEq(weightedTotal({ 13: 2, 20: 4 }, { 13: 2, 20: null }), { total: 4, missing: 1 }, 'a figure with no weight is counted, not guessed');
+    assertEq(weightedTotal({ 13: 2 }, { 13: 2, 20: null }), { total: 4, missing: 0 }, 'no figure, nothing missing');
+    assertEq(weightedTotal({ 13: 2, 99: 7 }, { 13: -1 }), { total: -2, missing: 0 }, 'a stat the league does not score is not a row');
+    assertEq(weightedTotal(null, null), { total: 0, missing: 0 }, 'nothing in, nothing out');
+});
 
 // Entry + snapshot-day factories (only the fields buildStartedTimeline reads).
 const E = (p, slot) => ({ p, slot });
@@ -824,7 +973,7 @@ test('buildStartedTimeline: benched, IR, unrostered, and never-seen all fall thr
 });
 
 test('buildStartedTimeline: crediting follows the passed startingSlots set, not any hardcoded ids', () => {
-    // The pure module knows nothing about which slot is a starter - the league resolves that from its own rosterSettings and passes the set in. With only slot 3 starting, a slot-4 player is benched.
+    // The pure module knows nothing about which slot is a starter. The league resolves that from its own rosterSettings and passes the set in. With only slot 3 starting, a slot-4 player is benched.
     const days = { 1: [{ id: 1, entries: [E(10, 3), E(20, 4)] }] };
     const onlyThree = buildStartedTimeline({ rosterDays: days, startingSlots: new Set([3]) });
     assertClose(startedTeamForPlayerAtPeriod(onlyThree, 10, 1), 1, 'slot 3 starts');
@@ -833,7 +982,7 @@ test('buildStartedTimeline: crediting follows the passed startingSlots set, not 
     assertClose(startedTeamForPlayerAtPeriod(both, 20, 1), 1, 'slot 4 starts once the set includes it');
 });
 
-// ==== computePointsRanks - the points-league ranking ====
+// ==== computePointsRanks: the points-league ranking ====
 
 // Two weights, hand-computable. Goals are worth 2 and assists 1, so the totals below are exact.
 const PTS_WEIGHTS = { '13': 2, '14': 1 };
@@ -882,7 +1031,7 @@ test('computePointsRanks: ties order by id so a re-render does not reshuffle', (
     assert(r.ranks.get(3) === 1 && r.ranks.get(7) === 2, 'lower id takes the earlier rank');
 });
 
-// item 3: one tie convention, and T-N wherever a shared rank renders.
+// One tie convention, and T-N wherever a shared rank renders.
 test('competitionRanks: a run of ties shares the run first rank, the next distinct value resumes', () => {
     assert(JSON.stringify(competitionRanks([10, 8, 8, 5])) === '[1,2,2,4]', 'not 1,2,2,3 - the next value takes its true place');
     assert(JSON.stringify(competitionRanks([9, 9, 9])) === '[1,1,1]', 'everyone tied is all first');
@@ -902,7 +1051,7 @@ test('formatRank: shared ranks read T-N, unique ranks keep the hash', () => {
     assert(formatRank(1, [1, 1, 1]) === 'T1', 'everyone tied');
 });
 
-// : head-to-head comparison. One pool, two players, hand-computed from computeStatRankInPool's documented percentile ((total - rank) / (total - 1) * 100) and the competition-ranking tie rule. ---------------------------------------------------------------------------
+// Head-to-head comparison. One pool, two players, hand-computed from computeStatRankInPool's documented percentile ((total-rank)/(total-1)*100) and the competition-ranking tie rule.
 
 // HR higher-is-better, ERA lower-is-better. Five players, with a deliberate tie at 25 HR.
 const cmpPool = [
@@ -980,7 +1129,7 @@ test('comparePlayerCategories: a player outside the pool leaves both sides hones
 });
 
 
-// : THE DAY STRIP'S VERDICT. Scored against the player's OWN days, counting categories only. Every expectation below is hand-computed from the numbers in the fixture. ---------------------------------------------------------------------------
+// The day strip's verdict. Scored against the player's own days, counting categories only. Every expectation below is hand-computed from the numbers in the fixture.
 
 test('perDayAverages: averages over PLAYED days only', () => {
     const days = {
@@ -1004,7 +1153,7 @@ test('scoreDayAgainstSelf: a day is a multiple of the average day', () => {
     assert(scoreDayAgainstSelf({ '1': 2, '5': 1 }, avg, ['1', '5']) === 1, 'an average day scores 1');
     // 1 hit (0.5x) and no homers (0x) -> mean 0.25.
     assert(scoreDayAgainstSelf({ '1': 1, '5': 0 }, avg, ['1', '5']) === 0.25, 'a quiet day');
-    // A blank day is 0, not null - it played and produced nothing.
+    // A blank day is 0 and not null: the player played and produced nothing.
     assert(scoreDayAgainstSelf({}, avg, ['1', '5']) === 0, 'played, nothing recorded');
 });
 
@@ -1075,10 +1224,10 @@ test('dayVerdict: an unscoreable day, or no baseline, reads ordinary rather than
 // Report ---------------------------------------------------------------------------
 
 
-// ==== window-projected lines ====
+// ==== Window-projected lines ====
 
 test('windowProjectedLine: counting categories scale with games, rates do NOT', () => {
-    // Four games of two home runs a game is eight home runs. Four games of a 3.00 ERA is still a 3.00 ERA - multiplying it would say a pitcher gets worse the more they pitch, a unit error rather than a projection.
+    // Four games of two home runs a game is eight home runs. Four games of a 3.00 ERA is still a 3.00 ERA. Multiplying it would say a pitcher gets worse the more innings are pitched, which is a unit error and not a projection.
     const line = windowProjectedLine({ 5: 2, 47: 3.0 }, 4, new Set(['47']));
     assertClose(line['5'], 8, 'home runs scale');
     assertClose(line['47'], 3.0, 'ERA rides through untouched');
@@ -1091,7 +1240,7 @@ test('windowProjectedLine: a null per-game figure is skipped, never read as zero
     assertClose(line['9'], 3, 'and the real one scales');
 });
 
-// Fable's own case: two players, two categories, one club playing twice the games. Player A: 1 HR and 1 RBI per game, club plays 2 -> line 2 HR, 2 RBI. Player B: 1 HR and 1 RBI per game, club plays 4 -> line 4 HR, 4 RBI. B is ahead in both, so B is #1 and A is #2 - the whole point of the lens.
+// The reported case: two players, two categories, one club playing twice the games. Player A: 1 HR and 1 RBI per game, club plays 2 -> line 2 HR, 2 RBI. Player B: 1 HR and 1 RBI per game, club plays 4 -> line 4 HR, 4 RBI. B is ahead in both, so B is #1 and A is #2 - the whole point of the lens.
 test('windowLineRanks: the same player ranks higher when that club plays more', () => {
     const rateIds = new Set();
     const rows = [
@@ -1145,9 +1294,9 @@ test('windowLineRanks: one line ranks nobody', () => {
 });
 
 
-// ==== weekly/season parity ====
+// ==== Weekly and season parity ====
 
-// A basis of ten peer weeks in one counting category, six of them ZERO - the shape a sparse category really has (measured: SB is an explicit zero on 92% of real played days).
+// A basis of ten peer weeks in one counting category, six of them zero, which is the shape a sparse category really has (measured: SB is an explicit zero on 92% of real played days).
 const SPARSE_BASIS = [{
     id: '23', inverse: false, isRate: false,
     rates: [0, 0, 0, 0, 0, 0, 1, 2, 3, 4]
@@ -1166,7 +1315,7 @@ test('scoreWeekByCategory: beating the whole basis is still exactly 100', () => 
 });
 
 test('scoreWeekByCategory: a counting category the week omits is ZERO, not skipped', () => {
-    // The week was played and nothing was stolen. The season path has zero-filled that since, and skipping it here let the week average over a smaller, kinder set of categories.
+    // The week was played and nothing was stolen. The season path zero-fills that, and skipping it here would let the week average over a smaller, kinder set of categories.
     const basis = [
         { id: '5', inverse: false, isRate: false, rates: [0, 1, 2] },
         ...SPARSE_BASIS
@@ -1178,7 +1327,7 @@ test('scoreWeekByCategory: a counting category the week omits is ZERO, not skipp
 });
 
 test('scoreWeekByCategory: a RATE nobody posted stays absent, never a zero', () => {
-    // A week with no innings has no ERA. Zero would be the best in the league, in an inverse category - the same rule the season engine keeps for rate cats.
+    // A week with no innings has no ERA. Zero would be the best in the league in an inverse category, which is the same rule the season engine keeps for rate categories.
     const basis = [{ id: '47', inverse: true, isRate: true, rates: [2.0, 3.0, 4.0] }, ...SPARSE_BASIS];
     const rows = scoreWeekByCategory({}, { '23': 1 }, basis);
     assert(rows.length === 1, 'only the counting category');
@@ -1199,9 +1348,9 @@ test('scoreWeekByCategory: an inverse category still ranks the LOW value best', 
     assertClose(bad.percentile, 0, 'the highest beats none');
 });
 
-// ===== O1: what the preseason basis exists to prevent ===================================== Two behaviours the leaderboard depended on before it learned to rank on projections. Both are stated here rather than screenshotted, because a capture of the old build cannot be taken any more (the fixture it needs cannot be copied into a proof tree) and because a property outlasts a picture.
+// What the preseason basis exists to prevent. Two behaviours the leaderboard depended on before it ranked on projections, stated here as properties.
 
-// THE TRAP THE UNKNOWN SET CLOSES. In an INVERSE category a missing value read as zero is the BEST figure in the league - nil errors is a perfect fielding record - so a player the projection estimate could not reach would out-rank everyone who actually posted a number. rotoContext answers this by folding those ids into rateStatIds, and a rate is ranked only among the players who posted one, so the gap is skipped instead of flattered.
+// The trap the unknown set closes. In an inverse category a missing value read as zero is the best figure in the league, since nil errors is a perfect fielding record, so a player the projection estimate could not reach would out-rank everyone who posted a number. rotoContext folds those ids into rateStatIds, and a rate is ranked only among the players who posted one, so the gap is skipped and not flattered.
 const TRAP_CTX = {
     sport: 'flb',
     relevantStatIds: ['72'],
@@ -1232,7 +1381,7 @@ test('the unknown set skips the missing value instead of scoring it', () => {
     assert(!scores.has(3), 'and carries no score to be sorted on');
 });
 
-// THE OLD LEADERBOARD, STATED. Before O1 the preseason leaderboard summed seasonTotals, which a league that has not played does not have, so every score was 0 - and computePointsRanks breaks a tie by ascending id BY DESIGN (a stable order across re-renders). The two together are why the owner found a real player at #671: not a bug in the tie-break, but a tie-break asked to carry a ranking it was never meant to decide. The pool order is deliberately NOT id order here, so this pins the id rule rather than the arrival order.
+// The old leaderboard, stated. A preseason leaderboard that summed seasonTotals, which a league that has not played does not have, scored everyone 0, and computePointsRanks breaks a tie by ascending id by design, for a stable order across re-renders. Together they put a real player at #671: a tie-break asked to carry a ranking it was never meant to decide. The pool order here is not id order, so this pins the id rule.
 test('an all-zero score map ranks by ascending player id, which is the #671 the owner saw', () => {
     const pool = [
         { id: 900, seasonTotals: {} },
@@ -1246,6 +1395,205 @@ test('an all-zero score map ranks by ascending player id, which is the #671 the 
     assert(ranks.get(900) === 3, 'then 900 - arrival order ignored');
 });
 
+/**
+ * The group comparison. Contract: tests/fixtures/player-group.md
+ *
+ * Four archetypes, round numbers, no capture. Categories: 5 home runs (higher is better), 72 errors
+ * (inverse), 2 batting average, which Glove Gil has no figure for at all, so the null cell is in the
+ * fixture and not in a case bolted on afterwards.
+ *
+ *   id  name          HR   E    AVG
+ *   1   Anchor Ann    16   1    .303
+ *   2   Slugger Sam   33   3    .267
+ *   3   Glove Gil     10   1    (none)
+ *   4   Filler Fay    20   5    .250     in the pool for the rankings, not in the group
+ */
+const GRP_POOL = [
+    { id: 1, name: 'Anchor Ann', seasonTotals: { '5': 16, '72': 1, '2': 0.303 } },
+    { id: 2, name: 'Slugger Sam', seasonTotals: { '5': 33, '72': 3, '2': 0.267 } },
+    { id: 3, name: 'Glove Gil', seasonTotals: { '5': 10, '72': 1 } },
+    { id: 4, name: 'Filler Fay', seasonTotals: { '5': 20, '72': 5, '2': 0.250 } }
+];
+const GRP_CTX = {
+    statIds: ['5', '72', '2'],
+    inverseStatIds: new Set(['72']),
+    statMap: { '5': 'HR', '72': 'E', '2': 'AVG' }
+};
+const grpRow = (out, id) => out.rows.find(r => r.id === id);
+const grpCell = (out, id, pid) => grpRow(out, id).cells.find(c => c.id === pid);
+
+test('comparePlayerGroup: the anchor leads the columns and differs from nobody', () => {
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    assert(out.ids.join(',') === '1,2,3', `column order is anchor first: ${out.ids}`);
+    assert(out.rows.every(r => r.cells[0].id === 1), 'cells are aligned with ids, index for index');
+    const own = grpCell(out, '5', 1);
+    assert(own.delta === null && own.better === null, 'a player does not differ from themselves');
+    assert(out.refused === null, 'and nothing was refused');
+});
+
+test('comparePlayerGroup: delta is arithmetic, better is direction, hand-computed', () => {
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    // Home runs, higher is better. Sam 33 against the anchor's 16 is +17 and an improvement; Gil 10 is -6 and not.
+    assertEq(grpCell(out, '5', 2).delta, 17, 'thirty-three less sixteen');
+    assertEq(grpCell(out, '5', 2).better, 'up', 'and more home runs is better');
+    assertEq(grpCell(out, '5', 3).delta, -6, 'ten less sixteen');
+    assertEq(grpCell(out, '5', 3).better, 'down', 'fewer is worse');
+});
+
+test('comparePlayerGroup: an INVERSE category signs the direction, never the delta', () => {
+    // Sam allowed two more errors than the anchor: the delta is +2, because the delta is arithmetic, and the direction is down, because more errors is worse. A renderer colouring on the sign of the delta alone would paint two extra errors green.
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    assertEq(grpCell(out, '72', 2).delta, 2, 'three errors less one is plus two');
+    assertEq(grpCell(out, '72', 2).better, 'down', 'and that is worse');
+    assertEq(grpCell(out, '72', 3).delta, 0, 'Gil matches the anchor');
+    assertEq(grpCell(out, '72', 3).better, 'even', 'which is neither');
+});
+
+test('comparePlayerGroup: best and worst are ARRAYS, because the frame has a tie', () => {
+    // On errors the anchor and Gil both sit at one and the frame draws BOTH green. A singular field cannot say that, and a renderer forced to pick one would mark a tie as a winner.
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    assertEq(grpRow(out, '72').bestIds.join(','), '1,3', 'inverse: the two lowest');
+    assertEq(grpRow(out, '72').worstIds.join(','), '2', 'and the highest alone');
+    assertEq(grpRow(out, '5').bestIds.join(','), '2', 'home runs: the highest');
+    assertEq(grpRow(out, '5').worstIds.join(','), '3', 'and the lowest');
+});
+
+test('comparePlayerGroup: a null cell is carried, and takes part in nothing', () => {
+    // Gil has no batting average at all. The row stays, since a player having no figure here is information and a shorter table hides it, but Gil is in no delta, no direction, and neither end of the row.
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    const gil = grpCell(out, '2', 3);
+    assertEq(gil.value, null, 'no figure');
+    assertEq(gil.delta, null, 'so no delta');
+    assertEq(gil.better, null, 'and no direction');
+    assert(!grpRow(out, '2').bestIds.includes(3) && !grpRow(out, '2').worstIds.includes(3),
+        'and neither end of the row');
+    assertEq(grpRow(out, '2').bestIds.join(','), '1', 'the anchor takes the average');
+});
+
+test('comparePlayerGroup: the tally denominator is what could be COMPARED', () => {
+    // Sam has all three and takes home runs alone: errors are worse and the average is lower. Gil has two of the three, takes neither, and reads 0 of 2 and not 0 of 3, since a fraction whose denominator lies is worse than no fraction.
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    const t = (id) => out.tally.find(x => x.id === id);
+    assertEq([t(2).takes, t(2).of], [1, 3], 'Sam takes the home runs');
+    assertEq([t(3).takes, t(3).of], [0, 2], 'Gil takes nothing, out of the two he has');
+    assertEq([t(1).takes, t(1).of], [null, null], 'the anchor is not compared with itself');
+});
+
+test("comparePlayerGroup: the ranks are the POOL's, not the group's", () => {
+    // Every player is read out of the same per-category ordering, so a rank reads the same beside five others as it does alone. Home runs across all four: Sam 33, Fay 20, Ann 16, Gil 10.
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3], GRP_CTX);
+    assertEq([grpCell(out, '5', 2).rank, grpCell(out, '5', 2).total], [1, 4], 'Sam leads the pool');
+    assertEq(grpCell(out, '5', 1).rank, 3, 'the anchor is third of four, not first of three');
+    // The average is scoped to the three who have one, exactly as the drill-down scopes it.
+    assertEq(grpCell(out, '2', 1).total, 3, 'a category only three of them posted');
+});
+
+test('comparePlayerGroup: seven others is refused with the reason, not trimmed', () => {
+    const out = comparePlayerGroup(GRP_POOL, 1, [2, 3, 4, 5, 6, 7, 8], GRP_CTX);
+    assertEq(out.refused, 'Six players at most in a group.', 'said, not silently obeyed');
+    assertEq(out.rows, null, 'and no table to mistake for a trimmed one');
+    assertEq(comparePlayerGroup(GRP_POOL, 1, [2, 3, 4, 5, 6, 7], GRP_CTX).refused, null, 'six is fine');
+});
+
+test('comparePlayerGroup: the anchor cannot also be an other', () => {
+    const out = comparePlayerGroup(GRP_POOL, 1, [1, 2], GRP_CTX);
+    assertEq(out.ids.join(','), '1,2', 'listed once, as the anchor');
+});
+
+test('comparePlayerCategories: the two-player ledger is unchanged by the group rewrite', () => {
+    // The adapter's whole job. Sam against Ann: Sam takes the home runs, Ann the errors and the average, so the old tally reads b 1, a 2, tie 0 and the old rows still carry a/b/edge.
+    const { rows, tally } = comparePlayerCategories(GRP_POOL, 1, 2, GRP_CTX);
+    assertEq([tally.a, tally.b, tally.tie], [2, 1, 0], 'the same counts, in the old shape');
+    assertEq(rows.find(r => r.id === '5').edge, 'b', 'home runs to Sam');
+    assertEq(rows.find(r => r.id === '72').edge, 'a', 'errors to Ann, inverse-aware');
+    assertEq(rows.find(r => r.id === '5').a.value, 16, 'and the old side objects survive');
+});
+
+test('comparePlayerCategories: a category only one of them has still reports none', () => {
+    const { rows, tally } = comparePlayerCategories(GRP_POOL, 1, 3, GRP_CTX);
+    const avg = rows.find(r => r.id === '2');
+    assertEq(avg.b, null, 'Gil has no average');
+    assertEq(avg.edge, 'none', 'so neither takes it');
+    assertEq(tally.a + tally.b + tally.tie, 2, "and it is in nobody's count");
+});
+
+// ==== The group's chart series ====
+
+const GRP_WEEKLY = {
+    1: { 1: { '5': 2 }, 3: { '5': 4 } },
+    2: { 2: { '5': 1 } }
+};
+
+test('groupMatchupSeries: one axis for every series, nulls where a player has no line', () => {
+    // The union of both players' weeks is 1, 2, 3. Four series the same length is what lets a chart GAP a line; a shorter series would shorten the line instead.
+    const s = groupMatchupSeries(GRP_WEEKLY, [1, 2], '5');
+    assertEq(s.map(x => x.id).join(','), '1,2', 'in the order given');
+    assertEq(s[0].anchor, true, 'the first is the anchor');
+    assertEq(s[1].anchor, false, 'and only the first');
+    assertEq(s[0].points.map(p => `${p.matchup}:${p.value}`).join(' '), '1:2 2:null 3:4', 'anchor');
+    assertEq(s[1].points.map(p => `${p.matchup}:${p.value}`).join(' '), '1:null 2:1 3:null', 'other');
+});
+
+test("groupMatchupSeries: the caller's own axis wins where it has one", () => {
+    const s = groupMatchupSeries(GRP_WEEKLY, [1], '5', { matchups: [3, 4] });
+    assertEq(s[0].points.map(p => `${p.matchup}:${p.value}`).join(' '), '3:4 4:null', 'its list, its order');
+});
+
+test('groupMatchupSeries: a synthetic series comes through scoreOf', () => {
+    // Score by matchup is not in the weekly line at all, since it is scored per period against a pool, so the caller supplies it and statId is ignored. Inventing a score here would be a second definition of a number that already exists.
+    const s = groupMatchupSeries(GRP_WEEKLY, [1, 2], 'score', {
+        matchups: [1, 2], scoreOf: (id, m) => (id === 1 ? m * 10 : NaN)
+    });
+    assertEq(s[0].points.map(p => p.value).join(','), '10,20', "the caller's figures");
+    assertEq(s[1].points.map(p => p.value).join(','), ',', 'and an unusable one is null, not NaN');
+});
+
+test('groupMatchupSeries: no ids is an empty answer, never a throw', () => {
+    assertEq(groupMatchupSeries(GRP_WEEKLY, [], '5').length, 0, 'nothing asked');
+    assertEq(groupMatchupSeries(null, [1], '5')[0].points.length, 0, 'no lines, no axis');
+});
+
+
+// What a roster-days file is. Two files carry the harvest's output in two shapes, wrapped and bare. A reader of only the wrapped one stages a bare roster-days.json with zero snapshots. rosterDaysOf detects which, and says 'unrecognised' for anything that is neither. Hand-built days, invented ids.
+const DAY = [{ id: 1, entries: [{ p: 90001, slot: 0 }] }];
+
+test('rosterDaysOf: the wrapped shape, which the generated fixture writes', () => {
+    const got = rosterDaysOf({ days: { 1: DAY, 2: DAY } });
+    assertEq(got.shape, 'wrapped', 'wrapped');
+    assertEq(Object.keys(got.days), ['1', '2'], 'its days');
+});
+
+test('rosterDaysOf: the BARE shape, which Download All writes', () => {
+    const got = rosterDaysOf({ 1: DAY, 3: DAY });
+    assertEq(got.shape, 'bare', 'bare');
+    assertEq(Object.keys(got.days), ['1', '3'], 'the object is the days itself');
+    // And it feeds the timeline exactly as the wrapped one does.
+    const started = buildStartedTimeline({ rosterDays: got.days, startingSlots: new Set([0]) });
+    assertEq(startedTeamForPlayerAtPeriod(started, 90001, 3), 1, 'the bare days drive the started timeline');
+});
+
+test('rosterDaysOf: an empty harvest is an answer, not a malformed file', () => {
+    assertEq(rosterDaysOf({}).shape, 'empty', 'bare and empty');
+    assertEq(rosterDaysOf({ days: {} }).shape, 'empty', 'wrapped and empty');
+    assertEq(rosterDaysOf({}).days, {}, 'no days');
+});
+
+test('rosterDaysOf: neither shape is said to be neither, with zero days', () => {
+    // The staged run uses a real non-roster fixture; these are the shapes a mistaken file takes.
+    const cases = [
+        null, undefined, 'text', 42, [DAY],
+        { days: [DAY] },                    // a wrapper around an array
+        { days: { one: DAY } },             // a wrapper around a non-period key
+        { 1: DAY, _synthetic: 'a note' },   // a bare object with one non-period key
+        { 0: DAY },                         // period 0 is not a scoring period
+        { 1: 'not an array' },
+        { teams: [] }                       // a raw mRoster response, not distilled days
+    ];
+    cases.forEach((c, i) => {
+        const got = rosterDaysOf(c);
+        assertEq([got.shape, got.days], ['unrecognised', {}], `case ${i}`);
+    });
+});
 const passed = results.filter(r => r.ok).length;
 const failed = results.length - passed;
 document.getElementById('summary').textContent = `${passed}/${results.length} passed${failed ? `: ${failed} FAILED` : ' ✓'}`;

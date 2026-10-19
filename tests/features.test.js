@@ -1,60 +1,54 @@
-// Unit tests for the pure/testable halves of the export (export.js) and weekly recap (recap.js) features - open tests/features.test.html through any static server (file:// won't work for ES modules; python -m http.server is a zero-dependency option). The builders read the AppState singleton, so each test sets up exactly the state it needs first.
-import { AppState } from '../state.js';
+// Unit tests for the pure, testable halves of the export (export.js) and weekly recap (recap.js) features. Open tests/features.test.html through any static server, since file:// will not work for ES modules. The builders read the AppState singleton, so each test sets up exactly the state it needs first.
+import { AppState } from '../src/data/state.js';
 import {
     delimitedCell, buildDelimitedText, timeframeLabel,
     buildStandingsExport, buildCategoryTotalsExport
-} from '../export.js';
-import { buildLeaderboardExportModel, aggregateStatsForWeekRange, aggregateDailyCumulative, periodsOfMatchup, teamCategorySeries } from '../players.js';
-import { proScheduleFor, proScheduleAttemptedFor } from '../api.js';
+} from '../src/views/export.js';
+import { buildLeaderboardExportModel, aggregateStatsForWeekRange, aggregateDailyCumulative, periodsOfMatchup, teamCategorySeries, statIdsForGroup } from '../src/views/players.js';
+import { proScheduleFor, proScheduleAttemptedFor, archiveRosterSlot, leagueKeyOf as apiLeagueKeyOf, lookupMarksOf, leagueTodayRules, GAME_LENGTH_MS, failureReasonOf, pickerLeaguesFor, isEspnHost, hostOf } from '../src/data/api.js';
 import {
-    defaultRecapWeek, buildRecapModel, buildRecapText,
+    defaultRecapWeek, buildRecapModel, buildRecapText, tiesText,
     detectMyTeamId, buildTeamMatchupRecapModel, buildTeamMatchupText
-} from '../recap.js';
-import { weekOfPeriod, midPeriodOfWeek } from '../utils.js';
+} from '../src/views/recap.js';
+import { weekOfPeriod, midPeriodOfWeek } from '../src/views/utils.js';
 import {
     gamesByProTeamForMatchup, densityAcrossMatchups, teamDensity,
-    offNightsForMatchup, twoStartPitchers, playoffMatchups, playoffOutlook, matchupWindow,
+    offNightsForMatchup, twoStartPitchers, playoffMatchups, playoffOutlook, matchupWindow, gameDayPoints, gameDayRace, nextGameOf, footballDayLabel,
     rosterNightCoverage, nightsAcrossMatchups, nightsFilledBy, openSeatNights
-} from '../schedule-insight.js';
-import { orderStatIdsByRole, splitStatIdsByRole, buildMatchupPeriodMap, scheduledPeriodsOfMatchup, matchupOfPeriod, getTimeframeBounds, parseTimeframe, injuryLabel, injuryBadgeHtml, playerPoolErrorText, openingSortDir, leagueSeasonYears } from '../utils.js';
-import { buildRosterGroups, rostersFromPayload, findOwnedTeamId } from '../myteam.js';
-import { rankPoolLabel, playoffDensityRows } from '../players.js';
-import { buildGamePeriodIndex, datesByScoringPeriod, buildProTeamAbbrevs, typicalMatchupLength, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor, dayLabelerFor } from '../probables.js';
+} from '../src/engines/schedule-insight.js';
+import { orderStatIdsByRole, splitStatIdsByRole, buildMatchupPeriodMap, scheduledPeriodsOfMatchup, nextMatchupSpan, scheduledOpponentOf, matchupOfPeriod, getTimeframeBounds, parseTimeframe, timeframeValueFor, matchupRangeFor, matchupStateOf, timeframeWindowSizes, matchupDateLabel, dateRangeLabel, injuryLabel, injuryBadgeHtml, playerPoolErrorText, openingSortDir, leagueSeasonYears, yearOptionsWith, yearDropdownFor, noteSeasonSeen, seasonsSeenFor } from '../src/views/utils.js';
+import { buildRosterGroups, rostersFromPayload, findOwnedTeamId } from '../src/views/myteam.js';
+import { rankPoolLabel, playoffDensityRows, leagueKeyOf } from '../src/views/players.js';
+import { buildGamePeriodIndex, datesByScoringPeriod, buildProTeamAbbrevs, typicalMatchupLength, currentMatchupWindow, countProjectedStarts, buildOddsIndex, moneylineFor, dayLabelerFor } from '../src/engines/probables.js';
 import {
     isSidelined, teamOffence, percentileOf, offenceStrength, offenceBreakdown, pastStartsByOpponent,
     startDifficulty, difficultyLabel, daysBetween, venueTeamIdFor,
-    SHORT_REST_ADJUSTMENT, MLB_PARK_FACTORS
-} from '../matchup-difficulty.js';
-import { numericStat, matchupTally, matchupPoints, readsAsPlayedMatchup, matchupCatsForSide, matchResultOf, leagueTypeBadge, buildLoadingHtml } from '../utils.js';
-import { isAllowedLogoUrl, buildTeamCrestHtml } from '../images.js';
+    SHORT_REST_ADJUSTMENT, MLB_PARK_FACTORS,
+    goalieNightDifficulty, HOME_ICE_ADJUSTMENT, GOALIE_NIGHT_PREDICTS
+} from '../src/engines/matchup-difficulty.js';
+import { numericStat, matchupTally, matchupPoints, readsAsPlayedMatchup, matchupCatsForSide, matchResultOf, leagueTypeBadge, buildLoadingHtml, draftTypeLabel, roomSnapshotFile } from '../src/views/utils.js';
+import { isAllowedLogoUrl, buildTeamCrestHtml } from '../src/views/images.js';
 import {
     normalizeName, nameVariantKey, clubOf, matchPlayers, matchSummary,
     PROTEAM_CLUB_MAP, DEAD_ENTRIES
-} from '../player-id-map.js';
+} from '../src/data/player-id-map.js';
 import {
     externalValue, externalLine, reportsFor,
     EXTERNAL_STAT_FIELDS, UNMAPPED_CATEGORIES, NHL_REPORTS
-} from '../stat-crosswalk.js';
+} from '../src/data/stat-crosswalk.js';
 import {
     seasonTotalsFrom, carriesAny, retroBasis, eligibleAt, seasonRowFrom, seasonRowsFor
-} from '../retro-basis.js';
-import { computeRotoRanks } from '../rank-engine.js';
-import { computePointsRanks } from '../rank-engine.js';
+} from '../src/engines/retro-basis.js';
+import { computeRotoRanks } from '../src/engines/rank-engine.js';
+import { computePointsRanks } from '../src/engines/rank-engine.js';
 import { ESPN_STAT_MAPS, ESPN_STAT_FULL_NAMES, DST_POSITION_ID, LINEUP_SLOT_LABELS,
     LINEUP_SLOT_ORDER, NON_STARTING_SLOTS, SECONDARY_LINEUP_SLOTS, POSITION_MAPS,
-    SECONDARY_GROUP_POSITIONS, lowerIsBetterIds } from '../state.js';
-import { roleGroupsFor } from '../players.js';
-import { dominantColour, darkenUntilContrast, contrastRatio, relativeLuminance, parseCssColour, toCssRgb } from '../logo-colour.js';
-import { countApiRequest, countImageRequest, getRequestTally } from '../utils.js';
-import {
-    franchiseKeyOf, teamDisplayName, seasonFormat, championKeyOf, summarizeSeason,
-    buildFranchises, allTimeRecords, headToHead, categoryUnion, careerRate, buildCareers, teamAbbrev,
-    careerValue, sortCareers, seasonFinished, categoryRowHeight,
-    CATEGORY_ROW_MIN, CATEGORY_ROW_MAX, CATEGORY_ROWS_BUDGET,
-    rivalryDetail, rivalrySplit, isPostseasonGame, recordText, runSpanText,
-    defaultFranchiseIndex, coverageSentence,
-    RIVALRY_CARD_SECTIONS, pennantLines
-} from '../history.js';
+    SECONDARY_GROUP_POSITIONS, lowerIsBetterIds, leagueInverseIds, INVERSE_STATS } from '../src/data/state.js';
+import { roleGroupsFor, groundColourFor } from '../src/views/players.js';
+import { contrastRatio as groundContrast } from '../src/views/logo-colour.js';
+import { dominantColour, darkenUntilContrast, contrastRatio, relativeLuminance, parseCssColour, toCssRgb, pickCrestGround, pickCardGround, deltaE, assignDistinctGrounds, blendToward, separateGrounds } from '../src/views/logo-colour.js';
+import { countApiRequest, countImageRequest, getRequestTally } from '../src/views/utils.js';
+import { displayTeamName, teamNameTitle, surnameOf, draftedFactText, draftedPickParts, draftedPickTeamId } from '../src/views/utils.js';
 
 const results = [];
 function test(name, fn) {
@@ -92,7 +86,7 @@ function resetAppState() {
     AppState.userSwid = '';
 }
 
-// Team factory matching the shape processCoreData builds (data.js). weeklyMatchResult carries the 1/0.5/0 per-week win result for points leagues, whose weeklyMatchWins holds raw points.
+// Team factory matching the shape processCoreData builds (data.js). weeklyMatchResult carries the 1/0.5/0 result per week for a points league, whose weeklyMatchWins holds raw points.
 const T = (id, name, weeklyMatchWins, weeklyCatWins, weeklyCats = {}, weeklyMatchResult = {}, weeklyBye = {}) => ({
     id, name, abbrev: name.slice(0, 4).toUpperCase(),
     seasonCats: {}, weeklyMatchWins, weeklyMatchResult, weeklyCatWins, weeklyCats, weeklyTier: {}, weeklyBye
@@ -133,10 +127,14 @@ test('timeframeLabel: resolves the shared timeframe to a readable range', () => 
     assertEq(timeframeLabel(), 'Current Matchup (Matchups 9-9)', 'lookback label');
     AppState.timeframe = 'all';
     assertEq(timeframeLabel(), 'Regular Season + Playoffs (Matchups 1-9)', 'full label');
+    // A picked matchup is named by its number and not called Current. It parses as a one-matchup window, which every day-by-day surface wants and a file name does not.
+    AppState.timeframe = 'reg+m3';
+    AppState.regSeasonWeeks = 21;
+    assertEq(timeframeLabel(), 'Matchup 3, Regular Season (Matchups 3-3)', 'a picked matchup');
 });
 
 test('timeframeLabel: a roto league says Weeks, not Matchups', () => {
-    // Roto has no matchup periods - its timeframe pills are "Last N Weeks" and its axes read WK, so an export labelled in matchups would contradict the control the user picked it with.
+    // Roto has no matchup periods. Its timeframe pills are Last N Weeks and its axes read WK, so an export labelled in matchups would contradict the control the user picked it with.
     AppState.isRotoLeague = true;
     AppState.timeframe = 'last4';
     AppState.maxCompletedWeek = 12;
@@ -304,7 +302,7 @@ test('availability filter: FA/rostered narrow rows but never change the Rank poo
 
 // ==== Recap model + text ====
 
-// A result exists only when the winner does: the live matchup's UNDECIDED must answer null - a zero would book a loss for both sides, which is the one-loss-high record the owner measured on every team. Hand-computed against the encoding: HOME win = home 1 / away 0, TIE = 0.5 both, UNDECIDED and a missing side = null.
+// A result exists only when the winner does. The live matchup's UNDECIDED must answer null, since a zero would book a loss for both sides and leave every team's record one loss high. Hand-computed against the encoding: a HOME win is home 1 and away 0, a TIE is 0.5 for both, and UNDECIDED or a missing side is null.
 test('matchResultOf: decided games score 1/0.5/0, a live matchup scores nothing', () => {
     const live = { winner: 'UNDECIDED', home: { teamId: 1, cumulativeScoreLive: { wins: 3, losses: 0, ties: 11 } }, away: { teamId: 2 } };
     assertEq(matchResultOf(live, 'home'), null, 'live home has no result');
@@ -347,6 +345,24 @@ test('leagueTypeBadge: no scoringType at all returns null, not a badge for nothi
     assertEq(leagueTypeBadge(null), null, 'null input');
     assertEq(leagueTypeBadge(undefined), null, 'undefined input');
     assertEq(leagueTypeBadge(''), null, 'empty string input');
+});
+
+test('draftTypeLabel (B243 item 10): the four named formats are proper nouns', () => {
+    assertEq(draftTypeLabel('SNAKE'), 'Snake Draft', 'snake');
+    assertEq(draftTypeLabel('AUCTION'), 'Auction Draft', 'auction');
+    assertEq(draftTypeLabel('OFFLINE'), 'Offline Draft', 'offline');
+    assertEq(draftTypeLabel('AUTOPICK'), 'Autopick', 'autopick stands alone, no "Draft" suffix');
+    assertEq(draftTypeLabel('snake'), 'Snake Draft', 'case-insensitive on the raw ESPN value');
+});
+
+test('draftTypeLabel: an unnamed type reads as itself, lowercase and spaced, never guessed at', () => {
+    assertEq(draftTypeLabel('SOME_NEW_TYPE'), 'some new type', 'the same defensive shape as leagueTypeBadge - shown, not invented');
+});
+
+test('draftTypeLabel: nothing supplied returns null, not a label for nothing', () => {
+    assertEq(draftTypeLabel(null), null, 'null input');
+    assertEq(draftTypeLabel(undefined), null, 'undefined input');
+    assertEq(draftTypeLabel(''), null, 'empty string input');
 });
 
 test('buildLoadingHtml (B157): the exact blunt word VOICE.md asks for, never a per-site phrase', () => {
@@ -404,11 +420,50 @@ test('buildRecapModel: winners, blowout vs nail-biter, team of the week, movemen
     assertEq(m.nailbiter.winner.name, 'Charlies', 'nail-biter is the 1-cat margin');
     assertEq(m.teamOfWeek.name, 'Alphas', 'most cat wins this week');
     assertEq(m.teamOfWeek.value, 7, 'team-of-week value');
-    // Standings thru wk2: Alphas(2 wins,13 cats), Charlies(2,10), Deltas(0,7), Bravos(0,6). Thru wk1 the 0-win tiebreak went Bravos(4) over Deltas(3) - so Deltas climbed one.
+    // Standings through week 2: Alphas (2 wins, 13 cats), Charlies (2, 10), Deltas (0, 7), Bravos (0, 6). Through week 1 the 0-win tiebreak went Bravos (4) over Deltas (3), so Deltas climbed one.
     assertEq(m.standings.map(s => s.name), ['Alphas', 'Charlies', 'Deltas', 'Bravos'], 'standings order');
     assertEq(m.standings[2].move, 1, 'Deltas climbed via cat-wins tiebreak');
     assertEq(m.standings[3].move, -1, 'Bravos dropped');
     assertEq(m.standings[0].record, '2-0-0', 'record string');
+});
+
+// A tie is the closest game. The recap shares matchupExtremes with the season card, so a week with a tie gets no nail-biter and says the ties instead. Contract: tests/fixtures/matchup-extremes.md.
+
+test('buildRecapModel: a tie takes the nail-biter\'s place rather than sitting beside it', () => {
+    setupRecapLeague();
+    // Week 2's second game becomes level: 4-4-2 both ways is 5 category wins each.
+    AppState.apiData.schedule[3] = catGame(2, 3, 4, [4, 4, 2], [4, 4, 2], 'TIE');
+    const m = buildRecapModel(2);
+    assertEq(m.nailbiter, null, 'the tie IS the closest game, so there is no other to name');
+    assertEq(m.ties.length, 1, 'one tie');
+    assertEq([m.ties[0].home.name, m.ties[0].away.name], ['Charlies', 'Deltas'], 'and who it was');
+    assertEq(m.blowout.winner.name, 'Alphas', 'the blowout is untouched');
+});
+
+test('tiesText: how many and who, singular and plural, with no matchup number', () => {
+    // A weekly recap is one matchup already, so repeating the number beside every pairing would restate the heading. The season card's version of this line carries it and this one does not.
+    const one = [{ home: { name: 'Charlies' }, away: { name: 'Deltas' } }];
+    assertEq(tiesText(one), '1 tie: Charlies v Deltas', 'one is singular and still carries the count');
+    const two = [...one, { home: { name: 'Alphas' }, away: { name: 'Bravos' } }];
+    assertEq(tiesText(two), '2 ties: Charlies v Deltas, Alphas v Bravos', 'two are plural, in order');
+    assertEq(tiesText([]), null, 'no line at all where there were none');
+    assertEq(tiesText(null), null, 'and none from nothing');
+});
+
+test('buildRecapText: the tie line replaces the nail-biter line, never both', () => {
+    setupRecapLeague();
+    AppState.apiData.schedule[3] = catGame(2, 3, 4, [4, 4, 2], [4, 4, 2], 'TIE');
+    const text = buildRecapText(buildRecapModel(2));
+    assert(text.includes('1 tie: Charlies v Deltas'), 'the ties are named');
+    assert(!text.includes('Nail-biter'), 'and no nail-biter is claimed on a week that had a tie');
+    assert(text.includes('Blowout: Alphas'), 'the blowout still reads');
+});
+
+test('buildRecapText: a week with no tie is unchanged', () => {
+    setupRecapLeague();
+    const text = buildRecapText(buildRecapModel(2));
+    assert(text.includes('Nail-biter: Charlies'), 'the nail-biter reads as it always did');
+    assert(!text.includes('tie:') && !text.includes('ties:'), 'and no tie line appears');
 });
 
 test('buildRecapModel: in-progress week flagged, no winner claimed', () => {
@@ -470,7 +525,7 @@ test('buildRecapText: contains results, highlights, movement, branding', () => {
 
 // ==== Team matchup recap ====
 
-// A single head-to-head week. Team 8 (me) hosts team 3. I win HR (10>8) and R (5>3); they win ERA (2.5<3.5, lower is better) - so I take the matchup 2-1-0.
+// A single head-to-head week. Team 8 (me) hosts team 3. I win HR (10>8) and R (5>3); they win ERA (2.5<3.5, lower is better), so I take the matchup 2-1-0.
 function setupTeamMatchupLeague() {
     AppState.scoredStatIds = new Set(['5', '47', '20']); // HR, ERA(inverse), R
     AppState.teamStats = [
@@ -532,7 +587,7 @@ test('buildTeamMatchupText: H2H headline + category lines + branding', () => {
     assert(text.includes('Made with Leaguewise'), 'branding footer');
 });
 
-// ==== Role-grouped stat ordering (utils.js) - the one helper every mixed stat list orders through ====
+// ==== Role-grouped stat ordering (utils.js): the one helper every mixed stat list orders through ====
 
 test('orderStatIdsByRole: baseball puts batting before pitching, keeping order within each group', () => {
     // 5 HR, 20 R, 81 GP are batting; 47 ERA, 53 W are pitching. Interleaved on the way in, so this also covers the real source order (81 sorts after the pitching block numerically).
@@ -568,7 +623,7 @@ test('splitStatIdsByRole: reports both groups, so the recap knows where to draw 
     assertEq(oneRole.secondary, [], 'no pitching group, so no divider');
 });
 
-// Category lines read "<mark> <name>: <mine> vs <theirs>", so anchor on the space before the name - a bare includes('R:') would also match the HR line.
+// Category lines read "<mark> <name>: <mine> vs <theirs>", so anchor on the space before the name. A bare includes('R:') would also match the HR line.
 const catLineIndex = (lines, name) => lines.findIndex(l => new RegExp(`\\s${name}:`).test(l));
 
 test('buildTeamMatchupText: categories are role-grouped, with a blank-line divider between groups', () => {
@@ -589,7 +644,7 @@ test('buildTeamMatchupText: a single-role league gets no divider (unchanged outp
     assert(hr > 0 && r === hr + 1, `the two batting cats stay adjacent, no divider inserted (HR ${hr}, R ${r})`);
 });
 
-// ==== Windowed roto aggregation: the shared range aggregation that re-scores a roto window over ONLY that window's accumulated started-day components. The one thing that must hold for a window to be honest is the rate ground rule - a rate category is reproduced from summed COMPONENTS over the window, never from averaging each day/week's already-computed rate. These hand-computed cases pin that down directly; the end-to-end identity (a full-season window reproducing ESPN's official per-category finals) is validated in-browser on the FGB fixture. ====
+// Windowed roto aggregation: the shared range aggregation that re-scores a roto window over only that window's accumulated started-day components. A rate category is rebuilt from summed components over the window, never by averaging each day's or week's already-computed rate. These hand-computed cases pin that down; the end-to-end identity with ESPN's official finals is validated in the browser on a captured league.
 
 function assertClose(actual, expected, msg) {
     if (Math.abs(actual - expected) > 1e-9) throw new Error(`${msg}: got ${actual}, expected ${expected}`);
@@ -809,6 +864,69 @@ test('the first morning of a round is the whole round, not an empty window', () 
     assertEq([periods[0], periods[periods.length - 1]], [160, 173], 'starting the day after the last scored one');
 });
 
+// ==== The next matchup's days, before it has scored one ====
+
+test('the next playoff round has its days before the bracket is drawn', () => {
+    // A baseball league's shape: the two-week semifinal (22) runs 160-173 and today is 164. The final (23) is declared two weeks and has no schedule entry at all. Its days are 174 to the season's last, 187.
+    const m = buildMatchupPeriodMap(playoffScheduleFixture(164), PLAYOFF_STATUS(22, 164), PLAYOFF_SETTINGS);
+    assertEq(nextMatchupSpan(m), { start: 174, end: 187 }, 'the day after the semifinal, to the last day');
+    const periods = scheduledPeriodsOfMatchup(m, 23);
+    assertEq([periods.length, periods[0], periods[periods.length - 1]], [14, 174, 187], 'fourteen days for two weeks');
+});
+
+test('an ordinary next week is derived the same way', () => {
+    // Matchup 20 is being played (146 onward, four days scored). 21 has not scored a day. From 153 there are 35 days and five declared weeks (21, 22x2, 23x2), so week 21 takes seven: 153-159.
+    const days = {}; for (let i = 146; i <= 149; i++) days[String(i)] = { 0: 1 };
+    const sched = [{ matchupPeriodId: 20, home: { teamId: 1, pointsByScoringPeriod: days }, away: { teamId: 2, pointsByScoringPeriod: days } }];
+    const m = buildMatchupPeriodMap(sched, PLAYOFF_STATUS(20, 149), PLAYOFF_SETTINGS);
+    assertEq(nextMatchupSpan(m), { start: 153, end: 159 }, 'the week the league actually ran');
+});
+
+test('the next matchup is rounded DOWN, so it never claims a day of the one after it', () => {
+    // The All-Star shape measured on the baseball league: from day 83 there are 105 days over 14 declared weeks, 7.5 each. Rounding to nearest gave 8 and took day 90 from the matchup after; rounding down gives 7, matching what the league ran. Matchup 11 is open, 76-82.
+    const weeks = {}; for (let m = 11; m <= 21; m++) weeks[m] = [m];
+    weeks[22] = [22, 23]; weeks[23] = [24, 25];
+    const settings = { scheduleSettings: { matchupPeriods: weeks } };
+    const days = {}; for (let i = 76; i <= 80; i++) days[String(i)] = { 0: 1 };
+    const sched = [{ matchupPeriodId: 11, home: { teamId: 1, pointsByScoringPeriod: days } }];
+    const m = buildMatchupPeriodMap(sched, PLAYOFF_STATUS(11, 80), settings);
+    assertEq(m.currentSpan, { start: 76, end: 82 }, 'the open week, by the existing rule');
+    assertEq(nextMatchupSpan(m), { start: 83, end: 89 }, 'seven days, not eight');
+});
+
+test('no next matchup declared, no days - and only the NEXT matchup is derived', () => {
+    const sched = playoffScheduleFixture(173);
+    sched.push({ matchupPeriodId: 23, home: { teamId: 1, pointsByScoringPeriod: { 174: {}, 175: {} } } });
+    const last = buildMatchupPeriodMap(sched, PLAYOFF_STATUS(23, 175), PLAYOFF_SETTINGS);
+    assertEq(nextMatchupSpan(last), null, 'the final is the last matchup there is');
+    assertEq(scheduledPeriodsOfMatchup(last, 24), [], 'so there is nothing after it');
+    const m = buildMatchupPeriodMap(playoffScheduleFixture(164), PLAYOFF_STATUS(21, 159), PLAYOFF_SETTINGS);
+    assertEq(scheduledPeriodsOfMatchup(m, 23), [], 'two matchups ahead is not derived');
+});
+
+test('a next matchup that has already scored keeps its own scored days', () => {
+    // The payload ran ahead of currentMatchupPeriod: matchup 23 has scored 174 and 175 while the status still says 22. Its scored days stand; nothing is invented on top of them.
+    const sched = playoffScheduleFixture(173);
+    sched.push({ matchupPeriodId: 23, home: { teamId: 1, pointsByScoringPeriod: { 174: {}, 175: {} } } });
+    const m = buildMatchupPeriodMap(sched, PLAYOFF_STATUS(22, 175), PLAYOFF_SETTINGS);
+    assertEq(scheduledPeriodsOfMatchup(m, 23), [174, 175], 'what was scored');
+});
+
+test('no open span, no next span - a league with nothing scored says nothing', () => {
+    // The pre-draft hockey league: matchup 1 current, matchup 2 declared, no day scored anywhere.
+    const m = buildMatchupPeriodMap([], PLAYOFF_STATUS(1, 0), { scheduleSettings: { matchupPeriods: { 1: [1], 2: [2] } } });
+    assertEq(nextMatchupSpan(m), null, 'no guess before the season has a day in it');
+});
+
+test('scheduledOpponentOf: the schedule\'s pairing, and null until the bracket is drawn', () => {
+    const sched = playoffScheduleFixture(164);
+    assertEq(scheduledOpponentOf(sched, 22, 1), 2, 'team 1 meets team 2 in the semifinal');
+    assertEq(scheduledOpponentOf(sched, 22, '2'), 1, 'from either side, id as a string or not');
+    assertEq(scheduledOpponentOf(sched, 23, 1), null, 'the final is not drawn: unknown, not a guess');
+    assertEq(scheduledOpponentOf(sched, 22, 9), null, 'a team not in that matchup');
+    assertEq(scheduledOpponentOf(sched, 22, null), null, 'no team');
+});
+
 test('the span never reaches into a later matchup own scored days', () => {
     // The guarantee, not a property of the leagues measured so far: whatever the arithmetic says, a day another matchup has scored belongs to that matchup.
     const sched = playoffScheduleFixture(164);
@@ -818,10 +936,12 @@ test('the span never reaches into a later matchup own scored days', () => {
     assertEq(periods[periods.length - 1], 169, 'stops the day before');
 });
 
-test('a FUTURE matchup is not widened, so the Next lens keeps its own answer', () => {
-    // The fence. Matchup 23 has no games in this league's schedule, and answering for it would ungrey a pill on evidence the bracket has not produced yet.
+test('only the NEXT matchup is widened; nothing past it is claimed', () => {
+    // The fence. The days of the matchup after the one being played are answered, since the schedule fixes them and only the opponent is unknown. The fence stands one further out: from matchup 21, nothing two ahead is derived.
     const m = buildMatchupPeriodMap(playoffScheduleFixture(164), PLAYOFF_STATUS(22, 164), PLAYOFF_SETTINGS);
-    assertEq(scheduledPeriodsOfMatchup(m, 23).length, 0, 'nothing scheduled, nothing claimed');
+    assertEq(scheduledPeriodsOfMatchup(m, 23).length, 14, 'the next matchup, answered');
+    const earlier = buildMatchupPeriodMap(playoffScheduleFixture(159), PLAYOFF_STATUS(21, 159), PLAYOFF_SETTINGS);
+    assertEq(scheduledPeriodsOfMatchup(earlier, 23).length, 0, 'two matchups ahead, nothing claimed');
 });
 
 test('without settings the map answers exactly as it always did', () => {
@@ -842,7 +962,7 @@ test('a matchup the settings say nothing about is not extended', () => {
 });
 
 test('getTimeframeBounds points This Matchup at the matchup being played', () => {
-    // The morning of matchup 17: nothing is scored, so maxCompletedWeek is still 16. Without the live anchor "This Matchup" showed matchup 16, which is last week's production.
+    // The morning of matchup 17: nothing is scored, so maxCompletedWeek is still 16. Without the live anchor, This Matchup would show matchup 16, which is last week's production.
     assertEq(getTimeframeBounds('last1', 16, 21, 17), { start: 17, end: 17 }, 'this matchup is the live one');
     // Every other window is retrospective: four FINISHED matchups, not three plus this morning.
     assertEq(getTimeframeBounds('last4', 16, 21, 17), { start: 13, end: 16 }, 'last 4 ends at the last completed');
@@ -864,11 +984,85 @@ test('getTimeframeBounds leaves the season windows alone', () => {
 });
 
 test('parseTimeframe splits the two axes, and still reads the old flat values', () => {
-    assertEq(parseTimeframe('reg'), { span: 'reg', window: null }, 'span only');
-    assertEq(parseTimeframe('reg+last4'), { span: 'reg', window: 4 }, 'span and window');
+    assertEq(parseTimeframe('reg'), { span: 'reg', window: null, matchup: null }, 'span only');
+    assertEq(parseTimeframe('reg+last4'), { span: 'reg', window: 4, matchup: null }, 'span and window');
     // A timeframe stored by a session from before this split restores as a full-season lookback rather than being dropped on the floor.
-    assertEq(parseTimeframe('last8'), { span: 'all', window: 8 }, 'legacy flat value');
-    assertEq(parseTimeframe(null), { span: 'all', window: null }, 'nothing stored');
+    assertEq(parseTimeframe('last8'), { span: 'all', window: 8, matchup: null }, 'legacy flat value');
+    assertEq(parseTimeframe(null), { span: 'all', window: null, matchup: null }, 'nothing stored');
+});
+
+// A picked matchup is a timeframe value. Contract: tests/fixtures/timeframe-value.md.
+
+test('parseTimeframe reads a picked matchup, and it is a one-matchup window too', () => {
+    // The seven surfaces that ask "window === 1" to draw one matchup day by day must see a picked matchup as exactly that, one matchup, and not each learn a second question.
+    assertEq(parseTimeframe('reg+m3'), { span: 'reg', window: 1, matchup: 3 }, 'matchup 3 of the regular season');
+    assertEq(parseTimeframe('p_all+m22'), { span: 'p_all', window: 1, matchup: 22 }, 'a playoff round');
+    assertEq(parseTimeframe('reg+m0'), { span: 'reg', window: null, matchup: null }, 'matchup 0 is not a matchup');
+    assertEq(parseTimeframe('reg+mx'), { span: 'reg', window: null, matchup: null }, 'and neither is nonsense');
+});
+
+test('timeframeValueFor spells one value, and the two tails are exclusive', () => {
+    assertEq(timeframeValueFor('reg', { matchup: 3 }), 'reg+m3', 'a matchup');
+    assertEq(timeframeValueFor('reg', { window: 4 }), 'reg+last4', 'a window');
+    assertEq(timeframeValueFor('reg'), 'reg', 'neither is the span alone');
+    assertEq(timeframeValueFor('reg', { window: 4, matchup: 3 }), 'reg+m3', 'the matchup wins - picking one clears the window');
+    assertEq(timeframeValueFor(null, { matchup: 2 }), 'all+m2', 'no span named is the full season');
+});
+
+test('getTimeframeBounds: a picked matchup IS the view, clamped into its span', () => {
+    // 25 matchups played, regular season 21, nothing live.
+    assertEq(getTimeframeBounds('reg+m3', 25, 21), { start: 3, end: 3 }, 'matchup 3, both ends');
+    assertEq(getTimeframeBounds('all+m24', 25, 21), { start: 24, end: 24 }, 'a playoff matchup in the full span');
+    // Carried across a span change: 24 is not in the regular season, 3 is not in the playoffs.
+    assertEq(getTimeframeBounds('reg+m24', 25, 21), { start: 21, end: 21 }, 'clamped to the regular season\'s last');
+    assertEq(getTimeframeBounds('p_all+m3', 25, 21), { start: 22, end: 22 }, 'clamped to the playoffs\' first');
+    // The live matchup is steppable one past the last scored one.
+    assertEq(getTimeframeBounds('reg+m17', 16, 21, 17), { start: 17, end: 17 }, 'the live matchup can be picked');
+    assertEq(getTimeframeBounds('reg+m18', 16, 21, 17), { start: 17, end: 17 }, 'a future one clamps back to it');
+    // A span with nothing started falls back to the span itself rather than inventing a matchup.
+    assertEq(getTimeframeBounds('p_all+m22', 16, 21, 17), { start: 22, end: 16 }, 'no playoff matchup has started');
+});
+
+test('matchupRangeFor: what the stepper may stop on, span by span', () => {
+    assertEq(matchupRangeFor('all', 16, 21, 17), { first: 1, last: 17, live: 17 }, 'the live matchup is the far end');
+    assertEq(matchupRangeFor('reg', 16, 21, 17), { first: 1, last: 17, live: 17 }, 'still inside the regular season');
+    assertEq(matchupRangeFor('reg', 22, 21, 23), { first: 1, last: 21, live: null }, 'the regular season stops at 21, and the live one is past it');
+    assertEq(matchupRangeFor('p_all', 22, 21, 23), { first: 22, last: 23, live: 23 }, 'the playoffs start after it');
+    assertEq(matchupRangeFor('p_all', 16, 21, 17), { first: null, last: null, live: null }, 'no playoff matchup has started: no stepper');
+    // Nothing scored and nothing live: a league before its first game offers nothing to step to.
+    assertEq(matchupRangeFor('all', 0, 21, 0), { first: null, last: null, live: null }, 'before the season');
+    // maxCompletedWeek alone, with the live one too far ahead to trust (getTimeframeBounds' own rule).
+    assertEq(matchupRangeFor('all', 16, 21, 19), { first: 1, last: 16, live: null }, 'only what has scored');
+});
+
+test('matchupStateOf: live, final, future', () => {
+    assertEq(matchupStateOf(17, 16, 17), 'live', 'the one being played, nothing scored in it yet');
+    assertEq(matchupStateOf(17, 17, 17), 'live', 'still live once it has scored');
+    assertEq(matchupStateOf(16, 17, 17), 'final', 'behind the live one');
+    assertEq(matchupStateOf(18, 16, 17), 'future', 'not started');
+    assertEq(matchupStateOf(16, 16, 0), 'final', 'a finished season has no live matchup');
+    assertEq(matchupStateOf(null, 16, 17), null, 'no matchup');
+});
+
+test('matchupDateLabel: the days a matchup ran, and nothing when they are undated', () => {
+    // Local noon stamps, so the label is the same date in any machine's zone.
+    const at = (m, d) => new Date(2026, m, d, 12, 0).getTime();
+    const dates = new Map([[1, at(8, 4)], [2, at(8, 6)], [3, at(8, 8)], [4, at(8, 28)], [5, at(9, 2)], [6, at(8, 13)]]);
+    assertEq(matchupDateLabel([1, 2, 3], dates), 'Sep 4 - 8', 'inside one month, first to last');
+    assertEq(matchupDateLabel([3, 1, 2], dates), 'Sep 4 - 8', 'the order handed in does not matter');
+    assertEq(matchupDateLabel([4, 5], dates), 'Sep 28 - Oct 2', 'across a month boundary');
+    assertEq(matchupDateLabel([6], dates), 'Sep 13', 'a single day');
+    assertEq(matchupDateLabel([1, 9], dates), 'Sep 4', 'a period with no date is skipped, not guessed at');
+    assertEq(matchupDateLabel([9], dates), null, 'nothing dated: the caption says the number alone');
+    assertEq(matchupDateLabel([1], null), null, 'no schedule fetched');
+});
+
+test('timeframeWindowSizes: the season\'s own length decides, not the sport', () => {
+    // MEASURED matchupPeriodCount: football 14, baseball 21, hockey 23.
+    assertEq(timeframeWindowSizes(14), [6, 4, 2], 'football: Last 6 is already most of it');
+    assertEq(timeframeWindowSizes(21), [12, 8, 4], 'baseball, as today');
+    assertEq(timeframeWindowSizes(23), [12, 8, 4], 'hockey, as today');
+    assertEq(timeframeWindowSizes(0), [6, 4, 2], 'a league whose length is unknown gets the short set');
 });
 
 test('getTimeframeBounds windows INSIDE the chosen span', () => {
@@ -942,7 +1136,7 @@ test('injuryBadgeHtml escapes the label it puts in the title attribute', () => {
     assertEq(html.includes('title="A"B"'), false, 'attribute not broken open');
 });
 
-// Player pool error text ---------------------------------------------------------------------------
+// Player pool error text.
 
 test('playerPoolErrorText turns an auth refusal into an instruction', () => {
     // The status code is useless to the person reading it. What they need is the action.
@@ -967,7 +1161,7 @@ test('playerPoolErrorText survives being handed nothing', () => {
     assertEq(playerPoolErrorText({}), "Couldn't load player data: Unknown error", 'empty object');
 });
 
-// Projected pitching starts ---------------------------------------------------------------------------
+// Projected pitching starts.
 
 const probablesSchedule = {
     settings: {
@@ -1032,7 +1226,17 @@ test('currentMatchupWindow starts on a known day and never ends before today', (
     assertEq(late.end, 40, 'never ends before today');
 });
 
-// ===== R7 / O58: a two-week playoff round is not a modal week ============================= The owner's report, measured on the live 2026 league at scoring period 164 of 187. The round being played runs days 160-173 - two weeks, per matchupPeriods[22] = [22, 23] - while twenty of the league's twenty-two completed rounds ran seven days, so the modal length is 7. The window therefore ended on day 166 and a pitcher's listed start on day 167 read as not happening. The pitcher's own listings inside the round, exactly as the capture carries them: 162 PROBABLE (already played) 164 NOTSTARTING (today) 167 PROBABLE 173 PROBABLE
+/**
+ * A two-week playoff round is not a modal week.
+ *
+ * Measured on a live league at scoring period 164 of 187. The round being played runs days 160-173,
+ * two weeks, per matchupPeriods[22] = [22, 23], while twenty of the league's twenty-two completed
+ * rounds ran seven days, so the modal length is 7. A window of the modal length ends on day 166, and
+ * a pitcher's listed start on day 167 reads as not happening.
+ *
+ * The pitcher's own listings inside the round, exactly as the capture carries them:
+ *   162 PROBABLE (already played)   164 NOTSTARTING (today)   167 PROBABLE   173 PROBABLE
+ */
 
 const O58_SCHEDULE = (() => {
     const days = (a, b) => { const o = {}; for (let i = a; i <= b; i++) o[String(i)] = { 0: 1 }; return o; };
@@ -1070,12 +1274,12 @@ test('currentMatchupWindow uses the league own span, not the modal length', () =
 });
 
 test("the pitcher's Monday start is inside the window again", () => {
-    // The owner's own figure. Over the modal-length window he read 1 start and 0 left, his day-167 turn falling outside it; over the real round he has three listed, two still ahead.
+    // Over the modal-length window the pitcher read 1 start and 0 left, the day-167 turn falling outside it; over the real round there are three listed, two still ahead.
     const w = currentMatchupWindow(O58_MAP, 164);
     const got = countProjectedStarts([O58_PITCHER], O58_INDEX, w, 164).byPlayer.get(77);
     assertEq([got.starts, got.remaining], [3, 2], 'three listed, two still to come');
     assertEq(got.games.map(g => g.period).join(','), '162,167,173', 'and the Monday among them');
-    // NOTSTARTING on today is still not a start - the count did not gain one by widening.
+    // NOTSTARTING on today is still not a start: the count did not gain one by widening.
     assertEq(got.games.some(g => g.period === 164), false, 'a skipped turn stays skipped');
 });
 
@@ -1086,7 +1290,7 @@ test('a one-week window would still report the owner own 1 and 0', () => {
 });
 
 test('without settings the window keeps the modal-length fallback', () => {
-    // A payload with no scheduleSettings, and every caller that still passes two arguments. The fallback is right for a league whose rounds really are its modal length, which is most of the season - it is only the playoff round it cannot see.
+    // A payload with no scheduleSettings, and every caller that still passes two arguments. The fallback is right for a league whose rounds really are its modal length, which is most of the season. It is only the playoff round it cannot see.
     const bare = buildMatchupPeriodMap(O58_SCHEDULE, O58_STATUS);
     assertEq(bare.currentSpan, null, 'nothing to derive a span from');
     const w = currentMatchupWindow(bare, 164);
@@ -1113,7 +1317,7 @@ const scoreboardCapture = {
                 }]
             }]
         },
-        // A scheduled game with no odds block at all, which is what every game beyond today looks like - the ordinary case, not an error.
+        // A scheduled game with no odds block at all, which is what every game beyond today looks like: the ordinary case, not an error.
         { id: '401816400', competitions: [{}] },
         // An odds entry carrying no moneyline prices is no more useful than no entry.
         { id: '401816401', competitions: [{ odds: [{ provider: { name: 'DraftKings' }, moneyline: {} }] }] }
@@ -1221,7 +1425,7 @@ test('countProjectedStarts degrades rather than throwing', () => {
     assertEq(countProjectedStarts([], idx, null, 10).total, 0, 'no window');
 });
 
-// numericStat: ESPN's stringified Infinity ---------------------------------------------------------------------------
+// numericStat: ESPN's stringified Infinity.
 
 test('numericStat turns ESPN stringified Infinity into a real number', () => {
     // JSON cannot write an infinite number, so ESPN sends the string. A team with earned runs and no innings yet genuinely has an infinite ERA, so the value is kept rather than discarded.
@@ -1248,7 +1452,7 @@ test('numericStat reports absence as null rather than NaN', () => {
 });
 
 
-// ==== Baseball pitching rates rebuild from components ==== The bug these pin. A pitcher who threw one bad start inside a window read a far gentler rate, because an unlisted rate fell back to averaging each day's own already-computed value.
+// Baseball pitching rates rebuild from components. A pitcher who threw one bad start inside a window must not read a far gentler rate, which is what averaging each day's own already-computed value gives.
 
 test('aggregateStatsForWeekRange: ERA over a window comes from ER and outs, not an average of days', () => {
     AppState.sport = 'flb';
@@ -1294,7 +1498,7 @@ test('aggregateStatsForWeekRange: no innings means no rate at all, rather than a
 
 // ==== Matchup difficulty ====
 
-// ==== The Current timeframe's Day axis ==== A one-matchup window on a matchup axis is one point. These pin the day-by-day series that replaces it: cumulative through each day, rates rebuilt from cumulative components, and an off-day drawing a flat segment rather than a gap or a drop.
+// The Current timeframe's Day axis. A one-matchup window on a matchup axis is one point. These pin the day-by-day series that replaces it: cumulative through each day, rates rebuilt from cumulative components, and an off-day drawing a flat segment and not a gap or a drop.
 
 test('aggregateDailyCumulative: counting stats accumulate, and an off-day holds the line flat', () => {
     AppState.sport = 'flb';
@@ -1374,7 +1578,7 @@ test('isSidelined: the long absences remove a bat, day to day does not', () => {
     assertEq(isSidelined('DAY_TO_DAY'), false, 'day to day still plays most days');
     assertEq(isSidelined('ACTIVE'), false, 'active plays');
     assertEq(isSidelined(undefined), false, 'a missing status is not an absence');
-    // THE STATUSES THE OWNER'S POOL ACTUALLY CARRIES, counted across all 3000 entries: ACTIVE 2594, SIXTY_DAY_DL 176, DAY_TO_DAY 119, FIFTEEN_DAY_DL 47, TEN_DAY_DL 38, OUT 23, SEVEN_DAY_DL 2, SUSPENSION 1. Every one of the eight is asserted here, because this predicate now decides who the coverage band is allowed to recommend.
+    // The statuses a real pool carries, counted across all 3000 entries: ACTIVE 2594, SIXTY_DAY_DL 176, DAY_TO_DAY 119, FIFTEEN_DAY_DL 47, TEN_DAY_DL 38, OUT 23, SEVEN_DAY_DL 2, SUSPENSION 1. Every one of the eight is asserted here, because this predicate decides who the coverage band is allowed to recommend.
     assertEq(isSidelined('TEN_DAY_DL'), true, 'the 10-day IL is sidelined');
     assertEq(isSidelined('FIFTEEN_DAY_DL'), true, 'the 15-day IL is sidelined');
     assertEq(isSidelined('SEVEN_DAY_DL'), true, 'the 7-day IL is sidelined');
@@ -1464,7 +1668,7 @@ const inverseHitters = () => ([
 test('offenceStrength: a lower-is-better category is ranked the other way (B144)', () => {
     const byTeam = teamOffence(inverseHitters(), ['R', 'E']);
     const ids = ['R', 'E'];
-    // BEFORE, and it is worse than a misordering. With no inverse set both categories read more-is-stronger, so team 1 scores 87.5 on runs and 12.5 on its ten errors while team 4 scores 12.5 and 87.5. Every lineup averages to exactly 50, the second pass ties them all, and the four offences - one scoring ten times the runs of another - come out INDISTINGUISHABLE. The bug does not just rank a clean lineup low, it can cancel the signal outright.
+    // Without the inverse set it is worse than a misordering. Both categories read more-is-stronger, so team 1 scores 87.5 on runs and 12.5 on its ten errors while team 4 scores 12.5 and 87.5. Every lineup averages to exactly 50, the second pass ties them all, and the four offences, one scoring ten times the runs of another, come out indistinguishable. The signal is cancelled outright.
     const before = offenceStrength(byTeam, ids);
     assertEq([1, 2, 3, 4].map(i => before.get(i)), [50, 50, 50, 50],
         'without the rule the errors column cancels the runs column and nothing is distinguishable');
@@ -1506,7 +1710,7 @@ test('startDifficulty: the inverse rule reaches the score a start is given (B144
         'and the score it should have been');
 });
 
-// AVG = H/AB, and OPS = OBP + SLG so the `add` path is covered too. Ids match RATE_COMPONENTS.flb (0 = AB, 1 = H, 8 = TB, 2 = AVG, 9 = SLG, 17 = OBP, 18 = OPS), and only the components are on the players - a rate is never an input here, which is the whole point.
+// AVG = H/AB, and OPS = OBP + SLG so the add path is covered too. Ids match RATE_COMPONENTS.flb (0 = AB, 1 = H, 8 = TB, 2 = AVG, 9 = SLG, 17 = OBP, 18 = OPS), and only the components are on the players. A rate is never an input here, which is the whole point.
 const RATE_SPECS = [
     { out: '2', num: ['1'], den: ['0'] },
     { out: '9', num: ['8'], den: ['0'] },
@@ -1577,7 +1781,7 @@ test('teamOffence: a scored rate with no derivation is excluded, not summed (B14
     assertEq(d.excluded, ['55'], 'and the drill-in is told which category went missing');
 });
 
-// A deep club of ordinary bats against a thin club of good ones. Every team-1 hitter plays 20 games and scores 10 runs; every team-2 hitter plays 150 and scores 40. Lineup size 3 here, so the arithmetic stays checkable - the shipped sizes are 9 and 18.
+// A deep club of ordinary bats against a short club of good ones. Every team-1 hitter plays 20 games and scores 10 runs; every team-2 hitter plays 150 and scores 40. Lineup size 3 here, so the arithmetic stays checkable; the shipped sizes are 9 and 18.
 const depthBats = () => {
     const bats = [];
     for (let i = 0; i < 6; i++) bats.push({ proTeamId: 1, injuryStatus: 'ACTIVE', totals: { GP: 20, R: 10 } });
@@ -1587,7 +1791,7 @@ const depthBats = () => {
 const lineupCtx = { lineupSize: 3, playingTimeOf: h => h.totals.GP };
 
 test('teamOffence: a club brings a LINEUP, so depth stops being offence (B147)', () => {
-    // BEFORE. Six part-timers total 60 runs against three regulars' 120... the thin club still wins this one, so make the depth decisive: twelve bats would total 120 and tie, and more would win.
+    // BEFORE. Six part-timers total 60 runs against three regulars' 120... the short club still wins this one, so make the depth decisive: twelve bats would total 120 and tie, and more would win.
     const before = teamOffence(depthBats(), ['R']);
     assertEq(before.get(1).totals.R, 60, 'six ordinary bats, every one of them counted');
     assertEq(before.get(1).bats, 6, 'and the roster is the bat count');
@@ -1596,7 +1800,7 @@ test('teamOffence: a club brings a LINEUP, so depth stops being offence (B147)',
     assertEq(after.get(1).totals.R, 30, 'only the three most-played of the deep club count');
     assertEq(after.get(1).bats, 3, 'a lineup, not a roster');
     assertEq(after.get(1).rostered, 6, 'with the roster size kept for the panel to report');
-    assertEq(after.get(2).totals.R, 120, 'the thin club is untouched, it was already a lineup');
+    assertEq(after.get(2).totals.R, 120, 'the short club is untouched, it was already a lineup');
     assertEq(after.get(2).bats, 3, 'three either way');
 });
 
@@ -1636,7 +1840,7 @@ test('teamOffence: preseason keeps every bat rather than picking an arbitrary ni
     assertEq(t.bats, 3, 'every bat counts until somebody has played');
 });
 
-// The general-offence basket fixed the difficulty on: R(20) and HR(5) as the production, OBP(17) and SLG(9) as how often they get on and how far they go. The rate specs are the real ones from RATE_COMPONENTS.flb, components and all, so this exercises the same path production does.
+// The general-offence basket the difficulty is fixed on: R(20) and HR(5) as the production, OBP(17) and SLG(9) as how often a lineup gets on and how far it goes. The rate specs are the real ones from RATE_COMPONENTS.flb, components and all, so this exercises the same path production does.
 const BASKET = ['20', '5', '17', '9'];
 const basketCtx = {
     rateStatIds: new Set(['17', '9']),
@@ -1677,7 +1881,7 @@ test('the general basket: the four categories rank the four lineups (B149)', () 
 });
 
 test('the general basket: league categories cannot reach the score any more (B149)', () => {
-    // The fixture league scores nine batting categories, only about half of them about run production, so the ones that are not carried nearly half the weight. Modelled here as four extra categories the WEAKEST offence happens to lead - fielding assists and the like, which say nothing about facing a lineup.
+    // The fixture league scores nine batting categories, only about half of them about run production, so the ones that are not carried nearly half the weight. Modelled here as four extra categories the weakest offence happens to lead, fielding assists and the like, which say nothing about facing a lineup.
     const bats = basketHitters().map(b => ({
         ...b, totals: { ...b.totals, L1: b.proTeamId * 10, L2: b.proTeamId * 10, L3: b.proTeamId * 10, L4: b.proTeamId * 10 }
     }));
@@ -1685,7 +1889,7 @@ test('the general basket: league categories cannot reach the score any more (B14
     const withBasket = offenceStrength(teamOffence(bats, BASKET, basketCtx), BASKET, basketCtx);
     assertEq([1, 2, 3, 4].map(t => withBasket.get(t)), [87.5, 62.5, 37.5, 12.5],
         'the basket ranks them on run production, and nothing else can get in');
-    // The league's full list, which is what shipped. Four categories pulling the other way exactly cancel the four that matter, every lineup averages 50, and the ranking collapses - the same cancellation found, arriving this time through categories that were never relevant.
+    // The league's full list. Four categories pulling the other way exactly cancel the four that matter, every lineup averages 50, and the ranking collapses. It is the same cancellation as the missing inverse set, arriving through categories that were never relevant.
     const leagueIds = BASKET.concat(['L1', 'L2', 'L3', 'L4']);
     const withLeague = offenceStrength(teamOffence(bats, leagueIds, basketCtx), leagueIds, basketCtx);
     assertEq([1, 2, 3, 4].map(t => withLeague.get(t)), [50, 50, 50, 50],
@@ -1693,7 +1897,7 @@ test('the general basket: league categories cannot reach the score any more (B14
 });
 
 test('startDifficulty: every part names itself with a key, not just a label', () => {
-    // The panel renders the three components differently, and used to tell them apart by matching the label text - so a wording change was a rendering bug waiting to happen.
+    // The panel renders the three components differently, and telling them apart by matching the label text would make a wording change a rendering fault.
     const strength = offenceStrength(teamOffence(difficultyHitters(), ['R', 'HR']), ['R', 'HR']);
     const parks = { 1: [120, 'Launch Pad'] };
     const d = startDifficulty({ teamId: 1, opponentId: 3, isHome: true }, strength, new Map(),
@@ -1748,7 +1952,7 @@ test('startDifficulty: the opponent offence is the base, and by itself it is the
     assertEq(away.base, 87.5, 'the base is the opponent offence percentile');
     assertEq(away.score, 87.5, 'with nothing else to say, the base stands alone');
     const home = startDifficulty({ opponentId: 1, isHome: true }, strength, new Map());
-    // retired the invented home/away pair. Which side of the field a start is on now reaches the score only through the BALLPARK, and only when there is a park table to reach it through.
+    // There is no home and away pair. Which side of the field a start is on reaches the score only through the ballpark, and only when there is a park table to reach it through.
     assertEq(home.score, 87.5, 'the side of the field is not an adjustment of its own');
     assertEq(away.parts.length, 1, 'and it contributes no line to the breakdown');
 });
@@ -1838,7 +2042,7 @@ test('venueTeamIdFor: home is the pitcher\'s club, away is the opponent\'s, unkn
 });
 
 test('MLB_PARK_FACTORS: the shipped table still says what it was entered from', () => {
-    // A guard on the hand-refresh, not on Savant. These are the two ends of the 2023-2025 window captured on, so a transcription slip or a half-finished update fails here rather than silently re-weighting every start in the app.
+    // A guard on the hand-refresh, not on Savant. These are the two ends of the captured 2023-2025 window, so a transcription slip or a half-finished update fails here and does not silently re-weight every start in the app.
     assertEq(MLB_PARK_FACTORS[27][0], 125, 'Coors Field is the extreme, at 125');
     assertEq(MLB_PARK_FACTORS[27][1], 'Coors Field', 'and named');
     assertEq(MLB_PARK_FACTORS[12][0], 83, 'T-Mobile Park is the other end, at 83');
@@ -1883,288 +2087,7 @@ test('daysBetween: whole days, and null when a date is missing', () => {
     assertEq(daysBetween(null, 86400000), null, 'a missing date yields null');
 });
 
-// ==== League History. The fixtures below mirror what was MEASURED in a real three-season league (docs/DATA-SOURCES.md section 9): the same franchise renames itself every year, a team slot changes hands between owners, franchises come and go, and the league switched from roto to head-to-head partway through. Every expected value is hand-computed. ====
-
-const SWID_A = '{AAAAAAAA-1111}';
-const SWID_B = '{BBBBBBBB-2222}';
-const SWID_C = '{CCCCCCCC-3333}';
-const SWID_D = '{DDDDDDDD-4444}';
-
-// 2024, ROTO. A wins it (rankCalculatedFinal 1). C plays this season only.
-const HIST_2024 = {
-    seasonId: 2024,
-    settings: { scoringSettings: { scoringType: 'ROTO', scoringItems: [{ statId: 1 }, { statId: 2 }] } },
-    schedule: [],
-    teams: [
-        { id: 1, primaryOwner: SWID_A, name: 'Old Name A', rankCalculatedFinal: 1, record: { overall: {} } },
-        { id: 2, primaryOwner: SWID_B, name: 'Old Name B', rankCalculatedFinal: 2, record: { overall: {} } },
-        { id: 3, primaryOwner: SWID_C, name: 'One Season C', rankCalculatedFinal: 3, record: { overall: {} } }
-    ]
-};
-
-// 2025, ROTO, and a TIE at the top - measured ranks are not unique, so no champion is crowned.
-const HIST_2025 = {
-    seasonId: 2025,
-    settings: { scoringSettings: { scoringType: 'ROTO', scoringItems: [{ statId: 1 }, { statId: 2 }] } },
-    schedule: [],
-    teams: [
-        { id: 1, primaryOwner: SWID_A, name: 'Mid Name A', rankCalculatedFinal: 1, record: { overall: {} } },
-        { id: 2, primaryOwner: SWID_B, name: 'Mid Name B', rankCalculatedFinal: 1, record: { overall: {} } }
-    ]
-};
-
-// 2026, HEAD-TO-HEAD. Slot 2 has changed hands: it is D now, not B. B keeps playing in slot 5.
-const HIST_2026 = {
-    seasonId: 2026,
-    settings: { scoringSettings: { scoringType: 'H2H_MOST_CATEGORIES', scoringItems: [{ statId: 2 }, { statId: 9 }] } },
-    teams: [
-        { id: 1, primaryOwner: SWID_A, name: 'New Name A', rankCalculatedFinal: 2, record: { overall: { wins: 3, losses: 1, ties: 0 } } },
-        { id: 2, primaryOwner: SWID_D, name: 'Newcomer D', rankCalculatedFinal: 3, record: { overall: { wins: 1, losses: 3, ties: 0 } } },
-        { id: 5, primaryOwner: SWID_B, name: 'New Name B', rankCalculatedFinal: 1, record: { overall: { wins: 2, losses: 1, ties: 1 } } }
-    ],
-    schedule: [
-        { matchupPeriodId: 1, playoffTierType: 'NONE', winner: 'HOME', home: { teamId: 1 }, away: { teamId: 2 } },
-        { matchupPeriodId: 1, playoffTierType: 'NONE', winner: 'AWAY', home: { teamId: 2 }, away: { teamId: 5 } },
-        { matchupPeriodId: 2, playoffTierType: 'NONE', winner: 'TIE', home: { teamId: 1 }, away: { teamId: 5 } },
-        { matchupPeriodId: 3, playoffTierType: 'NONE', winner: 'UNDECIDED', home: { teamId: 1 }, away: { teamId: 2 } },
-        { matchupPeriodId: 4, playoffTierType: 'WINNERS_BRACKET', winner: 'HOME', home: { teamId: 1 }, away: { teamId: 5 } },
-        { matchupPeriodId: 5, playoffTierType: 'WINNERS_BRACKET', winner: 'AWAY', home: { teamId: 1 }, away: { teamId: 5 } }
-    ]
-};
-
-test('franchiseKeyOf: the SWID, normalized, and teamId only as the fallback', () => {
-    assertEq(franchiseKeyOf({ id: 7, primaryOwner: '{abcd-1}' }), 'ABCD-1', 'braces and case normalized');
-    assertEq(franchiseKeyOf({ id: 7, owners: ['{abcd-1}'] }), 'ABCD-1', 'falls to owners[0]');
-    assertEq(franchiseKeyOf({ id: 7 }), 'team:7', 'no ownership data, so teamId - prefixed');
-    assertEq(franchiseKeyOf({}), null, 'nothing to key on at all');
-});
-
-test('seasonFormat and championKeyOf: the rule differs per format', () => {
-    assertEq(seasonFormat(HIST_2024), 'roto', 'roto season');
-    assertEq(seasonFormat(HIST_2026), 'h2h', 'category head-to-head season');
-    assertEq(championKeyOf(HIST_2024), 'AAAAAAAA-1111', '2024 roto champion is A');
-    assertEq(championKeyOf(HIST_2025), null, 'a tie at the top crowns nobody');
-    assertEq(championKeyOf(HIST_2026), 'BBBBBBBB-2222', '2026 champion is the last bracket winner');
-});
-
-test('summarizeSeason: a roto season has no W-L-T, and says so with nulls', () => {
-    const roto = summarizeSeason(HIST_2024);
-    assertEq(roto.countsTowardRecords, false, 'roto keeps no record');
-    assertEq(roto.franchises[0].wins, null, 'null, not a fabricated 0');
-    const h2h = summarizeSeason(HIST_2026);
-    assertEq(h2h.countsTowardRecords, true, 'head-to-head does keep one');
-    assertEq(h2h.franchises[0].wins, 3, 'A won 3');
-});
-
-// rider: the card's fact values speak in abbreviations, so a franchise has to carry one.
-test('teamAbbrev: the abbreviation the league set, or the derived fallback', () => {
-    assertEq(teamAbbrev({ abbrev: 'IW', name: 'Ice Wolves' }), 'IW', 'the one the league set wins');
-    assertEq(teamAbbrev({ name: 'Rink Rats' }), 'RINK', 'four characters, uppercased, when none is set');
-    assertEq(teamAbbrev({ abbrev: '   ', name: 'Rink Rats' }), 'RINK', 'blank counts as none');
-    assertEq(teamAbbrev({ location: 'Ice', nickname: 'Wolves' }), 'ICE ', 'built from location and nickname like the name is');
-    assertEq(teamAbbrev({ name: 'AB' }), 'AB', 'a short name is not padded');
-    assertEq(teamAbbrev(null), '', 'and nothing is nothing');
-});
-
-test('buildFranchises: the abbreviation follows the name, latest season wins', () => {
-    const list = buildFranchises([HIST_2024, HIST_2026].map(summarizeSeason));
-    const a = list.find(f => f.key === 'AAAAAAAA-1111');
-    assertEq(a.name, 'New Name A', 'the latest name, as before');
-    assertEq(a.abbrev, teamAbbrev({ name: 'New Name A' }), 'and the abbreviation from that same season');
-});
-
-test('buildFranchises: most recent name wins, and the old ones are remembered', () => {
-    const seasons = [HIST_2026, HIST_2024, HIST_2025].map(summarizeSeason);
-    const all = buildFranchises(seasons);
-    assertEq(all.length, 4, 'A, B, C and D across the three seasons');
-    const a = all.find(f => f.key === 'AAAAAAAA-1111');
-    assertEq(a.name, 'New Name A', 'the 2026 name, because it is the most recent');
-    assertEq(a.formerNames, ['Old Name A', 'Mid Name A'], 'the earlier names, current one excluded');
-    assertEq(a.seasons, [2024, 2025, 2026], 'played all three');
-    const c = all.find(f => f.key === 'CCCCCCCC-3333');
-    assertEq(c.seasons, [2024], 'C played once and left');
-    const d = all.find(f => f.key === 'DDDDDDDD-4444');
-    assertEq(d.seasons, [2026], 'D arrived for 2026 and took the slot B used to hold');
-});
-
-test('allTimeRecords: only the seasons that keep a record are summed', () => {
-    const { rows, countedYears } = allTimeRecords([HIST_2024, HIST_2025, HIST_2026].map(summarizeSeason));
-    assertEq(countedYears, [2026], 'the two roto seasons contribute no games');
-    const b = rows.find(r => r.key === 'BBBBBBBB-2222');
-    assertEq([b.wins, b.losses, b.ties], [2, 1, 1], 'B summed over the one counted season');
-    assertEq(b.winPct, 0.625, 'a tie is half a win: (2 + 0.5) / 4');
-    assertEq(b.titles, 1, 'B won 2026');
-    assertEq(b.seasonsPlayed, 3, 'played all three even though only one counts for record');
-    const a = rows.find(r => r.key === 'AAAAAAAA-1111');
-    assertEq(a.titles, 1, 'A won the 2024 roto season');
-    const c = rows.find(r => r.key === 'CCCCCCCC-3333');
-    assertEq(c.winPct, null, 'C only ever played roto, so it has no win percentage at all');
-    assertEq(c.recordSeasons, 0, 'and no seasons that keep one');
-});
-
-test('headToHead: head-to-head seasons only, byes and undecided games ignored', () => {
-    const seasons = [HIST_2024, HIST_2025, HIST_2026].map(summarizeSeason);
-    const pairs = headToHead(seasons, { 2024: HIST_2024, 2025: HIST_2025, 2026: HIST_2026 });
-    const ab = pairs.find(p => p.a === 'AAAAAAAA-1111' && p.b === 'BBBBBBBB-2222');
-    // A and B meet three times in 2026: a tie in the regular season and two WINNERS_BRACKET games. Since item 1 the record is the regular season, so it is the tie alone - and the two bracket games ride alongside it rather than inside it. This expectation was [1, 1, 1] while the record counted everything, which is the disagreement with the standings that entry fixed.
-    assertEq([ab.aWins, ab.bWins, ab.ties], [0, 0, 1], 'the tie is the whole regular-season record');
-    assertEq(ab.postseason, 2, 'and both bracket games are counted beside it');
-    const ad = pairs.find(p => p.a === 'AAAAAAAA-1111' && p.b === 'DDDDDDDD-4444');
-    assertEq([ad.aWins, ad.bWins, ad.ties], [1, 0, 0], 'A beat D once');
-    assertEq(ad.postseason, 0, 'that pair never met in the postseason');
-    assertEq(pairs.length, 3, 'three pairings, and nothing from the roto seasons');
-});
-
-test('categoryUnion: every category ever scored, with the seasons it was scored in', () => {
-    const u = categoryUnion([HIST_2024, HIST_2025, HIST_2026].map(summarizeSeason));
-    assertEq(u.totalSeasons, 3, 'three seasons in the union');
-    const stat1 = u.stats.find(s => s.statId === '1');
-    const stat2 = u.stats.find(s => s.statId === '2');
-    const stat9 = u.stats.find(s => s.statId === '9');
-    assertEq(stat2.scoredIn, [2024, 2025, 2026], 'stat 2 survived the format change');
-    assertEq(stat1.scoredIn, [2024, 2025], 'stat 1 was dropped for 2026');
-    assertEq(stat9.scoredIn, [2026], 'stat 9 is new in 2026');
-    assertEq(u.stats[0].statId, '2', 'most-covered category sorts first');
-});
-
-test('careerRate: summed components, never averaged season rates', () => {
-    const spec = { numerator: ['h'], denominator: ['ab'] };
-    assertEq(careerRate({ h: 4 + 18, ab: 10 + 90 }, spec), 0.22, 'weighted by the components, not the seasons');
-    assertEq(careerRate({ h: 5 }, spec), null, 'a missing component is null, not a guess');
-    assertEq(careerRate({ h: 5, ab: 0 }, spec), null, 'no division by zero');
-    assertEq(careerRate({ er: 30, ip: 90 }, { numerator: ['er'], denominator: ['ip'], scale: 9 }), 3,
-        'the scale is applied once, after the division');
-});
-
-// League History M4: careers in this league. The pools below mirror what was measured - a season total sits at statSourceId 0 with statSplitTypeId 0, most of a pool is unrostered, and a player keeps one id while the printed name drifts. Every expected value is hand-computed.
-
-const seasonTotal = (stats) => ({ stats: [{ statSourceId: 0, statSplitTypeId: 0, stats }] });
-
-// 2024 roto: Alpha on team 1, Beta on team 2, and one free agent nobody owned.
-const POOL_2024 = { players: [
-    { id: 10, onTeamId: 1, player: { fullName: 'Al Alpha', ...seasonTotal({ '1': 40, '0': 100 }) } },
-    { id: 20, onTeamId: 2, player: { fullName: 'Bo Beta', ...seasonTotal({ '1': 10, '0': 50 }) } },
-    { id: 99, onTeamId: 0, player: { fullName: 'Never Owned', ...seasonTotal({ '1': 99, '0': 99 }) } }
-] };
-// 2026 head-to-head: Alpha has moved to team 5, and that printed name has changed.
-const POOL_2026 = { players: [
-    { id: 10, onTeamId: 5, player: { fullName: 'Alan Alpha', ...seasonTotal({ '1': 18, '0': 90 }) } },
-    { id: 30, onTeamId: 1, player: { fullName: 'Cy Gamma', ...seasonTotal({ '1': 25, '0': 75 }) } }
-] };
-
-// summarizeSeason output is what maps a team slot to a franchise, so the fixtures reuse the real shape rather than a hand-rolled one.
-const CAREER_SEASONS = {
-    2024: summarizeSeason({
-        seasonId: 2024,
-        settings: { scoringSettings: { scoringType: 'ROTO', scoringItems: [{ statId: 1 }] } },
-        schedule: [],
-        teams: [
-            { id: 1, primaryOwner: SWID_A, name: 'A', rankCalculatedFinal: 1, record: { overall: {} } },
-            { id: 2, primaryOwner: SWID_B, name: 'B', rankCalculatedFinal: 2, record: { overall: {} } }
-        ]
-    }),
-    2026: summarizeSeason({
-        seasonId: 2026,
-        settings: { scoringSettings: { scoringType: 'H2H_MOST_CATEGORIES', scoringItems: [{ statId: 1 }] } },
-        schedule: [],
-        teams: [
-            { id: 1, primaryOwner: SWID_A, name: 'A', rankCalculatedFinal: 1, record: { overall: { wins: 1, losses: 0, ties: 0 } } },
-            { id: 5, primaryOwner: SWID_B, name: 'B', rankCalculatedFinal: 2, record: { overall: { wins: 0, losses: 1, ties: 0 } } }
-        ]
-    })
-};
-
-// item 5. The bug: the franchise column read the pool's onTeamId, which is the roster at the MOMENT OF THE FETCH. A player dropped before it attributed to nobody - and the early return meant the stats and the season itself went too, so a drafted-and-dropped player lost a whole year. Measured on a real capture: 138 of 1039 pool entries were rostered at fetch time. The ruling is that any stint counts however short, so the transaction log decides. ownersByYear is { year: Map<playerId, teamId[]> } - see ownerTeamIdsByPlayer, unit-tested in the rank-engine suite. franchiseKeyOf strips the braces ESPN wraps a SWID in, so the keys a career row carries are the bare form. Named once here rather than re-derived in four expectations.
-const KEY_A = SWID_A.replace(/[{}]/g, '').toUpperCase();
-const KEY_B = SWID_B.replace(/[{}]/g, '').toUpperCase();
-
-const DROPPED_POOL = { players: [
-    // Rostered by nobody when the pool was read, but team 1 drafted and held this player that season.
-    { id: 40, onTeamId: 0, player: { fullName: 'Drafted Then Dropped', ...seasonTotal({ '1': 7, '0': 30 }) } },
-    { id: 20, onTeamId: 2, player: { fullName: 'Bo Beta', ...seasonTotal({ '1': 10, '0': 50 }) } }
-] };
-
-test('buildCareers: a player dropped before the fetch still counts, with the franchise', () => {
-    const owners = { 2024: new Map([[40, [1]]]) };
-    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS, owners);
-    const dropped = rows.find(r => r.id === 40);
-    assert(!!dropped, 'the player is in the table at all, which the onTeamId gate used to prevent');
-    assertEq(dropped.seasons, [2024], 'the season counts');
-    assertEq(dropped.totals['1'], 7, 'and so do the numbers for it');
-    assertEq(dropped.franchiseKeys, [KEY_A], 'attributed to the franchise that held them');
-});
-
-test('buildCareers: without the log, the old onTeamId basis is the fallback', () => {
-    // Golden rule 8: an unreadable season degrades to the incomplete answer rather than a blank one.
-    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS);
-    assertEq(rows.some(r => r.id === 40), false, 'the dropped player is missing, as before');
-    assertEq(rows.find(r => r.id === 20).franchiseKeys, [KEY_B], 'the rostered one is unaffected');
-});
-
-test('buildCareers: every franchise that held them that season, in the order they did', () => {
-    // Traded mid-season: both franchises count, because any stint counts.
-    const owners = { 2024: new Map([[20, [1, 2]]]) };
-    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS, owners);
-    assertEq(rows.find(r => r.id === 20).franchiseKeys, [KEY_A, KEY_B],
-        'both, first-held first, rather than only the one holding them at the fetch');
-});
-
-test('buildCareers: the log wins over onTeamId when they disagree', () => {
-    // A player picked up after the last transaction slice would read one team from the snapshot and another from the log. The log is the record of the season, so it decides.
-    const owners = { 2024: new Map([[20, [1]]]) };
-    const rows = buildCareers({ 2024: DROPPED_POOL }, CAREER_SEASONS, owners);
-    assertEq(rows.find(r => r.id === 20).franchiseKeys, [KEY_A], 'the log, not the snapshot');
-});
-
-test('buildCareers: components sum across seasons, and only rostered players count', () => {
-    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
-    assertEq(rows.some(r => r.id === 99), false, 'a player nobody ever rostered is not league history');
-    const alpha = rows.find(r => r.id === 10);
-    // 40 + 18 hits over 100 + 90 at-bats.
-    assertEq(alpha.totals['1'], 58, 'hits summed across both seasons');
-    assertEq(alpha.totals['0'], 190, 'at-bats summed across both seasons');
-    assertEq(alpha.seasons, [2024, 2026], 'both seasons, in order');
-});
-
-test('buildCareers: a roto season counts exactly like a head-to-head one', () => {
-    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
-    const alpha = rows.find(r => r.id === 10);
-    // 2024 was roto and 2026 head-to-head. Components are format-neutral, so both are in the total.
-    assertEq(alpha.totals['1'], 40 + 18, 'the roto season is not skipped the way records skip it');
-    const beta = rows.find(r => r.id === 20);
-    assertEq(beta.seasons, [2024], 'a roto-only player still has a career');
-    assertEq(beta.totals['1'], 10, 'and real totals in it');
-});
-
-test('buildCareers: a player who changed franchises carries both, newest name wins', () => {
-    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
-    const alpha = rows.find(r => r.id === 10);
-    // Team 1 in 2024 is SWID_A; team 5 in 2026 is SWID_B. Same player, two franchises.
-    assertEq(alpha.franchiseKeys, ['AAAAAAAA-1111', 'BBBBBBBB-2222'], 'both franchises, in the order played');
-    assertEq(alpha.name, 'Alan Alpha', 'the most recent spelling, since the id is the identity');
-});
-
-test('buildCareers: a player present in one season only', () => {
-    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
-    const gamma = rows.find(r => r.id === 30);
-    assertEq(gamma.seasons, [2026], 'arrived for the last season');
-    assertEq(gamma.totals['1'], 25, 'one season is the whole career');
-    assertEq(gamma.franchiseKeys, ['AAAAAAAA-1111'], 'one franchise');
-});
-
-test('careerValue: a counting stat sums, a rate is rebuilt from the components', () => {
-    const rows = buildCareers({ 2024: POOL_2024, 2026: POOL_2026 }, CAREER_SEASONS);
-    const alpha = rows.find(r => r.id === 10);
-    const specs = [{ out: '2', num: ['1'], den: ['0'] }];
-    assertEq(careerValue(alpha, '1', specs), 58, 'a counting stat is the sum');
-    // 58/190 =.30526..., NOT the average of.400 and.200 which would be.300.
-    const avg = careerValue(alpha, '2', specs);
-    assertEq(Math.round(avg * 100000) / 100000, 0.30526, 'the rate comes from summed components');
-    assert(avg !== 0.3, 'and is not the average of the two season averages');
-    assertEq(careerValue(alpha, '77', specs), null, 'a stat with no component behind it is null');
-});
-
-// : a team logo loads only when ESPN is serving it. The request itself is the disclosure, so this gate decides whether an <img> is written at all - not whether one is hidden afterwards.
+// A team logo loads only when ESPN is serving it. The request itself is the disclosure, so this gate decides whether an <img> is written at all, not whether one is hidden afterwards.
 test('isAllowedLogoUrl: ESPN family only, and the host is matched not searched', () => {
     assert(isAllowedLogoUrl('https://g.espncdn.com/lm-static/logo-packs/core/Bears.svg'), 'the measured ESPN gallery host');
     assert(isAllowedLogoUrl('https://a.espncdn.com/i/teamlogos/x.png'), 'any espncdn subdomain');
@@ -2182,7 +2105,7 @@ test('isAllowedLogoUrl: ESPN family only, and the host is matched not searched',
     assert(!isAllowedLogoUrl(null), 'absent, which is the common case');
 });
 
-// R1: the rail's own team icon reuses isAllowedLogoUrl rather than a second host check. R2/S51 (frame I1): ALWAYS a tile now, never '' - the caller's own fallback used to be the legend-colour dot; frame I1 retired the dot in favour of one consistent crest shape, logo or not.
+// The rail's own team icon reuses isAllowedLogoUrl and makes no second host check. It is always a tile and never '': one consistent crest shape, logo or not.
 test('buildTeamCrestHtml: an abbreviation tile on a refused host or no logo, the logo laid over it on an allowed one', () => {
     const refused = buildTeamCrestHtml('Fixture Nine', 'https://i.ytimg.com/vi/abc/hqdefault.jpg');
     assert(refused.includes('class="player-avatar"') && !refused.includes('class="avatar-img"'), 'refused host - the tile alone, no image tag at all');
@@ -2194,258 +2117,8 @@ test('buildTeamCrestHtml: an abbreviation tile on a refused host or no logo, the
     assert(html.includes('src="https://g.espncdn.com/lm-static/logo-packs/core/Bears.svg"'), 'the vetted URL passes through');
 });
 
-// item 4: the rivalry card's facts. Two franchises, six meetings, hand-counted below - the numbers here are worked out from the fixture by hand and not read off the implementation. 2024 p1 A beat B 2025 p1 A beat B 2024 p2 B beat A 2025 p2 A beat B 2024 p3 tie 2024 p20 A beat B, playoff 2023 roto, so it contributes nothing at all TWO BASES ON ONE CARD, which ruled and this fixture is built to show: RATIO facts - the record and the season bars - count the five REGULAR meetings: A 3, B 1, one tie. They have to reconcile with the rivalry row and the standings. SEQUENCE facts - the streak and the longest run - count all SIX, playoff included, because a run that survives a playoff loss is not a run. So this fixture deliberately prints "3 straight" beside a 3-1-1 record, and the playoff-meetings fact is what reconciles them.
-const RIV_A = 'KEY-A';
-const RIV_B = 'KEY-B';
-const rivGame = (period, winner, tier) => ({
-    matchupPeriodId: period,
-    playoffTierType: tier || 'NONE',
-    winner,
-    home: { teamId: 1 },
-    away: { teamId: 2 }
-});
-const RIV_SEASONS = [
-    { year: 2023, countsTowardRecords: false, franchises: [{ teamId: 1, key: RIV_A }, { teamId: 2, key: RIV_B }] },
-    { year: 2024, countsTowardRecords: true, franchises: [{ teamId: 1, key: RIV_A }, { teamId: 2, key: RIV_B }] },
-    { year: 2025, countsTowardRecords: true, franchises: [{ teamId: 1, key: RIV_A }, { teamId: 2, key: RIV_B }] }
-];
-const RIV_PAYLOADS = {
-    2023: { schedule: [rivGame(1, 'HOME'), rivGame(2, 'HOME')] },
-    // Deliberately out of order, since a schedule array's order is not promised to be chronological and every claim below is about order.
-    2024: { schedule: [rivGame(20, 'HOME', 'WINNERS_BRACKET'), rivGame(2, 'AWAY'), rivGame(1, 'HOME'), rivGame(3, 'TIE')] },
-    2025: { schedule: [rivGame(1, 'HOME'), rivGame(2, 'HOME')] }
-};
 
-test('rivalryDetail: the record, per season, from the first franchise point of view', () => {
-    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
-    assertEq(d.meetings.length, 6, 'six counted meetings - the roto season contributes none');
-    assertEq(d.total, { w: 3, l: 1, t: 1 }, 'hand-counted over the five regular-season meetings');
-    assertEq(d.seasons.map(s => `${s.year} ${s.w}-${s.l}-${s.t}`), ['2024 1-1-1', '2025 2-0-0'],
-        'and split by season, oldest first, the playoff game left out of 2024');
-});
-
-test('rivalryDetail: meetings are ordered by matchup period, not by array order', () => {
-    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
-    assertEq(d.meetings.map(m => `${m.year}.${m.period}`),
-        ['2024.1', '2024.2', '2024.3', '2024.20', '2025.1', '2025.2'],
-        '2024 was fed in shuffled and comes back in order');
-    assertEq(`${d.last.year}.${d.last.period}`, '2025.2', 'so the last meeting is the real last one');
-    assertEq(d.last.result, 'a', 'which the first franchise won');
-});
-
-test('rivalryDetail: a tie ends a streak, and the playoff win is inside it (B175)', () => {
-    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
-    // Backwards over ALL meetings: 2025 p2 (A), 2025 p1 (A), 2024 p20 (A, playoff) - then 2024 p3 is a tie and stops it. Three, hand-counted, where the regular-season-only basis said two.
-    assertEq(d.streak, { side: 'a', count: 3 }, 'three straight, the playoff win among them');
-    assertEq(d.longest, {
-        side: 'a',
-        count: 3,
-        meetings: [
-            { year: 2024, period: 20, playoff: true },
-            { year: 2025, period: 1, playoff: false },
-            { year: 2025, period: 2, playoff: false }
-        ]
-    }, 'and that run is also the longest, carrying every meeting and which kind it was');
-    assertEq(runSpanText(d.longest), 'Season 2024 Matchup 20 Playoffs, Season 2025 Matchup 1, and 2',
-        'the enumeration marks the playoff coordinate in place');
-    // The ratio facts are untouched by any of that - item 1 still holds.
-    assertEq(d.total, { w: 3, l: 1, t: 1 }, 'the record still counts the regular season only');
-    assertEq(d.seasons.map(s => `${s.year} ${s.w}-${s.l}-${s.t}`), ['2024 1-1-1', '2025 2-0-0'],
-        'and so do the season bars');
-});
-
-// The two cases the ruling names, staged rather than reasoned about.
-test('rivalryDetail: a playoff WIN extends a run', () => {
-    const seasons = [RIV_SEASONS[2]];
-    const payloads = { 2025: { schedule: [
-        rivGame(1, 'HOME'),
-        rivGame(2, 'HOME'),
-        rivGame(25, 'HOME', 'WINNERS_BRACKET')
-    ] } };
-    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
-    assertEq(d.streak, { side: 'a', count: 3 }, 'two regular wins and the playoff win is a run of three');
-    assertEq(d.total, { w: 2, l: 0, t: 0 }, 'while the record still shows the two regular wins');
-    assertEq(runSpanText(d.longest), 'Season 2025 Matchup 1, 2, and 25 Playoffs', 'the playoff game named as one');
-});
-
-test('rivalryDetail: a playoff LOSS breaks a run - the case the owner caught', () => {
-    // A wins two, loses the playoff game, wins one more. The old basis skipped the loss entirely and called it a run of three; it is a run of one, and the run of two before it is the longest.
-    const seasons = [RIV_SEASONS[2]];
-    const payloads = { 2025: { schedule: [
-        rivGame(1, 'HOME'),
-        rivGame(2, 'HOME'),
-        rivGame(25, 'AWAY', 'WINNERS_BRACKET'),
-        rivGame(26, 'HOME')
-    ] } };
-    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
-    assertEq(d.streak, { side: 'a', count: 1 }, 'the current streak is one - the playoff loss stopped it');
-    assertEq(d.longest.count, 2, 'and the longest run is the two before that loss, not three');
-    assertEq(runSpanText(d.longest), 'Season 2025 Matchup 1 and 2', 'named without the game that ended it');
-    assertEq(d.total, { w: 3, l: 0, t: 0 }, 'the record is unmoved - it never counted the playoff loss');
-    assertEq(d.playoff, { total: 1, aWins: 0, bWins: 1, ties: 0 }, 'which the playoff fact reports instead');
-});
-
-test('rivalryDetail: postseason meetings are counted apart from the rest', () => {
-    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_B);
-    assertEq(d.playoff, { total: 1, aWins: 1, bWins: 0, ties: 0 }, 'one, and the first franchise won it');
-});
-
-test('rivalryDetail: reversing the pair reverses every answer', () => {
-    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_B, RIV_A);
-    assertEq(d.total, { w: 1, l: 3, t: 1 }, 'the same meetings read from the other side');
-    assertEq(d.streak, { side: 'b', count: 3 }, 'the streak belongs to the other franchise now');
-    assertEq(d.playoff.aWins, 0, 'and so does the playoff win');
-});
-
-test('rivalryDetail: two franchises who never met answer with zeroes, not with nulls', () => {
-    const d = rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, 'KEY-NOBODY');
-    assertEq(d.meetings.length, 0, 'no meetings');
-    assertEq(d.total, { w: 0, l: 0, t: 0 }, 'an empty record rather than a missing one');
-    assertEq(d.streak, null, 'nothing to have a streak about');
-    assertEq(d.last, null, 'and no last meeting');
-    assertEq(rivalryDetail(RIV_SEASONS, RIV_PAYLOADS, RIV_A, RIV_A).meetings.length, 0,
-        'and nobody is their own rival');
-});
-
-test('rivalryDetail: an undecided game is not a meeting yet', () => {
-    const payloads = { 2025: { schedule: [rivGame(1, 'HOME'), rivGame(2, 'UNDECIDED')] } };
-    const seasons = [RIV_SEASONS[2]];
-    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
-    assertEq(d.meetings.length, 1, 'the week that has not been played does not count');
-    assertEq(d.total, { w: 1, l: 0, t: 0 }, 'and cannot be a loss for anybody');
-});
-
-// item 1. The bug: the pager summed every decided game and the standings sum ESPN's own record.overall, which counts the regular season only - diagnosed across 11 real captures, where every league with a postseason tier disagreed for every team and every league without one agreed. The owner's case was 11-9-1 against 12-10-1, that franchise's two postseason games.
-test('headToHead: the pair record counts the regular season, matching the standings basis', () => {
-    const pairs = headToHead(RIV_SEASONS, RIV_PAYLOADS);
-    assertEq(pairs.length, 1, 'one pair');
-    const p = pairs[0];
-    const aFirst = p.a === RIV_A;
-    assertEq(aFirst ? p.aWins : p.bWins, 3, 'three regular-season wins, not four');
-    assertEq(aFirst ? p.bWins : p.aWins, 1, 'one loss');
-    assertEq(p.ties, 1, 'one tie');
-    assertEq(p.postseason, 1, 'and the playoff game is carried beside the record, not inside it');
-});
-
-test('headToHead: a pair whose only meeting was a playoff game is still a pair', () => {
-    // Otherwise the row would read "Never met" about two franchises who met in a final.
-    const payloads = { 2025: { schedule: [rivGame(20, 'HOME', 'WINNERS_BRACKET')] } };
-    const pairs = headToHead([RIV_SEASONS[2]], payloads);
-    assertEq(pairs.length, 1, 'the pair exists');
-    assertEq(pairs[0].aWins + pairs[0].bWins + pairs[0].ties, 0, 'with an empty record');
-    assertEq(pairs[0].postseason, 1, 'and one postseason meeting to explain it');
-});
-
-test('recordText: one W-L-T form, so the same record cannot read as two values', () => {
-    assertEq(recordText(54, 9, 0), '54-9', 'a zero tie is dropped');
-    assertEq(recordText(33, 27, 3), '33-27-3', 'a real tie is kept');
-    assertEq(recordText(0, 0, 0), '0-0', 'and an empty record is still a record');
-    assertEq(recordText(null, undefined, NaN), '0-0', 'missing numbers read as none, never as NaN');
-});
-
-test('isPostseasonGame: NONE and a missing tier are the regular season, everything else is not', () => {
-    assert(!isPostseasonGame({ playoffTierType: 'NONE' }), 'the measured regular-season value');
-    assert(!isPostseasonGame({}), 'a game with no tier field at all');
-    assert(isPostseasonGame({ playoffTierType: 'WINNERS_BRACKET' }), 'the bracket');
-    assert(isPostseasonGame({ playoffTierType: 'WINNERS_CONSOLATION_LADDER' }), 'and both ladders');
-    assert(isPostseasonGame({ playoffTierType: 'LOSERS_CONSOLATION_LADDER' }), 'measured in the fixtures');
-});
-
-// item 3: the pane opens on the reader's own franchise, the way the other tabs do.
-test('defaultFranchiseIndex: the SWID wins, whatever order the franchises came in', () => {
-    const list = [{ key: 'AAAA-1' }, { key: 'BBBB-2' }, { key: 'CCCC-3' }];
-    assertEq(defaultFranchiseIndex(list, '{bbbb-2}'), 1, 'braces and case are normalized on both sides');
-    assertEq(defaultFranchiseIndex(list, 'CCCC-3'), 2, 'a bare SWID matches too');
-    assertEq(defaultFranchiseIndex(list, 'ZZZZ-9'), 0, 'a league the reader is not in opens on the first');
-    assertEq(defaultFranchiseIndex(list, ''), 0, 'and so does a session with no SWID at all');
-    assertEq(defaultFranchiseIndex([], 'AAAA-1'), 0, 'an empty league cannot throw');
-});
-
-// item 6: the owner's sentence, with both year lists computed.
-test('coverageSentence: names what is covered and what is not, and stays quiet when all of it is', () => {
-    assertEq(coverageSentence([2026], [2024, 2025, 2026]),
-        'Covers 2026. 2024 and 2025 are not applicable given they are not head to head.',
-        "the owner's template, verbatim, with the years filled in");
-    assertEq(coverageSentence([2025, 2026], [2024, 2025, 2026]),
-        'Covers 2025 and 2026. 2024 is not applicable given it is not head to head.',
-        'one leftover year takes the singular verb');
-    assertEq(coverageSentence([2026], [2022, 2023, 2024, 2026]),
-        'Covers 2026. 2022, 2023, and 2024 are not applicable given they are not head to head.',
-        'three or more take the Oxford comma');
-    assertEq(coverageSentence([2025, 2026], [2025, 2026]), '',
-        'nothing to say when every season is head to head');
-    assertEq(coverageSentence([], [2024, 2025]), '',
-        'and nothing to say when none of them is - the empty-pane note covers that');
-});
-
-// The split and the depth are the two sizing rules the pane computes, and both read counts against constants rather than measuring what was rendered (the rule).
-test('rivalrySplit: even while the list is short, list-heavy once it is long', () => {
-    assertEq(rivalrySplit(5), 0.5, 'a six-team league splits down the middle');
-    assertEq(rivalrySplit(8), 0.5, 'and still does at the top of the even band');
-    assertEq(rivalrySplit(19), 0.6, 'a twenty-team league gives the list three fifths');
-    assertEq(rivalrySplit(12), 0.55, 'and the middle is interpolated, not stepped');
-    assert(rivalrySplit(0) === 0.5 && rivalrySplit(-2) === 0.5, 'a nonsense count still splits evenly');
-});
-
-// : the run says WHEN. Same season collapses the second season name. item 2: the meetings are named, not ranged. "Matchup 10 to 20" described eleven matchups when the run was two wins.
-const runOf = (...pairs) => ({ meetings: pairs.map(([year, period]) => ({ year, period })) });
-
-test('runSpanText: the run names its meetings, restating the season only when it changes', () => {
-    assertEq(runSpanText(runOf([2026, 10])), 'Season 2026 Matchup 10', 'one meeting');
-    assertEq(runSpanText(runOf([2026, 10], [2026, 20])), 'Season 2026 Matchup 10 and 20', 'two');
-    assertEq(runSpanText(runOf([2026, 10], [2026, 15], [2026, 20])), 'Season 2026 Matchup 10, 15, and 20',
-        'three or more take the Oxford comma VOICE.md asks for');
-    assertEq(runSpanText(runOf([2023, 20], [2024, 2], [2024, 5])),
-        'Season 2023 Matchup 20, Season 2024 Matchup 2, and 5',
-        'the season is restated where the year changes, and only there');
-    assertEq(runSpanText(runOf([2026, 10], [2026, 20])), 'Season 2026 Matchup 10 and 20',
-        'a list of two takes no comma, which is the same rule rather than an exception');
-    assertEq(runSpanText(null), '', 'no run, nothing to say');
-    assertEq(runSpanText({ count: 3 }), '', 'and a run with no meetings says nothing rather than guessing');
-});
-
-test('runSpanText: a playoff meeting is marked where it sits (B175)', () => {
-    const withPlayoff = { meetings: [
-        { year: 2025, period: 19, playoff: false },
-        { year: 2026, period: 2, playoff: true },
-        { year: 2026, period: 5, playoff: false }
-    ] };
-    assertEq(runSpanText(withPlayoff), 'Season 2025 Matchup 19, Season 2026 Matchup 2 Playoffs, and 5',
-        'the marker rides without a comma, which inside a list would read as another item');
-    assertEq(runSpanText({ meetings: [{ year: 2026, period: 25, playoff: true }] }),
-        'Season 2026 Matchup 25 Playoffs', 'a run of one playoff game still says which kind it was');
-});
-
-// item 1: the last meeting is about recency, so it is the only fact that counts playoff games.
-test('rivalryDetail: the last meeting is the last of ANY kind, playoffs included', () => {
-    const seasons = [RIV_SEASONS[2]];
-    const payloads = { 2025: { schedule: [
-        rivGame(2, 'HOME'),
-        rivGame(25, 'AWAY', 'WINNERS_BRACKET')
-    ] } };
-    const d = rivalryDetail(seasons, payloads, RIV_A, RIV_B);
-    assertEq(d.last.period, 25, 'the playoff game is the most recent meeting, so it is the last one');
-    assert(d.last.playoff === true, 'and it is marked, so the card can say so');
-    assertEq(d.total, { w: 1, l: 0, t: 0 }, 'while the RECORD still counts the regular season only');
-    assertEq(d.playoff.total, 1, 'with the playoff meeting counted in its own fact');
-});
-
-// item 3. The bug was a table told to be 100% tall handing its surplus to the row boxes; the replacement is this arithmetic, so the rule that used to live in a stylesheet is testable.
-test('categoryRowHeight: a budget divided by a count, clamped at both ends', () => {
-    assertEq(categoryRowHeight(2), CATEGORY_ROW_MAX, 'two seasons cannot each take 160px - the cap holds');
-    assertEq(categoryRowHeight(4), CATEGORY_ROW_MAX, 'and four still ask for more than the cap allows');
-    assertEq(categoryRowHeight(10), Math.floor(CATEGORY_ROWS_BUDGET / 10), 'ten fit under it and take their share');
-    assertEq(categoryRowHeight(40), CATEGORY_ROW_MIN, 'a long league stops shrinking and scrolls instead');
-    assertEq(categoryRowHeight(1), CATEGORY_ROW_MAX, 'one season is a cap case, not a whole-pane row');
-});
-
-test('categoryRowHeight: a nonsense count still returns a usable pitch', () => {
-    assertEq(categoryRowHeight(0), CATEGORY_ROW_MAX, 'no seasons cannot divide by zero');
-    assertEq(categoryRowHeight(-3), CATEGORY_ROW_MAX, 'nor by a negative one');
-    assertEq(categoryRowHeight(2.7), CATEGORY_ROW_MAX, 'a fraction floors to a whole count');
-});
-
-// item 8: the session request tally. One live counter, so every assertion is a DELTA - the page under test has already made calls of its own and a test that expected absolute numbers would pass alone and fail in the suite.
+// The session request tally. One live counter, so every assertion is a delta: the page under test has already made calls of its own, and a test that expected absolute numbers would pass alone and fail in the suite.
 test('request tally: two groups that never mix, split by host and kind', () => {
     const t = getRequestTally();
     const before = JSON.parse(JSON.stringify(t));
@@ -2476,7 +2149,122 @@ test('request tally: a url nobody can parse is counted under a name, not dropped
     assertEq((t.api.byKind['other'] || 0) - before.kind, 1, 'and an honest kind');
 });
 
-// item 3: the tab's season set is never anchored to the loaded year.
+// The recap cards' grounds. The palette below is state.js's TEAM_COLORS. Measured: darkened for white type, the cyan and the teal came out 3.8 apart, which reads as one colour used twice at 14 teams.
+const CARD_PALETTE = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe',
+    '#008080', '#e6beff', '#9a6324', '#b03060', '#808000', '#1b7837', '#808080', '#1f78b4', '#d47f00', '#6a4c93'].map(parseCssColour);
+const INK_LIGHT = [255, 255, 255], INK_DARK = [20, 22, 24];
+
+test('pickCardGround: the team colour is kept and the lettering is picked to read on it (B283 3)', () => {
+    const yellow = pickCardGround(parseCssColour('#ffe119'), INK_LIGHT, INK_DARK);
+    assertEq(yellow.ink, 'dark', 'yellow takes the dark ink');
+    assertEq(yellow.rgb, parseCssColour('#ffe119'), 'and keeps its own colour, undarkened');
+    const blue = pickCardGround(parseCssColour('#4363d8'), INK_LIGHT, INK_DARK);
+    assertEq(blue.ink, 'light', 'blue keeps white type');
+    assertEq(blue.rgb, parseCssColour('#4363d8'), 'undarkened');
+    assertEq(pickCardGround(null, INK_LIGHT, INK_DARK), null, 'no colour, no ground');
+});
+
+test('pickCardGround: every one of the 20 palette colours reads at 4.5:1 or better in the ink it takes', () => {
+    CARD_PALETTE.forEach((rgb, i) => {
+        const g = pickCardGround(rgb, INK_LIGHT, INK_DARK);
+        assert(g !== null, 'colour ' + (i + 1) + ' has a ground');
+        const ratio = contrastRatio(g.rgb, g.ink === 'light' ? INK_LIGHT : INK_DARK);
+        assert(ratio >= 4.5, 'colour ' + (i + 1) + ' reads ' + ratio.toFixed(2) + ':1 in its ink');
+    });
+});
+
+test('pickCardGround: no two of the 20 palette grounds look alike, at 14 teams or at 20', () => {
+    const grounds = CARD_PALETTE.map(rgb => pickCardGround(rgb, INK_LIGHT, INK_DARK).rgb);
+    let closest = Infinity;
+    for (let i = 0; i < 20; i++) for (let j = i + 1; j < 20; j++) {
+        const d = deltaE(grounds[i], grounds[j]);
+        if (j < 14) assert(d > 25, 'teams ' + (i + 1) + ' and ' + (j + 1) + ' are ' + d.toFixed(1) + ' apart at 14');
+        closest = Math.min(closest, d);
+    }
+    assert(closest > 15, 'the closest pair at 20 teams is ' + closest.toFixed(1) + ' apart, past the 15 that reads as two colours');
+    // The old rule, kept as the witness of what was wrong: darken every colour for white type and the cyan and teal collapse together.
+    const darkened = (hex) => darkenUntilContrast(parseCssColour(hex), INK_LIGHT, 4.5).rgb;
+    assert(deltaE(darkened('#46f0f0'), darkened('#008080')) < 5, 'darkened for white, the cyan and the teal were under 5 apart');
+});
+
+test('deltaE: identical colours are 0, and a pair that looks alike is small while a pair that does not is large', () => {
+    assertEq(deltaE([10, 20, 30], [10, 20, 30]), 0, 'identical');
+    assert(deltaE([0, 128, 128], [36, 125, 125]) < 5, 'teal against a near teal');
+    assert(deltaE([230, 25, 75], [60, 180, 75]) > 50, 'red against green');
+});
+
+test('assignDistinctGrounds: a logo ground is taken only when it clears every other team (B283 3)', () => {
+    const red = { rgb: [230, 25, 75], ink: 'light' }, green = { rgb: [60, 180, 75], ink: 'dark' }, blue = { rgb: [67, 99, 216], ink: 'light' };
+    const nearRed = { rgb: [226, 30, 80], ink: 'light' }, purple = { rgb: [145, 30, 180], ink: 'light' };
+    // team 1's logo is team 2's own colour: refused; team 3's logo is clear of everything: taken
+    let out = assignDistinctGrounds([{ id: 1, own: red, logo: green }, { id: 2, own: green, logo: null }, { id: 3, own: blue, logo: purple }]);
+    assertEq(out.get(1), red, 'a logo that is another team\'s colour is refused, the team keeps its own');
+    assertEq(out.get(2), green, 'the other team is untouched');
+    assertEq(out.get(3), purple, 'a clear logo ground is taken');
+    // two teams on the same default logo: the first takes it, the second keeps its palette colour
+    out = assignDistinctGrounds([{ id: 1, own: red, logo: purple }, { id: 2, own: green, logo: purple }, { id: 3, own: blue, logo: null }]);
+    assertEq(out.get(1), purple, 'the first team takes the logo ground');
+    assertEq(out.get(2), green, 'the second, on the same logo, keeps its own');
+    // a logo ground that is almost another team's palette ground is refused as well
+    out = assignDistinctGrounds([{ id: 1, own: green, logo: nearRed }, { id: 2, own: red, logo: null }]);
+    assertEq(out.get(1), green, 'a logo ground a hair from another team\'s own is refused');
+    // every team gets a ground, and no two are the same
+    const ids = [1, 2, 3];
+    out = assignDistinctGrounds([{ id: 1, own: red, logo: null }, { id: 2, own: green, logo: null }, { id: 3, own: blue, logo: null }]);
+    assertEq(new Set(ids.map(i => out.get(i).rgb.join(','))).size, 3, 'no logos at all: three teams, three grounds');
+});
+
+test('blendToward and separateGrounds: a quarter toward the surface keeps 14 and 20 teams distinct and readable (B292 2)', () => {
+    assertEq(blendToward([200, 100, 0], [20, 22, 24], 0), [200, 100, 0], 'no share, no change');
+    assertEq(blendToward([200, 100, 0], [20, 22, 24], 1), [20, 22, 24], 'the whole share is the surface');
+    assertEq(blendToward([200, 100, 0], [20, 22, 24], 0.25), [155, 81, 6], 'a quarter, channel by channel, rounded');
+    [[20, 22, 24], [253, 252, 249]].forEach(surface => {
+        const pick = (rgb) => pickCardGround(rgb, INK_LIGHT, INK_DARK, 4.5);
+        const entries = CARD_PALETTE.map((rgb, i) => ({ id: 'T' + i, rgb: blendToward(rgb, surface, 0.25) }));
+        const out = separateGrounds(entries, pick);
+        assertEq(out.size, 20, 'every team keeps a ground');
+        let closest = Infinity;
+        for (let i = 0; i < 20; i++) {
+            const g = out.get('T' + i);
+            const ink = g.ink === 'light' ? INK_LIGHT : INK_DARK;
+            assert(contrastRatio(g.rgb, ink) >= 4.5, 'team ' + (i + 1) + ' reads at ' + contrastRatio(g.rgb, ink).toFixed(2));
+            for (let j = i + 1; j < 20; j++) closest = Math.min(closest, deltaE(g.rgb, out.get('T' + j).rgb));
+        }
+        assert(closest >= 15, 'closest pair at 20 teams on surface ' + surface.join(',') + ' is ' + closest.toFixed(1));
+    });
+    // a set already clear of itself is returned exactly as picked, and the earlier of a close pair never moves
+    const red = [230, 25, 75], green = [60, 180, 75];
+    const clear = separateGrounds([{ id: 'a', rgb: red }, { id: 'b', rgb: green }], (rgb) => pickCardGround(rgb, INK_LIGHT, INK_DARK));
+    const picked = (rgb) => pickCardGround(rgb, INK_LIGHT, INK_DARK).rgb;
+    assertEq(clear.get('a').rgb, picked(red), 'a distinct first team is untouched');
+    assertEq(clear.get('b').rgb, picked(green), 'a distinct second team is untouched');
+    const twin = separateGrounds([{ id: 'a', rgb: red }, { id: 'b', rgb: [228, 27, 77] }], (rgb) => pickCardGround(rgb, INK_LIGHT, INK_DARK));
+    assertEq(twin.get('a').rgb, picked(red), 'the earlier of a close pair stays');
+    assert(deltaE(twin.get('a').rgb, twin.get('b').rgb) >= 15, 'the later moves until the pair is two colours');
+});
+
+test('pickCrestGround: a logo that vanishes on the usual disc takes the inverse (B280 4)', () => {
+    const dark = [39, 49, 66], light = [226, 230, 236];            // a dark theme's surface-3 and its inverse
+    assertEq(pickCrestGround([4, 30, 66], dark, light), 'alt', 'navy on a dark disc: 1.1:1 against it, 12:1 against the light one');
+    assertEq(pickCrestGround([244, 208, 111], dark, light), 'base', 'a gold logo clears 3:1 on the dark disc and stays put');
+    assertEq(pickCrestGround([255, 255, 255], light, dark), 'alt', 'white on a light disc (a light theme) takes the dark one');
+    assertEq(pickCrestGround([120, 120, 120], [118, 118, 118], [120, 120, 121]), 'base', 'when neither disc helps, the usual one stays');
+    assertEq(pickCrestGround(null, dark, light), 'base', 'no sample, no change');
+});
+
+test('noteSeasonSeen: a season the session loaded stays in the list (B279 3.2)', () => {
+    // Opened at 2027, then 2026 is loaded: 2027 is not in the completed-seasons stub, not loaded and not this calendar year.
+    noteSeasonSeen('fhl', 'L1', 2027);
+    noteSeasonSeen('fhl', 'L1', 2026);
+    assertEq(leagueSeasonYears([2024, 2025, ...seasonsSeenFor('fhl', 'L1')], 2026, 2026), [2024, 2025, 2026, 2027],
+        'both loaded seasons are in the list while 2026 is the loaded one');
+    assertEq(seasonsSeenFor('fhl', 'L2'), [], 'another league starts from nothing');
+    assertEq(seasonsSeenFor('flb', 'L1'), [], 'and so does another sport');
+    noteSeasonSeen('fhl', 'L1', 'x'); noteSeasonSeen(null, 'L1', 2030); noteSeasonSeen('fhl', 'L1', 0);
+    assertEq(seasonsSeenFor('fhl', 'L1'), [2026, 2027], 'a junk season is never remembered');
+});
+
+// The tab's season set is never anchored to the loaded year.
 test('leagueSeasonYears: the loaded season cannot shrink the league', () => {
     // The reported bug: the stub omits the unfinished 2026, and 2025 is what is loaded.
     assertEq(leagueSeasonYears([2024, 2025], 2025, 2026), [2024, 2025, 2026],
@@ -2485,108 +2273,62 @@ test('leagueSeasonYears: the loaded season cannot shrink the league', () => {
         'and loading the current one gives the identical set');
     assertEq(leagueSeasonYears([2024, 2025], 2024, 2026), [2024, 2025, 2026],
         'from two seasons back, the same again');
-    // A league that ended years ago names a year ESPN will refuse, which each season fetch already survives one at a time - the set is allowed to be optimistic, the fetch is not.
+    // A league that ended years ago names a year ESPN will refuse, which each season fetch already survives one at a time. The set is allowed to be optimistic; the fetch is not.
     assertEq(leagueSeasonYears([2019, 2020], 2020, 2026), [2019, 2020, 2026], 'the real year is always a candidate');
     assertEq(leagueSeasonYears([], 2026, 2026), [2026], 'no stub at all still gives the loaded season');
     assertEq(leagueSeasonYears(null, null, 2026), [2026], 'and nothing but the year still works');
     assertEq(leagueSeasonYears([2025, 2025], 2025, 2025), [2025], 'duplicates collapse');
 });
 
-// item 5: a finished league's careers are settled. The pair below is ESPN's own, measured on four real payloads - two roto seasons, a categories season and a points season - where latest was above final on every one and every one was in fact complete.
-test('seasonFinished: the scoring-period pair decides, not the year and not isActive', () => {
-    assertEq(seasonFinished({ status: { latestScoringPeriod: 193, finalScoringPeriod: 192 } }), true,
-        'past the last period is finished');
-    assertEq(seasonFinished({ status: { latestScoringPeriod: 192, finalScoringPeriod: 192 } }), true,
-        'on the last period is finished');
-    assertEq(seasonFinished({ status: { latestScoringPeriod: 120, finalScoringPeriod: 192 } }), false,
-        'short of it is still being played');
-    // isActive reads true on seasons two years done, so it is not the signal.
-    assertEq(seasonFinished({ status: { isActive: true, latestScoringPeriod: 197, finalScoringPeriod: 196 } }), true,
-        'isActive does not override the periods');
-    // A season nobody can measure says nothing rather than claiming to be live.
-    assertEq(seasonFinished({ status: {} }), true, 'no periods means no live claim');
-    assertEq(seasonFinished({}), true, 'no status at all, same');
-    assertEq(seasonFinished(null), true, 'no payload, same');
+// A season ESPN's own listing named is selectable, even a year ahead.
+test('yearOptionsWith: the next season a league already has is added, newest first', () => {
+    // A 2026-27 hockey league is seasonId 2027 while the dropdown runs 2026 down to 2021. The picker must not skip a year the list does not carry and load 2026 instead.
+    assertEq(yearOptionsWith(['2026', '2025', '2024', '2023', '2022', '2021'], '2027'),
+        [2027, 2026, 2025, 2024, 2023, 2022, 2021], 'the 2027 season joins the top of the list');
 });
 
-// item 0: one opening-direction rule for every sortable table in the app. Tested here rather than in either table, because the whole point of the ruling is that neither owns it.
-test('openingSortDir: the first click shows the best value', () => {
-    const hockey = new Set(['10', '2', '4']);   // GAA, L, GA - lower is better
-    assertEq(openingSortDir('10', hockey), 'asc', 'GAA opens on the lowest, which is the best');
-    assertEq(openingSortDir('13', hockey), 'desc', 'goals open on the highest, which is the best');
-    const baseball = new Set(['47', '41']);     // ERA, WHIP
-    assertEq(openingSortDir('47', baseball), 'asc', 'ERA opens ascending');
-    assertEq(openingSortDir('41', baseball), 'asc', 'WHIP too');
-    assertEq(openingSortDir('5', baseball), 'desc', 'a counting stat does not');
-    // The leaderboard and the career table pass different key spaces through the same rule.
-    assertEq(openingSortDir('seasons', baseball), 'desc', 'a non-stat column is not inverse');
-    assertEq(openingSortDir('47', null), 'desc', 'no set given means nothing is inverse');
-    assertEq(openingSortDir('47', new Set()), 'desc', 'an empty set is the same');
+test('yearOptionsWith: a season already listed changes nothing', () => {
+    assertEq(yearOptionsWith([2026, 2025], 2025), [2026, 2025], 'no duplicate');
+    assertEq(yearOptionsWith(['2026', '2025'], '2026'), [2026, 2025], 'strings and numbers are one year');
 });
 
-// : sorting the career table. The rows below are hand-made rather than built, so the expected order is readable from the fixture. Ivy has no goalie components at all, which is the blank case.
-const SORT_ROWS = [
-    { id: 1, name: 'Ann', seasons: [2024, 2025], franchiseKeys: ['A'], totals: { g: 30, sv: 90, sa: 100 } },
-    { id: 2, name: 'Bob', seasons: [2025], franchiseKeys: ['B'], totals: { g: 50, sv: 180, sa: 200 } },
-    { id: 3, name: 'Cal', seasons: [2024], franchiseKeys: ['A'], totals: { g: 30, sv: 270, sa: 300 } },
-    { id: 4, name: 'Ivy', seasons: [2024, 2025, 2026], franchiseKeys: ['C'], totals: { g: 10 } }
-];
-const SORT_SPECS = [{ out: 'svpct', num: ['sv'], den: ['sa'] }];
-const order = (spec) => sortCareers(SORT_ROWS, spec).map(r => r.name);
-
-test('sortCareers: a counting column, both directions, ties by name', () => {
-    // g: Bob 50, Ann 30, Cal 30, Ivy 10. Ann before Cal on the tie, both ways.
-    assertEq(order({ key: 'g', dir: 'desc' }), ['Bob', 'Ann', 'Cal', 'Ivy'], 'highest first');
-    assertEq(order({ key: 'g', dir: 'asc' }), ['Ivy', 'Ann', 'Cal', 'Bob'], 'lowest first, tie still A before C');
+test('yearOptionsWith: it adds the one year named and nothing speculative', () => {
+    // leagueSeasonYears refuses to guess next year because ESPN 404s a season that does not exist. This is not that guess, and a missing or junk seasonId must not become one either.
+    assertEq(yearOptionsWith([2026, 2025], undefined), [2026, 2025], 'no season, no new year');
+    assertEq(yearOptionsWith([2026, 2025], 'nope'), [2026, 2025], 'a non-number is ignored');
+    assertEq(yearOptionsWith([2026], 0), [2026], 'nor is zero');
+    assertEq(yearOptionsWith(null, 2027), [2027], 'an empty list still carries the named season');
 });
 
-test('sortCareers: a rate column is derived, and a player with no components sorts last both ways', () => {
-    // .900,.900,.900 - so it is the blank that this proves. Ivy has no sv or sa at all.
-    assertEq(order({ key: 'svpct', dir: 'desc', rateSpecs: SORT_SPECS }), ['Ann', 'Bob', 'Cal', 'Ivy'],
-        'blank last when descending');
-    assertEq(order({ key: 'svpct', dir: 'asc', rateSpecs: SORT_SPECS }), ['Ann', 'Bob', 'Cal', 'Ivy'],
-        'and still last when ascending, since no save percentage is not the lowest one');
+// The dropdown after a load never selects NaN.
+test('yearDropdownFor: a reopen whose stored year never reached the dropdown selects the loaded season', () => {
+    // A hockey league on reopen: the select was left empty (2027 was not an option), the loaded season is 2027, the league's history runs 2024-2026, and the calendar says 2026.
+    const d = yearDropdownFor('', 2027, [2024, 2025, 2026], 2026);
+    assertEq(d.selected, 2027, 'the season that loaded, not NaN');
+    assertEq(d.years, [2027, 2026, 2025, 2024], 'every season of the league, newest first');
+    assertEq(d.years.some(y => !Number.isFinite(y)), false, 'and no NaN anywhere in the list');
 });
 
-test('sortCareers: name and seasons columns', () => {
-    assertEq(order({ key: 'name', dir: 'asc' }), ['Ann', 'Bob', 'Cal', 'Ivy'], 'A to Z');
-    assertEq(order({ key: 'name', dir: 'desc' }), ['Ivy', 'Cal', 'Bob', 'Ann'], 'Z to A');
-    assertEq(order({ key: 'seasons', dir: 'desc' }), ['Ivy', 'Ann', 'Bob', 'Cal'], 'longest tenure first');
+test('yearDropdownFor: a real choice is kept, and still joins the list', () => {
+    // A reader looking at 2025 of the same league keeps 2025 selected.
+    const d = yearDropdownFor('2025', 2025, [2024, 2025, 2026], 2026);
+    assertEq(d.selected, 2025, 'the chosen season');
+    assertEq(d.years, [2026, 2025, 2024], 'history plus the calendar year');
 });
 
-test('sortCareers: no key leaves the order alone, and never mutates the input', () => {
-    const before = SORT_ROWS.map(r => r.name);
-    assertEq(order({ key: null, dir: 'desc' }), before, 'unsorted is the order it was given');
-    sortCareers(SORT_ROWS, { key: 'g', dir: 'asc' });
-    assertEq(SORT_ROWS.map(r => r.name), before, 'the caller keeps its array');
+test('yearDropdownFor: junk in, a finite season out', () => {
+    assertEq(yearDropdownFor('NaN', 2027, [], 2026).selected, 2027, 'a stored "NaN" falls back to the loaded season');
+    assertEq(yearDropdownFor(undefined, undefined, [], 2026).selected, null, 'nothing loaded and nothing chosen is null');
+    assertEq(yearDropdownFor(undefined, undefined, [], 2026).years, [2026], 'and the list is just the calendar year');
 });
 
-// P2: the pennant's two lines. The reference is a ballclub pennant, city over nickname, and a fantasy name has no city - so the last word is the nickname and the rest hangs above it. ---------------------------------------------------------------------------
-
-test('pennantLines: the last word is the nickname, the rest is the line above', () => {
-    const three = pennantLines('Bunt Force Trauma');
-    assert(three.top === 'Bunt Force' && three.nick === 'Trauma', 'BUNT FORCE over Trauma');
-    const two = pennantLines('Big Inning');
-    assert(two.top === 'Big' && two.nick === 'Inning', 'two words split one and one');
-});
-
-test('pennantLines: one word is a nickname with nothing above it', () => {
-    const one = pennantLines('Sluggers');
-    assert(one.nick === 'Sluggers', 'the one word is the nickname, never the top line');
-    assert(one.top === '', 'and nothing hangs above it');
-});
-
-test('pennantLines: nothing in, nothing out, and stray spacing does not invent a line', () => {
-    const none = pennantLines('');
-    assert(none.top === '' && none.nick === '', 'empty name');
-    const nul = pennantLines(null);
-    assert(nul.top === '' && nul.nick === '', 'no name at all');
-    const spaced = pennantLines('  Walk   Off   Warriors  ');
-    assert(spaced.top === 'Walk Off' && spaced.nick === 'Warriors', 'runs of spaces collapse');
+test('yearOptionsWith: an old season a league once had slots into order, not onto the top', () => {
+    // A long-running league can be discovered at a season the dropdown has already dropped off the bottom; it belongs where its year says, so the list stays newest first.
+    assertEq(yearOptionsWith([2026, 2025, 2024], 2019), [2026, 2025, 2024, 2019], 'appended in order');
 });
 
 
-// : the live matchup tally. cumulativeScore counts FINALIZED DAYS ONLY; ESPN attaches cumulativeScoreLive to the in-progress matchup and to no other. Values below are the real shapes from JSON_debug/espn-debug-1785096490224.json, matchup 16 (live) and 15 (completed). ---------------------------------------------------------------------------
+// The live matchup tally. cumulativeScore counts finalized days only; ESPN attaches cumulativeScoreLive to the in-progress matchup and to no other. Values below are the real shapes from a capture, matchup 16 (live) and 15 (completed).
 
 test('matchupTally: the live block wins when it is there', () => {
     const side = {
@@ -2598,7 +2340,7 @@ test('matchupTally: the live block wins when it is there', () => {
 });
 
 test('matchupTally: a completed matchup has no live block, so the rollup stands', () => {
-    // Exactly the shape a finished matchup arrives in - ESPN attaches no live block at all.
+    // Exactly the shape a finished matchup arrives in: ESPN attaches no live block at all.
     const side = { cumulativeScore: { wins: 9, losses: 4, ties: 1 } };
     const t = matchupTally(side);
     assert(t.wins === 9 && t.losses === 4 && t.ties === 1, 'byte for byte the authoritative number');
@@ -2628,7 +2370,7 @@ test('matchupPoints: the live total is preferred, including a live zero', () => 
     assert(matchupPoints(null) === 0, 'no side');
 });
 
-// item 2: DAY ONE OF A MATCHUP. The recurring failure is that the windowed aggregates see no finalized day while the header reads the live block, so Current renders 0-0 against a header that knows better. These stage day one explicitly - a live block present, zero finalized days - and assert the two agree, which they now do by construction because both go through matchupTally. ---------------------------------------------------------------------------
+// Day one of a matchup. The failure is that the windowed aggregates see no finalized day while the header reads the live block, so Current renders 0-0 against a header that knows better. These stage day one explicitly, a live block present and zero finalized days, and assert the two agree, which they do by construction because both go through matchupTally.
 
 test('readsAsPlayedMatchup: the live matchup is readable even though it is not complete', () => {
     // The morning matchup 16 opens: 15 is the last with a result, 16 is being played.
@@ -2644,7 +2386,7 @@ test('readsAsPlayedMatchup: a finished season has no live matchup to admit', () 
 });
 
 test('day one: Current reads the SAME per-category values the header shows', () => {
-    // Zero finalized days: the rollup is all zeros and the live block carries the real standing. This is the owner's 0-0 case - the rollup is exactly what Current used to aggregate.
+    // Zero finalized days: the rollup is all zeros and the live block carries the real standing. The rollup alone is the 0-0 a reader would see.
     const side = {
         cumulativeScore: {
             wins: 0, losses: 0, ties: 0,
@@ -2656,7 +2398,7 @@ test('day one: Current reads the SAME per-category values the header shows', () 
         }
     };
     const cats = matchupCatsForSide(side);
-    // The header's number, straight off matchupTally - the same call the scoreboard makes.
+    // The header's number, straight off matchupTally, the same call the scoreboard makes.
     const header = matchupTally(side);
     assert(header.wins === 3 && header.ties === 11, 'the header reads the live standing');
     assert(cats['1'] === 14 && cats['5'] === 2 && cats['47'] === 3.5,
@@ -2675,7 +2417,7 @@ test('matchupCatsForSide: an entry that names its own statId wins over the key',
 });
 
 
-// item 3: RATE CATEGORIES IN THE RACE CHART. A rate can never be summed across weeks. Every expectation below is hand-computed from the components, and each message names the summed value the owner was actually seeing. ---------------------------------------------------------------------------
+// Rate categories in the race chart. A rate can never be summed across weeks. Every expectation below is hand-computed from the components, and each message names the summed value a reader would otherwise see.
 
 const closeTo = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 
@@ -2705,7 +2447,7 @@ test('teamCategorySeries: ERA recomputes from cumulative ER and outs', () => {
     assert(closeTo(got[0], 3.00), 'week 1 ' + got[0]);
     assert(closeTo(got[1], 4.50), 'week 2 ' + got[1] + ' - summing gives 9.00');
     assert(closeTo(got[2], 3.00), 'week 3 ' + got[2] + ' - summing gives 10.50');
-    // ERA is an inverse category and this returns the REAL era either way - which end of the scale is good belongs to the renderer. A good week pulling the cumulative number DOWN is what proves the direction is not being flipped somewhere in the accumulation.
+    // ERA is an inverse category and this returns the real ERA either way; which end of the scale is good belongs to the renderer. A good week pulling the cumulative number down is what proves the direction is not being flipped somewhere in the accumulation.
     assert(got[2] < got[1], 'a good week pulls a cumulative ERA down');
 });
 
@@ -2736,7 +2478,7 @@ test('teamCategorySeries: an empty rate window is zero rather than NaN', () => {
     assert(got[0] === 0 && got[1] === 0, 'no components, no division by zero');
 });
 
-// : DOMINANT-COLOUR SAMPLING. Pure, over synthetic pixel data - a real logo is not needed to prove the histogram picks the right cell, and a hand-built array is the only way to know exactly what the answer should be. ---------------------------------------------------------------------------
+// Dominant-colour sampling. Pure, over synthetic pixel data: a real logo is not needed to prove the histogram picks the right cell, and a hand-built array is the only way to know exactly what the answer should be.
 
 // Build an RGBA byte array from [r,g,b,a] tuples, one per pixel.
 const px = (...pixels) => new Uint8ClampedArray(pixels.flat());
@@ -2749,7 +2491,7 @@ test('dominantColour: the most common colour wins, not the average of two', () =
 });
 
 test('dominantColour: a winning bucket averages its OWN pixels, so the answer is a real shade', () => {
-    // Two near-identical reds share a bucket and average to the shade between them; the lone blue is a bucket of one and loses. The channel values here are chosen to sit INSIDE one cell rather than to look tidy. Buckets are 256/6 wide, about 42.7, so 40 and 50 straddle a boundary and would land two pixels that look almost identical in different cells - which is exactly what the first version of this test did, and it failed until the fixture was built to the real bucket width rather than to what a reader assumes it is.
+    // Two near-identical reds share a bucket and average to the shade between them; the lone blue is a bucket of one and loses. The channel values are chosen to sit inside one cell and not to look tidy. Buckets are 256/6 wide, about 42.7, so 40 and 50 straddle a boundary and would land two pixels that look almost identical in different cells.
     const data = px([200, 30, 40, 255], [208, 36, 40, 255], [30, 40, 200, 255]);
     const got = dominantColour(data);
     assert(got[0] === 204 && got[1] === 33 && got[2] === 40, 'mean of the winning bucket: ' + got);
@@ -2790,7 +2532,7 @@ test('dominantColour: GREYS are not an identity either - the purple-pennant case
     assert(got !== null, 'the purple survives the greys');
     // Hand-computed: the two purples share a bucket and average to (103, 65, 149).
     assert(got[0] === 103 && got[1] === 65 && got[2] === 149, 'the purple, not the grey: ' + got);
-    // The saturation of every grey above is at or below 0.012 and of every purple at or above 0.479, so this is not a tuned threshold - it is two orders of magnitude of daylight.
+    // The saturation of every grey above is at or below 0.012 and of every purple at or above 0.479, so this is not a tuned threshold: it is two orders of magnitude of daylight.
 });
 
 test('dominantColour: a logo with nothing but paper and ink yields null', () => {
@@ -2817,7 +2559,7 @@ test('darkenUntilContrast: a bright colour is darkened until the gold passes', (
     assert(fixed.passed, 'it got there');
     assert(contrastRatio(fixed.rgb, gold) >= 4.5, 'and the result really measures: ' + contrastRatio(fixed.rgb, gold).toFixed(2));
     assert(fixed.steps > 0, 'it had to move');
-    // Darkening only scales down - it never invents a hue the logo did not have.
+    // Darkening only scales down. It never invents a hue the logo did not have.
     assert(fixed.rgb[0] <= bright[0] && fixed.rgb[1] <= bright[1] && fixed.rgb[2] <= bright[2], 'no channel went up');
 });
 
@@ -2847,7 +2589,7 @@ test('parseCssColour and toCssRgb round-trip the forms the sheet actually produc
 });
 
 
-// item 2: PERIOD -> DATE off the pro schedule, and item 3's promise that the chip's figure IS the chart's. Both pure, both hand-computed. ---------------------------------------------------------------------------
+// Period to date off the pro schedule, and the promise that the chip's figure is the chart's. Both pure, both hand-computed.
 
 test('datesByScoringPeriod: a period takes its EARLIEST game', () => {
     // Two games on period 5, one of them a late finish. The earlier one is the day.
@@ -2872,7 +2614,7 @@ test('datesByScoringPeriod: a dateless or shapeless schedule yields an empty map
 });
 
 test('the chip figure IS the chart value: one cumulative series, not two', () => {
-    // item 3 says the chip shows the same number the chart plots. Both call aggregateDailyCumulative over the same days, so this asserts the property the strip relies on: the value at each day is the running total of that stat through it. Hand-computed on HR (stat 5): 1, then 1+0, then 1+0+2.
+    // The chip shows the same number the chart plots. Both call aggregateDailyCumulative over the same days, so this asserts the property the strip relies on: the value at each day is the running total of that stat through it. Hand-computed on HR (stat 5): 1, then 1+0, then 1+0+2.
     const daily = {
         10: { games: 1, sums: { '5': 1 } },
         11: { games: 1, sums: { '5': 0 } },
@@ -2891,7 +2633,7 @@ test('the chip figure IS the chart value: one cumulative series, not two', () =>
 
 
 
-// ==== player-id-map.js - matching an ESPN player to an external one ====
+// ==== player-id-map.js: matching an ESPN player to an external one ====
 
 test('normalizeName: accents and punctuation go, the person stays', () => {
     assertEq(normalizeName('Nazem Kadri'), 'nazem kadri', 'a plain name');
@@ -2934,7 +2676,7 @@ test('clubOf: the club table, and the ids a table earns its keep on', () => {
     assertEq(clubOf('fhl', 0), null, 'proTeamId 0 has no external club');
     assertEq(clubOf('fhl', 999), null, 'an id the table does not carry');
     assertEq(clubOf('flb', 10), null, 'baseball is deliberately empty until the terms check');
-    // 32 clubs, no more and no fewer - a row added by accident is caught here.
+    // 32 clubs, no more and no fewer: a row added by accident is caught here.
     assertEq(Object.keys(PROTEAM_CLUB_MAP.fhl).length, 32, 'every NHL club, once');
     const codes = Object.values(PROTEAM_CLUB_MAP.fhl).map(r => r.nhlTriCode);
     assertEq(new Set(codes).size, 32, 'and no triCode claimed twice');
@@ -2971,7 +2713,7 @@ test('matchPlayers: the ladder, tier by tier', () => {
     assertEq(to[101], 8471675, 'and it is the right player');
     assertEq(tier[102], 'name+club', 'an accent is not a difference');
     assertEq(to[102], 8477220, 'Hertl matched through the accent');
-    // Club splits a name two players share - which is exactly what the club join is for.
+    // Club splits a name two players share, which is exactly what the club join is for.
     assertEq(tier[105], 'name+club', 'two Will Smiths, and the club decides');
     assertEq(to[105], 8470000, 'the San Jose one');
     // Same name AND same club: only the jersey can separate them.
@@ -3027,7 +2769,7 @@ test('matchPlayers: two ESPN players sharing a name and club claim NOBODY', () =
 });
 
 test('matchPlayers: the Agozzino double-entry, which is one player under two ESPN ids', () => {
-    // MEASURED in the real 2026 hockey pool: ids 5393 and 2486992, both "Andrew Agozzino", both on Utah (129764), both jersey 36, both position 2. Name, club and jersey all agree, so no tier can separate them - and they must not both match, nor be reported as two mysterious misses every single run.
+    // Measured in a real hockey pool: two ids carrying one name, both on the same club, both in the same jersey number, both at the same position. Name, club and jersey all agree, so no tier can separate them, and they must not both match, nor be reported as two mysterious misses every single run.
     const espn = [
         { id: 5393, fullName: 'Andrew Agozzino', proTeamId: 129764, jersey: '36' },
         { id: 2486992, fullName: 'Andrew Agozzino', proTeamId: 129764, jersey: '36' }
@@ -3056,7 +2798,7 @@ test('matchPlayers: the Agozzino double-entry, which is one player under two ESP
 });
 
 test('matchPlayers: the two Elias Petterssons, which no tier can separate', () => {
-    // MEASURED in the real pool and the real NHL reports: a forward and a defenceman, same name, same club. The NHL's bulk reports carry no sweater number, so the jersey tier has nothing to work with - which makes this the exact shape that survives every automatic tier.
+    // Measured in a real pool and the real NHL reports: a forward and a defenceman, same name, same club. The NHL's bulk reports carry no sweater number, so the jersey tier has nothing to work with, which makes this the exact shape that survives every automatic tier.
     const espn = [
         { id: 501, fullName: 'Elias Pettersson', proTeamId: 22, jersey: '40' },
         { id: 502, fullName: 'Elias N. Pettersson', proTeamId: 22, jersey: '25' }
@@ -3112,7 +2854,7 @@ test('matchPlayers: nothing in, nothing out - and no throw', () => {
 });
 
 
-// ==== stat-crosswalk.js - an ESPN category read off an external stat line ====
+// ==== stat-crosswalk.js: an ESPN category read off an external stat line ====
 
 // A real-SHAPED skater row: the field names are the NHL's own, taken from the captured summary report, and the numbers satisfy the identities the table is validated against.
 const SKATER = {
@@ -3170,7 +2912,7 @@ test('externalValue: NULL, never zero, for anything it cannot answer', () => {
     assertEq(externalValue({ goals: 'thirty' }, 'fhl', 13), null, 'a value that is not a number');
     assertEq(externalValue({ goals: null }, 'fhl', 13), null, 'an explicit null');
     assertEq(externalValue(SKATER, 'flb', 5), null, 'baseball is empty until the terms check');
-    // A real zero still reads as zero - the rule is about ABSENCE, not about the number.
+    // A real zero still reads as zero: the rule is about absence, not about the number.
     assertEq(externalValue({ goals: 0 }, 'fhl', 13), 0, 'a genuine none is a none');
 });
 
@@ -3197,7 +2939,7 @@ test('externalLine: a stat line the rank engine can eat, components and all', ()
 });
 
 test('reportsFor: how many requests a league actually needs', () => {
-    // The reference hockey league's own scored ids. Three separate reports, which is the point of naming the report on every row - nobody should discover this by getting undefined columns.
+    // The reference hockey league's own scored ids. Three separate reports, which is the point of naming the report on every row: nobody should discover this by getting undefined columns.
     const cats = ['38', '7', '39', '11', '13', '14', '16', '10', '23', '28', '29', '31', '32', '1'];
     const r = reportsFor('fhl', cats);
     assertEq(r.reports, ['goalieSummary', 'skaterFaceoffs', 'skaterRealtime', 'skaterSummary'],
@@ -3214,7 +2956,7 @@ test('reportsFor: how many requests a league actually needs', () => {
 });
 
 test('EXTERNAL_STAT_FIELDS: every row names a report or its components', () => {
-    // A row with neither would be a field nobody can fetch - the kind of entry that looks complete and is not.
+    // A row with neither would be a field nobody can fetch, the kind of entry that looks complete and is not.
     Object.entries(EXTERNAL_STAT_FIELDS.fhl).forEach(([id, spec]) => {
         assert(spec.components || spec.report, `id ${id} names where it comes from`);
         assert(spec.components || spec.field || spec.derive, `id ${id} names what to read`);
@@ -3226,7 +2968,7 @@ test('EXTERNAL_STAT_FIELDS: every row names a report or its components', () => {
 });
 
 
-// ==== retro-basis.js - a past season through the unchanged rank engine ====
+// ==== retro-basis.js: a past season through the unchanged rank engine ====
 
 // The sport's real rate formulas, passed in the way every pure engine here takes its tables.
 const FLB_RATES = [
@@ -3273,7 +3015,7 @@ const POOL = [
       line: { '0': 480, '1': 144, '5': 44, '81': 140, '34': 300, '45': 40, '48': 130, '32': 20 } },
     { id: 4, name: 'A Bystander', defaultPositionId: 4, eligibleSlots: [2, 16],
       line: { '67': 90 } },
-    // THE CASE THE REAL POOL EXPOSED. A pitcher's line genuinely carries batting keys - pitchers bat, or the source records a zero for it - so a figures-only test would put them in the batting group as well and call them two-way. A pitcher is eligible at no batting slot, and that is what keeps them out. Measured: without this gate all 102 goalies in the 2025 hockey pool landed in the skater group.
+    // The case the real pool exposed. A pitcher's line genuinely carries batting keys, since pitchers bat or the source records a zero for it, so a figures-only test would put a pitcher in the batting group as well and call the player two-way. A pitcher is eligible at no batting slot, and that keeps the pitcher out. Measured: without this gate all 102 goalies in the 2025 hockey pool landed in the skater group.
     { id: 5, name: 'A Pitcher Who Bats', defaultPositionId: 1, eligibleSlots: [13, 15, 16],
       line: { '0': 4, '1': 0, '5': 0, '32': 40, '34': 210, '45': 30, '48': 90 } }
 ];
@@ -3296,10 +3038,10 @@ test('retroBasis: groups by what a player CARRIES, not by where they are eligibl
 
     // THE TWO-WAY RULING, carried: the player is in both lists, so both skills can be measured against the peers they belong to. Leaving them out of one zeroes half the player.
     assertEq(b.twoWay, [3], 'one player in both groups');
-    // And the pitcher who bats is NOT one, being eligible at no batting slot - even though that line carries at-bats and a home-run key.
+    // And the pitcher who bats is not one, being eligible at no batting slot, even though that line carries at-bats and a home-run key.
     assert(!b.groups.primary.some(p => p.id === 5), 'a batting line is not a batting role');
 
-    // The trap this catches: player 3 is ELIGIBLE at pitching slots and so is player 1's neighbour - but eligibility is not evidence. Player 4 is eligible at a batting slot and carries not one scored category, so the row is skipped WITH A REASON rather than ranked last.
+    // The trap this catches: player 3 is eligible at pitching slots and so is player 1's neighbour, but eligibility is not evidence. Player 4 is eligible at a batting slot and carries not one scored category, so the row is skipped with a reason and not ranked last.
     assertEq(b.skipped.length, 1, 'one player placed nowhere');
     assertEq(b.skipped[0].id, 4, 'the bystander');
     assert(b.skipped[0].reason.includes('none of the league'), 'and the reason says why');
@@ -3317,7 +3059,7 @@ test('retroBasis: the games count comes from each group\'s OWN id', () => {
 
 test('retroBasis: eligibility is THAT season\'s, and travels with the player', () => {
     const b = retroBasis(POOL, BASIS_OPTS);
-    // Straight from the historical pool, never from a current one - the quiet trap, because nothing on screen would reveal a 2023 season ranked inside 2026's slot map.
+    // Straight from the historical pool, never from a current one. It is the quiet trap, because nothing on screen would reveal a 2023 season ranked inside 2026's slot map.
     assertEq(b.groups.primary.find(p => p.id === 1).eligibleSlots, [2, 12, 16], 'carried untouched');
     assertEq(eligibleAt(b.groups.primary, 2).map(p => p.id), [1], 'one player at slot 2 that season');
     assertEq(eligibleAt(b.groups.primary, 12).map(p => p.id), [1, 3], 'two at the utility slot');
@@ -3362,7 +3104,7 @@ test('seasonRowFrom: competition ranks, so a tie reads as a tie', () => {
     assertEq(tiedB.rank, 2, 'both of them');
     assertEq(tiedA.tied, true, 'and both know it');
     assertEq(tiedB.tied, true, 'so the band can render T2');
-    // The rank AFTER a two-way tie is fourth, not third - which is what competition ranking means.
+    // The rank after a two-way tie is fourth, not third, which is what competition ranking means.
     assertEq(seasonRowFrom(r, 13, { seasonId: 2023, games: 120 }).rank, 4, 'the next player is fourth');
 });
 
@@ -3401,7 +3143,7 @@ test('seasonRowsFor: ascending, and gaps stay gaps', () => {
 
 
 test('retro-basis end to end: the basis feeds the UNCHANGED rank engine', () => {
-    // The point of the whole file. Not a parallel scorer - the same engine the season tab uses, handed a past season's pool, so the two can never disagree about a player.
+    // The point of the whole file. Not a parallel scorer: the same engine the season tab uses, handed a past season's pool, so the two can never disagree about a player.
     const b = retroBasis(POOL, BASIS_OPTS);
     const result = computeRotoRanks(b.groups.primary, {
         sport: 'flb',
@@ -3420,7 +3162,7 @@ test('retro-basis end to end: the basis feeds the UNCHANGED rank engine', () => 
     assertEq(row.total, 2, 'against the pool that season');
     assert(row.rank >= 1 && row.rank <= 2, 'a real standing');
     assertEq(typeof row.tied, 'boolean', 'and whether it is shared');
-    // The percentiles that come back are the LEAGUE'S categories and nothing else - the engine was handed this group's ids, so a batting row can never carry a pitching key.
+    // The percentiles that come back are the league's categories and nothing else. The engine was handed this group's ids, so a batting row can never carry a pitching key.
     assertEq(Object.keys(row.percentiles).sort(), ['2', '5'], 'the batting categories, both of them');
     Object.values(row.percentiles).forEach(v =>
         assert(v >= 0 && v <= 100, 'a percentile is a percentile'));
@@ -3430,7 +3172,7 @@ test('retro-basis end to end: the basis feeds the UNCHANGED rank engine', () => 
 });
 
 
-// ==== utils.js - the week/period pair the roto race's rostered tier depends on ====
+// ==== utils.js: the week and period pair the roto race's rostered tier depends on ====
 
 test('weekOfPeriod: week w spans first+7(w-1) .. first+7w-1', () => {
     // The ordinary league: every payload in JSON_debug carries firstScoringPeriod 1 (52 of 52).
@@ -3484,9 +3226,15 @@ test('the boundary case: a trade on the week\'s LAST day', () => {
 });
 
 
-// ==== schedule-insight.js - playoff density, off nights, two-start weeks ====
+// ==== schedule-insight.js: playoff density, off nights, two-start weeks ====
 
-// Three clubs over six days, hand-built so every count is countable by eye. club 1: days 1, 2, 4, 5, 6 (five games, none on day 3) club 2: days 1, 3, 5 (three, every other day) club 3: day 6 only (one - the bye case a manager is hunting for) club 0: ESPN's free-agent pseudo-club, which is not a club
+/**
+ * Three clubs over six days, hand-built so every count is countable by eye.
+ *   club 1: days 1, 2, 4, 5, 6   (five games, none on day 3)
+ *   club 2: days 1, 3, 5         (three, every other day)
+ *   club 3: day 6 only           (one, the bye case a manager is hunting for)
+ *   club 0: ESPN's free-agent pseudo-club, which is not a club
+ */
 const PRO_TEAMS = [
     { id: 0, proGamesByScoringPeriod: { '1': [{ id: 'x' }] } },
     { id: 1, proGamesByScoringPeriod: {
@@ -3556,7 +3304,7 @@ test('twoStartPitchers: extends the probables machinery, filtered to the matchup
         { id: 10, proTeamId: 1, starterStatusByProGame: { g1: 'PROBABLE', g5: 'PROBABLE', g9: 'PROBABLE' } },
         // One start.
         { id: 11, proTeamId: 2, starterStatusByProGame: { g4: 'PROBABLE' } },
-        // Named on a game but NOT probable - not a start.
+        // Named on a game but not probable, so not a start.
         { id: 12, proTeamId: 1, starterStatusByProGame: { g1: 'NOT_PROBABLE' } },
         // No probables at all, which is silence rather than a zero.
         { id: 13, proTeamId: 3, starterStatusByProGame: {} }
@@ -3568,7 +3316,7 @@ test('twoStartPitchers: extends the probables machinery, filtered to the matchup
     assertEq(r.total, 3, 'three starts across the stretch');
     // The day-9 start is outside the matchup and must not be counted, even though the window that countProjectedStarts takes is a range rather than a set.
     assert(r.byPlayer.get(10).games.every(g => g.period <= 6), 'nothing from outside the days');
-    // SILENCE IS NOT A ZERO. ESPN publishes probables a few days out, so "no starts" and "not announced yet" look identical - reporting the first would invent news out of the second.
+    // Silence is not a zero. ESPN publishes probables a few days out, so no starts and not announced yet look identical, and reporting the first would invent news out of the second.
     assert(!r.byPlayer.has(13), 'a pitcher with no probables is absent');
     assert(!r.byPlayer.has(12), 'and so is one who is not probable');
     assertEq(twoStartPitchers(pitchers, gameIndex, []).twoPlus, [], 'no days, nothing to say');
@@ -3587,7 +3335,7 @@ test('playoffMatchups: read off the schedule, never computed from the counts', (
     // A consolation ladder is played by teams already eliminated, so it answers a different question than the one a manager planning a title run is asking.
     assertEq(playoffMatchups(schedule), [22, 23], 'the bracket only');
     assertEq(playoffMatchups(schedule, { includeConsolation: true }), [22, 23, 24], 'and with the ladders');
-    // AN EMPTY RESULT IS A REAL ANSWER: mid-season ESPN has not drawn the bracket yet, and the owner's live league marks no playoff matchup at all. "Not scheduled yet" is the honest surface; guessing the rounds from playoffMatchupPeriodLength would be a confident number about a bracket that does not exist.
+    // An empty result is a real answer: mid-season ESPN has not drawn the bracket yet, and a live league marks no playoff matchup at all. Not scheduled yet is what the surface says; guessing the rounds from playoffMatchupPeriodLength would be a confident number about a bracket that does not exist.
     assertEq(playoffMatchups([{ matchupPeriodId: 1, playoffTierType: 'NONE' }]), [], 'nothing drawn yet');
     assertEq(playoffMatchups([]), [], 'no schedule');
     assertEq(playoffMatchups(null), [], 'no league');
@@ -3650,7 +3398,7 @@ test('ESPN_STAT_MAPS.ffl: only the ids that earned a name', () => {
     // The kicker buckets are in distance order, which is what their own counts proved.
     assertEq([ffl[80], ffl[77], ffl[198], ffl[201]],
         ['FG0-39', 'FG40-49', 'FG50-59', 'FG60+'], 'four buckets, ascending');
-    // THE OMISSIONS ARE THE POINT, and the line MOVED once the per-game log arrived: ids the season totals could not decide are named now, and the ones still listed here are the ones a single club's 17 weeks genuinely could not reach. An unmapped id renders no column, which beats a column headed by a guess - see the D/ST test below for what the log did settle. 63, 206 and 209 JOINED THE LIST LAST, and the reason they were missing matters more than the reason they are dark: this league scores them and neither the map nor this test mentioned them, so a guess arriving at one of them would have met nothing. The profiler counting 46 scored ids against 29 named is what found them. 63 is a sixth six-point route (see the D/ST test); 206 is a two-point play credited to a defence; 209 is carried by NOBODY in the pool, so the capture holds no evidence about it at all - which is still a reason to name it here rather than leave it unwatched.
+    // The omissions are the point. An unmapped id renders no column, which beats a guess; the ids still listed here are the ones a single club's 17 weeks could not reach, and the D/ST test below shows what the per-game log did settle. 63, 206 and 209 are listed because this league scores them: 63 is a sixth six-point route, 206 a two-point play credited to a defence, and 209 is carried by nobody in the pool.
     [63, 90, 97, 124, 125, 128, 133, 134, 135, 136, 206, 209].forEach(id =>
         assertEq(ffl[id], undefined, `id ${id} is deliberately unnamed`));
     // Every named id has a spelled-out name too, or a header would read a bare abbreviation.
@@ -3692,7 +3440,7 @@ test('football groups: Players and D/ST, through the socket that already existed
     assertEq(roleGroupsFor('ffl'), ['primary', 'secondary'], 'two groups');
     assertEq([...SECONDARY_GROUP_POSITIONS.ffl], ['D/ST'], 'and the second one is the defences');
     assertEq(POSITION_MAPS.ffl[16], 'D/ST', 'which is how a defence gets that position name');
-    // The IDP oddities are unnamed - one player each, in a league rostering neither slot.
+    // The IDP oddities are unnamed: one player each, in a league rostering neither slot.
     assertEq(POSITION_MAPS.ffl[9], undefined, 'position 9 unnamed');
     assertEq(POSITION_MAPS.ffl[12], undefined, 'position 12 unnamed');
     // And the sports that had one group still have what they had.
@@ -3716,7 +3464,7 @@ test('football roster band: the lineup card in its own order', () => {
     // Deliberately handed over jumbled: the band reads QB, RB, WR, TE, FLEX, K, D/ST regardless.
     assertEq(g.starters.map(r => LINEUP_SLOT_LABELS.ffl[r.slot]),
         ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K', 'D/ST'], 'the lineup card order');
-    // Bench and injury are SEPARATE arrays by design, so an injured player never reads as a healthy scratch. Which of slots 20 and 21 is which is the one thing the eligibility crossing could not settle - both take every player - so this asserts the SPLIT rather than the labels, and the split is what anything downstream depends on.
+    // Bench and injury are separate arrays by design, so an injured player never reads as a healthy scratch. Which of slots 20 and 21 is which is the one thing the eligibility crossing could not settle, since both take every player, so this asserts the split and not the labels, and the split is what anything downstream depends on.
     assertEq(g.bench.map(r => r.playerId), [901], 'the bench slot, alone');
     assertEq(g.injured.map(r => r.playerId), [905], 'and the injury slot, apart from it');
     assertEq(g.orphans.length, 0, 'every entry placed somewhere');
@@ -3739,7 +3487,7 @@ test('D/ST ids: named from the per-game log, dark ones left dark', () => {
     [90, 124, 125, 128, 133, 134, 135, 136].forEach(id =>
         assertEq(f[id], undefined, `bracket ${id} never fired`));
     assertEq(f[97], undefined, '97 matches no offensive identity');
-    // SIX routes, not five: 63 is carried by one running back, value 1, worth six - every property the other five have, so the evidence splits it from them no better than it splits them from each other.
+    // Six routes, not five: 63 is carried by one running back, value 1, worth six, with every property the other five have, so the evidence splits it from them no better than it splits them from each other.
     [63, 93, 101, 102, 103, 104].forEach(id =>
         assertEq(f[id], undefined, `id ${id} is one of six indistinguishable 6-point routes`));
     // 206 is a defence's own row, dark for the ordinary reason: two team defences carry it, one each, worth TWO through a slot override. A two-point play credited to a defence has more than one spelling and two instances in a club-season choose none of them.
@@ -3827,7 +3575,335 @@ const WIN_PERIODS = [10, 11, 12, 13];
 // A stub labeler, so these assertions do not depend on the machine's locale or timezone. The real one is dayLabelerFor, tested separately below against a known date.
 const WIN_LABEL = (p) => `D${p}`;
 
-// ===== item 2: the games that win a week ================================================== Three clubs of nine play on day 10, one of nine on day 11: with a third of nine being 3, day 11 is an off night and day 10 is not. Club 5 plays once on each, club 6 plays TWICE on day 10. Built through the real offNightsForMatchup so the density shape cannot drift either.
+// A game ESPN has marked final is played. Football's scoring period is the whole week, so every game in it shares period 1 and a test of before today's period can never see a Wednesday opener that is over. Shapes copied from a football capture: one game per club, statsOfficial true on the midweek games only.
+const WEEK_TEAMS = [
+    { id: 26, proGamesByScoringPeriod: { 1: [{ id: 401872656, statsOfficial: true }] } },   // SEA, Wednesday
+    { id: 25, proGamesByScoringPeriod: { 1: [{ id: 401872657, statsOfficial: true }] } },   // SF, Thursday
+    { id: 8, proGamesByScoringPeriod: { 1: [{ id: 401872923, statsOfficial: false }] } }    // DET, Sunday
+];
+const WEEK_BY_TEAM = gamesByProTeamForMatchup(WEEK_TEAMS, [1]);
+
+test('gamesByProTeamForMatchup: counts the games ESPN has marked final, per period', () => {
+    assertEq(WEEK_BY_TEAM.get(26).officialByPeriod.get(1), 1, 'the Wednesday game is final');
+    assertEq(WEEK_BY_TEAM.get(8).officialByPeriod.has(1), false, 'the Sunday game is not, and has no entry');
+    assertEq(WEEK_BY_TEAM.get(26).games, 1, 'and the game count itself is unchanged');
+});
+
+test('matchupWindow: a football game that is over reads played inside its own week', () => {
+    // Today is period 1, the week. Before this, played counted only periods before 1, so all three clubs read 1 of 1 remaining - "Upcoming" on the column for a game that was over.
+    const sea = matchupWindow(WEEK_BY_TEAM, 26, { periods: [1], fromPeriod: 1 });
+    assertEq(sea.played, 1, 'Seattle played Wednesday');
+    assertEq(sea.remaining, 0, 'so nothing is left - the column reads Played');
+    const sf = matchupWindow(WEEK_BY_TEAM, 25, { periods: [1], fromPeriod: 1 });
+    assertEq(sf.remaining, 0, 'San Francisco played Thursday');
+    const det = matchupWindow(WEEK_BY_TEAM, 8, { periods: [1], fromPeriod: 1 });
+    assertEq(det.played, 0, 'Detroit plays Sunday');
+    assertEq(det.remaining, 1, 'and still reads Upcoming');
+});
+
+test('matchupWindow: the flag only adds played games - a past day is played without it', () => {
+    // Baseball keeps the flag on only 40 of 2,135 past games in one capture, so reading the flag alone would call most of a season unplayed. Days 10 and 11 are before today (12) and are played flagged or not; day 12 is today and its unflagged game is still to come.
+    const teams = [{ id: 1, proGamesByScoringPeriod: {
+        10: [{ statsOfficial: false }], 11: [{}], 12: [{ statsOfficial: false }] } }];
+    const w = matchupWindow(gamesByProTeamForMatchup(teams, [10, 11, 12]), 1, { periods: [10, 11, 12], fromPeriod: 12 });
+    assertEq(w.played, 2, 'the two days before today');
+    assertEq(w.remaining, 1, "today's game, not yet final");
+});
+
+test('matchupWindow: a final game on today counts, and half a doubleheader counts as half', () => {
+    // A daily sport's own today: the day is not over, but a game ESPN has closed is.
+    const teams = [
+        { id: 1, proGamesByScoringPeriod: { 12: [{ statsOfficial: true }] } },
+        { id: 2, proGamesByScoringPeriod: { 12: [{ statsOfficial: true }, { statsOfficial: false }] } }
+    ];
+    const byTeam = gamesByProTeamForMatchup(teams, [12]);
+    assertEq(matchupWindow(byTeam, 1, { periods: [12], fromPeriod: 12 }).remaining, 0, "today's final game is played");
+    const dh = matchupWindow(byTeam, 2, { periods: [12], fromPeriod: 12 });
+    assertEq(dh.played, 1, 'the first game of the doubleheader is final');
+    assertEq(dh.remaining, 1, 'and the second is still to come');
+});
+
+test('matchupWindow: with no idea what day it is, a final game is still a final game', () => {
+    // A null fromPeriod still never reads as day zero, so nothing unflagged becomes played, but a game ESPN has marked final is a fact about the game, not about today.
+    const teams = [{ id: 1, proGamesByScoringPeriod: { 12: [{ statsOfficial: true }], 13: [{}] } }];
+    const w = matchupWindow(gamesByProTeamForMatchup(teams, [12, 13]), 1, { periods: [12, 13], fromPeriod: null });
+    assertEq(w.played, 1, 'the final one');
+    assertEq(w.remaining, 1, 'and the unflagged one is not guessed at');
+});
+
+// A period longer than a day names each club's own game day. A football week from a capture: Seattle Wednesday night, Detroit Sunday afternoon, all in scoring period 1, which spans six days. A baseball-shaped day beside it: period 50, two games eight hours apart. The labeler is fixed to Eastern time so the weekdays never depend on the machine.
+const LBL_TEAMS = [
+    { id: 26, proGamesByScoringPeriod: { 1: [{ date: Date.UTC(2026, 8, 10, 0, 20) }], 50: [{ date: Date.UTC(2026, 5, 1, 17, 0) }] } },
+    { id: 8, proGamesByScoringPeriod: { 1: [{ date: Date.UTC(2026, 8, 13, 17, 0) }], 50: [{ date: Date.UTC(2026, 5, 2, 1, 0) }] } },
+    // Club 30 plays twice in the week, Wednesday and Sunday, a shape no real club has, pinned so the join is defined and not accidental.
+    { id: 30, proGamesByScoringPeriod: { 1: [{ date: Date.UTC(2026, 8, 13, 17, 0) }, { date: Date.UTC(2026, 8, 10, 0, 20) }] } },
+    // Club 31 is on a bye in the week.
+    { id: 31, proGamesByScoringPeriod: {} }
+];
+const LBL_WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const LBL_EASTERN = (ms) => LBL_WEEKDAY[new Date(ms - 4 * 3600e3).getUTCDay()];
+const LBL_PERIOD = (p) => `P${p}`;
+
+test('gamesByProTeamForMatchup: a club carries its own game dates only for a period longer than a day', () => {
+    const week = gamesByProTeamForMatchup(LBL_TEAMS, [1]);
+    assertEq(week.get(26).ownDatesByPeriod.get(1), [Date.UTC(2026, 8, 10, 0, 20)], 'Seattle, the week of six days');
+    assertEq(week.get(30).ownDatesByPeriod.get(1), [Date.UTC(2026, 8, 10, 0, 20), Date.UTC(2026, 8, 13, 17, 0)],
+        'two games in the week, in date order');
+    // Period 50's two games are eight hours apart: a day, so nobody carries own dates there.
+    const day = gamesByProTeamForMatchup(LBL_TEAMS, [50]);
+    assertEq(day.get(26).ownDatesByPeriod.size, 0, 'a daily period keeps its own single date');
+});
+
+test('matchupWindow: in a football week each club reads its own game day', () => {
+    // Reading the week's one date would give every club the Wednesday opener's, Detroit included.
+    const byTeam = gamesByProTeamForMatchup(LBL_TEAMS, [1]);
+    const opts = { periods: [1], labelOf: LBL_PERIOD, labelOfDate: LBL_EASTERN };
+    assertEq(matchupWindow(byTeam, 26, opts).byPeriod[0].period, 'Wed', 'Seattle, Wednesday night');
+    assertEq(matchupWindow(byTeam, 8, opts).byPeriod[0].period, 'Sun', 'Detroit, Sunday - not Wednesday');
+    assertEq(matchupWindow(byTeam, 30, opts).byPeriod[0].period, 'Wed/Sun', 'two games name both days, once each');
+});
+
+test('matchupWindow: a daily period and a club on a bye keep the period label', () => {
+    const day = gamesByProTeamForMatchup(LBL_TEAMS, [50]);
+    // Detroit's period-50 game starts at 1am UTC on the next calendar date, so a label taken from its own timestamp could name a different day from the one it was scheduled on. The period's stands.
+    assertEq(matchupWindow(day, 8, { periods: [50], labelOf: LBL_PERIOD, labelOfDate: LBL_EASTERN }).byPeriod[0].period,
+        'P50', 'a day is labelled as the day it was scheduled');
+    const week = gamesByProTeamForMatchup(LBL_TEAMS, [1]);
+    const bye = matchupWindow(week, 31, { periods: [1], labelOf: LBL_PERIOD, labelOfDate: LBL_EASTERN });
+    assertEq(bye.byPeriod[0].period, 'P1', 'no game of its own, so the period label');
+    assertEq(bye.byPeriod[0].count, 0, 'and a count of nothing');
+});
+
+test('matchupWindow: without labelOfDate a caller sees exactly the period labels it saw before', () => {
+    const week = gamesByProTeamForMatchup(LBL_TEAMS, [1]);
+    assertEq(matchupWindow(week, 8, { periods: [1], labelOf: LBL_PERIOD }).byPeriod[0].period, 'P1', 'unchanged');
+});
+
+/**
+ * A football matchup by game day.
+ *
+ * Shapes copied from a football league after its opening games. The counted roster is
+ * rosterForMatchupPeriod: starters who have scored, each with a matchup aggregate line (period 0, no
+ * game id). The day comes from the club's one game that week in the pro schedule's game index.
+ *
+ *   Seattle (26)      Wednesday 8:20pm Eastern, 00:20 UTC on the Thursday
+ *   Los Angeles (14)  Thursday  8:35pm Eastern, 00:35 UTC on the Friday
+ *   Detroit (8)       Sunday    1:00pm Eastern, 17:00 UTC the same day
+ *   Seattle (26)      a week-2 game, for the two-week case
+ */
+const GD_INDEX = new Map([
+    ['401872656', { period: 1, date: Date.UTC(2026, 8, 10, 0, 20), home: 26, away: 17 }],
+    ['401872657', { period: 1, date: Date.UTC(2026, 8, 11, 0, 35), home: 14, away: 25 }],
+    ['401872923', { period: 1, date: Date.UTC(2026, 8, 13, 17, 0), home: 8, away: 18 }],
+    ['401900001', { period: 2, date: Date.UTC(2026, 8, 17, 0, 15), home: 26, away: 5 }]
+]);
+// Eastern is UTC-4 in September; fixed here so the assertions never depend on the machine's zone.
+const GD_EASTERN = (ms) => new Date(ms - 4 * 3600e3).toISOString().slice(0, 10);
+const gdCounted = (name, proTeamId, points) => ({
+    playerId: proTeamId * 1000,
+    playerPoolEntry: { appliedStatTotal: points, player: { fullName: name, proTeamId,
+        stats: [{ statSourceId: 0, statSplitTypeId: 1, scoringPeriodId: 0, appliedTotal: points }] } }
+});
+// Team 8 on the capture: Smith-Njigba 26.2 on Wednesday, Kyren Williams 15.5 on Thursday.
+const GD_TEAM_8 = { teamId: 8, totalPointsLive: 41.7, rosterForMatchupPeriod: { entries: [
+    gdCounted('Jaxon Smith-Njigba', 26, 26.2), gdCounted('Kyren Williams', 14, 15.5)] } };
+// Team 10: the Rams defence, 1 point on Thursday.
+const GD_TEAM_10 = { teamId: 10, totalPointsLive: 1, rosterForMatchupPeriod: { entries: [
+    gdCounted('Rams D/ST', 14, 1)] } };
+
+test('gameDayPoints: each counted player lands on the day their club played', () => {
+    const r = gameDayPoints(GD_TEAM_8, GD_INDEX, [1], { dayOf: GD_EASTERN });
+    assertEq(r.byDay.map(d => d.day), ['2026-09-09', '2026-09-10'], 'Wednesday, then Thursday');
+    assertEq(r.byDay.map(d => d.points), [26.2, 15.5], 'Seattle on the Wednesday, Los Angeles on the Thursday');
+    assertEq(r.total, 41.7, 'the whole matchup');
+    assertEq(r.unplaced, 0, 'nothing it could not place');
+    assertEq(r.reconciles, true, "and it matches the side's own live total");
+});
+
+test('gameDayPoints: the day is the viewer\'s - UTC would move Wednesday to Thursday', () => {
+    // The reason dayOf is the caller's. An 8:20pm Eastern kickoff is past midnight in UTC.
+    const utc = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const r = gameDayPoints(GD_TEAM_8, GD_INDEX, [1], { dayOf: utc });
+    assertEq(r.byDay[0].day, '2026-09-10', 'the opener reads as the next day in UTC');
+    assertEq(r.byDay[0].points, 26.2, 'same points, wrong day');
+});
+
+test('gameDayRace: both sides on one axis, running totals, a quiet day carried flat', () => {
+    // Team 10 scores nothing on Wednesday, so its line starts at 0 and steps to 1 on Thursday.
+    const race = gameDayRace(GD_TEAM_10, GD_TEAM_8, GD_INDEX, [1], { dayOf: GD_EASTERN });
+    assertEq(race.days.map(d => d.day), ['2026-09-09', '2026-09-10'], 'every day either side scored');
+    assertEq(race.home, [0, 1], 'Team 10: nothing, then the Rams defence');
+    assertEq(race.away, [26.2, 41.7], 'Team 8: Smith-Njigba, then Kyren Williams on top');
+    assertEq(race.homeTotal, 1, 'home total');
+    assertEq(race.awayTotal, 41.7, 'away total');
+    assertEq(race.reconciles.home && race.reconciles.away, true, 'both match ESPN');
+});
+
+test('gameDayPoints: only ESPN\'s counted list is read - a bench player\'s points never enter', () => {
+    // rosterForCurrentScoringPeriod carries the whole roster, bench scorers included; the counted list does not. On the capture, 12 bench players had scored and none of them was in it.
+    const side = { ...GD_TEAM_8,
+        rosterForCurrentScoringPeriod: { entries: [{ lineupSlotId: 20, playerPoolEntry: { appliedStatTotal: 22.4,
+            player: { fullName: 'Bench Scorer', proTeamId: 26, stats: [{ statSourceId: 0, appliedTotal: 22.4 }] } } }] } };
+    assertEq(gameDayPoints(side, GD_INDEX, [1], { dayOf: GD_EASTERN }).total, 41.7, 'the 22.4 on the bench is not counted');
+});
+
+test('gameDayPoints: a club with two games in the matchup is unplaced, never split by guess', () => {
+    // A two-week matchup: Seattle plays in both weeks, and one aggregate line cannot be divided between two games. Those points go to unplaced so the buckets plus unplaced still make the total.
+    const r = gameDayPoints(GD_TEAM_8, GD_INDEX, [1, 2], { dayOf: GD_EASTERN });
+    assertEq(r.unplaced, 26.2, "Smith-Njigba's points have two possible days");
+    assertEq(r.byDay.map(d => d.points), [15.5], 'Los Angeles still has one game and is placed');
+    assertEq(r.total, 41.7, 'the total is unchanged');
+    assertEq(r.reconciles, true, 'and still reconciles');
+});
+
+test('gameDayPoints: a total that disagrees with ESPN says so, and no live total is null', () => {
+    assertEq(gameDayPoints({ ...GD_TEAM_8, totalPointsLive: 50 }, GD_INDEX, [1], { dayOf: GD_EASTERN }).reconciles,
+        false, 'forty-one point seven is not fifty');
+    const { totalPointsLive, ...noLive } = GD_TEAM_8;
+    assertEq(gameDayPoints(noLive, GD_INDEX, [1], { dayOf: GD_EASTERN }).reconciles, null, 'nothing to check against');
+});
+
+test('gameDayRace: a matchup where nobody has scored yet has no days, not a zero line', () => {
+    const empty = { teamId: 13, totalPointsLive: 0, rosterForMatchupPeriod: { entries: [] } };
+    const race = gameDayRace(empty, { ...empty, teamId: 2 }, GD_INDEX, [1], { dayOf: GD_EASTERN });
+    assertEq(race.days.length, 0, 'no days');
+    assertEq(race.home, [], 'and nothing to draw');
+    assertEq(race.reconciles.home, true, 'zero is zero');
+});
+
+// ==== The group's own category columns ====
+
+test('statIdsForGroup: a hockey group gets its own columns and not the other role', () => {
+    // GOALIE_IDS (state.js) is ids 0-12; a skater's own ids sit above them. One of each, with only the ids these players actually carry.
+    const skater = { seasonTotals: { '13': 40, '14': 50, '31': 200 } };
+    const goalie = { seasonTotals: { '1': 30, '6': 900, '10': 0.92 } };
+    const skaters = statIdsForGroup('fhl', 'primary', [skater]);
+    const goalies = statIdsForGroup('fhl', 'secondary', [goalie]);
+    const all = (r) => [...r.scored, ...r.advanced].map(String);
+    assertEq(all(skaters).some(id => Number(id) <= 12), false, 'no goalie column in the skaters');
+    assertEq(all(goalies).every(id => Number(id) <= 12), true, 'and the goalies are all goalie columns');
+    assertEq(all(skaters).includes('13'), true, 'the skater own goals column');
+    assertEq(all(goalies).includes('6'), true, 'the goalie own saves column');
+});
+
+test('statIdsForGroup: a column nobody in hand carries is not drawn', () => {
+    // The board draws twenty rows, not the pool. A column every one of them is missing is a column of dashes, and the leaderboard has always dropped it.
+    const one = { seasonTotals: { '13': 40 } };
+    const ids = statIdsForGroup('fhl', 'primary', [one]);
+    assertEq([...ids.scored, ...ids.advanced].map(String).includes('14'), false, 'assists absent from the line, absent from the columns');
+    const none = statIdsForGroup('fhl', 'primary', []);
+    assertEq([...none.scored, ...none.advanced].length, 0, 'nobody in hand, no columns');
+});
+
+// ==== A football player's next game (tests/fixtures/next-game.md) ====
+
+// Shaped on full-nfl-2026-post-draft-2's proTeams: the week 2 games, Kansas City's week 5 bye and week 18's TBD placeholder are the capture's own; the week 16-17 pair is invented to give one club two games in a window. Kickoffs are built in LOCAL time, so the default day label is the same on any machine.
+const NG_AT = (m, d, h, min) => new Date(2026, m, d, h, min).getTime();
+const ngGame = (id, period, home, away, date, extra = {}) =>
+    ({ id, scoringPeriodId: period, homeProTeamId: home, awayProTeamId: away, date, startTimeTBD: false, statsOfficial: false, ...extra });
+const NG_KC_IND = ngGame(401872945, 2, 12, 11, NG_AT(8, 20, 20, 20));
+const NG_BUF_DET = ngGame(401872932, 2, 2, 8, NG_AT(8, 17, 20, 15));
+const NG_BUF_W5 = ngGame(401872999, 5, 2, 11, NG_AT(9, 11, 13, 0));
+const NG_KC_W16 = ngGame(401873153, 16, 12, 25, NG_AT(11, 27, 16, 25));
+const NG_DEN_KC_W17 = ngGame(401873160, 17, 7, 12, NG_AT(12, 3, 13, 0));
+const NG_BUF_W17 = ngGame(401873161, 17, 2, 8, NG_AT(12, 3, 13, 0));
+const NG_TBD = new Date(2027, 0, 10, 3, 1).getTime();
+const NG_KC_LV = ngGame(401873178, 18, 12, 13, NG_TBD, { startTimeTBD: true });
+const NG_TEAMS = [
+    { id: 0, abbrev: 'FA', proGamesByScoringPeriod: {} },
+    { id: 12, abbrev: 'KC', proGamesByScoringPeriod: { 2: [NG_KC_IND], 16: [NG_KC_W16], 17: [NG_DEN_KC_W17], 18: [NG_KC_LV] } },
+    { id: 11, abbrev: 'IND', proGamesByScoringPeriod: { 2: [NG_KC_IND], 5: [NG_BUF_W5] } },
+    { id: 2, abbrev: 'BUF', proGamesByScoringPeriod: { 2: [NG_BUF_DET], 5: [NG_BUF_W5], 17: [NG_BUF_W17] } },
+    { id: 8, abbrev: 'DET', proGamesByScoringPeriod: { 2: [NG_BUF_DET], 17: [NG_BUF_W17] } },
+    { id: 13, abbrev: 'LV', proGamesByScoringPeriod: { 18: [NG_KC_LV] } },
+    { id: 7, abbrev: 'DEN', proGamesByScoringPeriod: { 17: [NG_DEN_KC_W17] } },
+    { id: 25, abbrev: 'SF', proGamesByScoringPeriod: { 16: [NG_KC_W16] } }
+];
+const NG_KC = { fullName: 'Patrick Mahomes', proTeamId: 12 };
+
+test('nextGameOf: the day, the side and the opponent of the week\'s game', () => {
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, [2]), {
+        date: NG_KC_IND.date, dayLabel: 'Sun night', opponentAbbrev: 'IND', home: true,
+        tbd: false, bye: false, played: false, gameId: 401872945
+    }, 'Kansas City hosts Indianapolis at 20:20 on the Sunday');
+    const det = nextGameOf({ proTeamId: 8 }, NG_TEAMS, { periods: [2] });
+    assertEq([det.dayLabel, det.home, det.opponentAbbrev], ['Thu', false, 'BUF'], 'Detroit at Buffalo, Thursday - the window as { periods }');
+    assertEq(nextGameOf({ proTeamId: 2 }, NG_TEAMS, [2], { dayLabelOf: () => 'X' }).dayLabel, 'X', 'the caller can say how a day reads');
+});
+
+test('footballDayLabel: the local weekday, and Sunday from 18:00 is Sun night', () => {
+    assertEq(footballDayLabel(NG_AT(8, 20, 13, 0)), 'Sun', 'an early Sunday game');
+    assertEq(footballDayLabel(NG_AT(8, 20, 17, 59)), 'Sun', 'still the afternoon');
+    assertEq(footballDayLabel(NG_AT(8, 20, 18, 0)), 'Sun night', 'from six');
+    assertEq(footballDayLabel(NG_AT(8, 21, 20, 15)), 'Mon', 'Monday night is Mon - only Sunday has two slots');
+    assertEq(footballDayLabel(null), null, 'no kickoff, no label');
+});
+
+test('nextGameOf: a club with no game in the window is on a bye; nobody playing is not a bye', () => {
+    // Week 5: Buffalo and Indianapolis play, Kansas City is listed with no game.
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, [5]), {
+        date: null, dayLabel: null, opponentAbbrev: null, home: null,
+        tbd: false, bye: true, played: false, gameId: null
+    }, 'the bye');
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, [9]), null, 'week 9 has no games for anyone here: unpublished, not a bye');
+});
+
+test('nextGameOf: a TBD kickoff has an opponent and no day', () => {
+    const r = nextGameOf(NG_KC, NG_TEAMS, [18]);
+    assertEq([r.tbd, r.date, r.dayLabel, r.opponentAbbrev, r.home, r.bye], [true, null, null, 'LV', true, false],
+        'the 03:01 placeholder is never printed as a Sunday');
+});
+
+test('nextGameOf: two games in a window - the next one, and the last once both are played', () => {
+    const w = [16, 17];
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, w).gameId, 401873153, 'week 16 first');
+    const marked = NG_TEAMS.map(t => t.id !== 12 ? t : { ...t, proGamesByScoringPeriod: { ...t.proGamesByScoringPeriod, 16: [{ ...NG_KC_W16, statsOfficial: true }] } });
+    const afterMark = nextGameOf(NG_KC, marked, w);
+    assertEq([afterMark.gameId, afterMark.home, afterMark.opponentAbbrev, afterMark.played], [401873160, false, 'DEN', false], 'marked official, so at Denver next');
+    // No mark yet, but the clock says week 16 kicked off: the unmarked-but-finished case measured on the capture.
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, w, { now: NG_AT(11, 27, 16, 25) }).gameId, 401873160, 'kicked off at now counts as played');
+    const done = nextGameOf(NG_KC, NG_TEAMS, w, { now: NG_AT(12, 4, 0, 0) });
+    assertEq([done.gameId, done.played], [401873160, true], 'both behind: the last game, said to be played');
+    assertEq(nextGameOf({ proTeamId: 2 }, NG_TEAMS, w).gameId, 401873161, 'a bye in week 16 and a game in 17 is the game');
+});
+
+test('nextGameOf: a hockey club over a matchup of days - the first game not yet started, and the played answer a caller prints as a dash', () => {
+    // The window is a matchup's days (scoring periods 40 to 43), never a football week. Edmonton hosts San Jose on period 40 at 19:00 and visits Vegas on period 42 at 19:30; Los Angeles has no game at all.
+    const g1 = ngGame(1, 40, 21, 22, NG_AT(9, 10, 19, 0));
+    const g2 = ngGame(2, 42, 23, 21, NG_AT(9, 12, 19, 30));
+    const teams = [
+        { id: 21, abbrev: 'EDM', proGamesByScoringPeriod: { 40: [g1], 42: [g2] } },
+        { id: 22, abbrev: 'SJ', proGamesByScoringPeriod: { 40: [g1] } },
+        { id: 23, abbrev: 'VGK', proGamesByScoringPeriod: { 42: [g2] } },
+        { id: 24, abbrev: 'LA', proGamesByScoringPeriod: {} }
+    ];
+    const days = [40, 41, 42, 43];
+    const edm = { proTeamId: 21 };
+    const noon = nextGameOf(edm, teams, days, { now: NG_AT(9, 10, 12, 0), dayLabelOf: () => 'L' });
+    assertEq([noon.gameId, noon.opponentAbbrev, noon.home, noon.played, noon.dayLabel], [1, 'SJ', true, false, 'L'], 'noon on the 10th: the 19:00 home game, with the caller\'s label');
+    const evening = nextGameOf(edm, teams, days, { now: NG_AT(9, 10, 21, 0) });
+    assertEq([evening.gameId, evening.opponentAbbrev, evening.home, evening.played], [2, 'VGK', false, false], 'after the first puck: the game at Vegas on the 12th');
+    const after = nextGameOf(edm, teams, days, { now: NG_AT(9, 13, 0, 0) });
+    assertEq([after.gameId, after.played], [2, true], 'both behind: the last game, played - the caller prints a dash for it');
+    const none = nextGameOf({ proTeamId: 24 }, teams, days, { now: NG_AT(9, 10, 12, 0) });
+    assertEq([none.bye, none.opponentAbbrev, none.date], [true, null, null], 'a club with no game in the days: the bye shape, also a dash');
+});
+
+test('nextGameOf: a TBD game is never played by the clock', () => {
+    // The placeholder is 03:01 on the Sunday; a now after it says nothing about the real kickoff.
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, [18], { now: NG_TBD + 3600e3 }).played, false, 'still to come');
+});
+
+test('nextGameOf: nothing to say is null', () => {
+    assertEq(nextGameOf({ proTeamId: 0 }, NG_TEAMS, [2]), null, "ESPN's free-agent pseudo-club");
+    assertEq(nextGameOf({}, NG_TEAMS, [2]), null, 'no club');
+    assertEq(nextGameOf({ proTeamId: 99 }, NG_TEAMS, [2]), null, 'a club the schedule does not list');
+    assertEq(nextGameOf(NG_KC, NG_TEAMS, []), null, 'an empty window');
+    assertEq(nextGameOf(NG_KC, null, [2]), null, 'no schedule');
+    assertEq(nextGameOf(null, NG_TEAMS, [2]), null, 'no player');
+});
+
+// The games that win a week. Three clubs of nine play on day 10, one of nine on day 11: with a third of nine being 3, day 11 is an off night and day 10 is not. Club 5 plays once on each, club 6 plays twice on day 10. Built through the real offNightsForMatchup so the density shape cannot drift either.
 const WIN_DENSITY_TEAMS = [
     ...WIN_PRO_TEAMS,
     { id: 11, proGamesByScoringPeriod: { 10: [{}] } },
@@ -3840,7 +3916,7 @@ const WIN_DENSITY_TEAMS = [
 const WIN_DENSITY = offNightsForMatchup(WIN_DENSITY_TEAMS, WIN_PERIODS);
 const WIN_BY_TEAM_D = gamesByProTeamForMatchup(WIN_DENSITY_TEAMS, WIN_PERIODS);
 
-// ===== R6 / O57: the window says what unit it counted in ================================== The owner's report: a starting pitcher read "9 of 13 games left" in a matchup he appears in twice. The club's games are the wrong quantity for him by roughly five to one, and the right one is already published - ESPN's probable listings, the same count My Team's two-start badges show.
+// The window says what unit it counted in. A starting pitcher read 9 of 13 games left in a matchup that pitcher appears in twice. The club's games are the wrong quantity by roughly five to one, and the right one is already published: ESPN's probable listings, the same count My Team's two-start badges show.
 
 // Club 5 plays days 10, 11 and 13 inside this window; the pitcher is listed for one of them, still to come. countProjectedStarts' own shape: { starts, remaining, games }.
 const ACE_STARTS = { total: 2, remaining: 1 };
@@ -3849,7 +3925,7 @@ test('matchupWindow: countStarts switches the unit, and the counts with it', () 
     const w = matchupWindow(WIN_BY_TEAM, 5, {
         periods: WIN_PERIODS, labelOf: WIN_LABEL, fromPeriod: 11, starts: ACE_STARTS, countStarts: true
     });
-    assertEq([w.games, w.played, w.remaining], [2, 1, 1], 'his starts, not his club three games');
+    assertEq([w.games, w.played, w.remaining], [2, 1, 1], 'counted in starts, not in the club three games');
     assertEq(w.unit, 'starts', 'and the figure says which it is');
 });
 
@@ -3863,7 +3939,7 @@ test('matchupWindow: the same window without countStarts is unchanged', () => {
 });
 
 test('matchupWindow: counting starts drops offNight and twoGameDays rather than carrying them', () => {
-    // Both count the CLUB's games. A start on a quiet night, or a club's doubleheader, says nothing about a pitcher taking one turn in the window - and a figure meaning something else under the same name is the whole defect this option exists to fix.
+    // Both count the club's games. A start on a quiet night, or a club's doubleheader, says nothing about a pitcher taking one turn in the window, and a figure meaning something else under the same name is the whole defect this option exists to fix.
     const w = matchupWindow(WIN_BY_TEAM_D, 5, {
         periods: WIN_PERIODS, labelOf: WIN_LABEL, density: WIN_DENSITY, starts: ACE_STARTS, countStarts: true
     });
@@ -3898,7 +3974,7 @@ test('matchupWindow: offNight counts GAMES on nights fewer than a third of clubs
 });
 
 test('matchupWindow: offNight counts a doubleheader on a quiet night TWICE', () => {
-    // The owner's legend says GAMES, not nights, so a club playing twice on an off night gets two. Club 6 plays twice on day 10; make day 10 quiet by measuring density over club 6 alone.
+    // The legend says games, not nights, so a club playing twice on an off night gets two. Club 6 plays twice on day 10; make day 10 quiet by measuring density over club 6 alone.
     const soloDensity = offNightsForMatchup([{ id: 6, proGamesByScoringPeriod: { 10: [{}, {}] } },
         { id: 21, proGamesByScoringPeriod: { 13: [{}] } }, { id: 22, proGamesByScoringPeriod: { 13: [{}] } },
         { id: 23, proGamesByScoringPeriod: { 13: [{}] } }, { id: 24, proGamesByScoringPeriod: { 13: [{}] } }], WIN_PERIODS);
@@ -3914,7 +3990,7 @@ test('matchupWindow: twoGameDays counts DAYS, not games', () => {
     const w = matchupWindow(WIN_BY_TEAM, 6, { periods: WIN_PERIODS, labelOf: WIN_LABEL });
     assertEq(w.games, 2, 'two games');
     assertEq(w.twoGameDays, 1, 'on one day');
-    // Club 5 plays one game a day, so it has none - a real zero, which the renderer omits.
+    // Club 5 plays one game a day, so it has none: a real zero, which the renderer omits.
     assertEq(matchupWindow(WIN_BY_TEAM, 5, { periods: WIN_PERIODS, labelOf: WIN_LABEL }).twoGameDays, 0, 'a real zero');
 });
 
@@ -3922,7 +3998,7 @@ test('matchupWindow: offNight is NULL without density, and a real 0 with it', ()
     // The emptySlots rule again. A zero would say "none of these games are on a quiet night"; the truth without density is that nobody said which nights are quiet, and those differ.
     const noDensity = matchupWindow(WIN_BY_TEAM_D, 5, { periods: WIN_PERIODS, labelOf: WIN_LABEL });
     assertEq(noDensity.offNight, null, 'nobody said which nights are quiet');
-    // Club 13 plays only on day 13, a five-club night above the threshold - a genuine none.
+    // Club 13 plays only on day 13, a five-club night above the threshold: a genuine none.
     const busy = matchupWindow(WIN_BY_TEAM_D, 13, { periods: WIN_PERIODS, labelOf: WIN_LABEL, density: WIN_DENSITY });
     assertEq(busy.offNight, 0, 'no off-night is played, which is an answer');
     assert(busy.offNight !== null, 'and it is not the same as not knowing');
@@ -3975,7 +4051,7 @@ test('matchupWindow: a club the schedule does not carry is NULL; one that is idl
     const bye = matchupWindow(WIN_BY_TEAM, 7, { periods: WIN_PERIODS, labelOf: WIN_LABEL, fromPeriod: 12 });
     assertEq(bye.games, 0, 'known club, no game in this matchup');
     assertEq(bye.remaining, 0, 'nothing left either');
-    // The bye keeps its days rather than losing the column - the same way a playoff bye round keeps its byRound entry and reads "none".
+    // The bye keeps its days and does not lose the column, the same way a playoff bye round keeps its byRound entry and reads none.
     assertEq(bye.byPeriod.map(r => r.count).join(','), '0,0,0,0', 'four idle days, all present');
 });
 
@@ -3988,14 +4064,14 @@ test('matchupWindow: starts pass through, and null is not zero', () => {
 
 
 test('dayLabelerFor: a period prints as its weekday, and an undated one falls back to its number', () => {
-    // is a Tuesday. Built from a Map so the test does not depend on a capture.
+    // The sixth of January 2026 is a Tuesday. Built from a Map so the test does not depend on a capture.
     const label = dayLabelerFor(new Map([[10, Date.UTC(2026, 0, 6, 18, 0, 0)]]));
     assert(/^[A-Za-z]{2,4}$/.test(label(10)), `a weekday name, got ${label(10)}`);
     assertEq(label(11), '11', 'no date, so the number rather than an empty column');
 });
 
 
-// ==== off nights, roster-relative ====
+// ==== Off nights, roster-relative ====
 
 // Three clubs over four nights. Club 5 plays nights 10 and 12; club 6 plays 10, 11 and 13; club 7 plays nothing in this window at all. A roster of four: two on club 5, one on 6, one on a club the schedule has never heard of.
 const NIGHT_TEAMS = [
@@ -4014,8 +4090,8 @@ test("rosterNightCoverage: counts MY players on each night, not the league's clu
     // night 10: a, b (club 5) and c (club 6) = 3. 11: c only. 12: a, b. 13: c.
     assertEq(c.byPeriod.map(d => d.playing).join(','), '3,1,2,1', 'players on each night');
     assertEq(c.byPeriod.map(d => d.period).join(','), '10,11,12,13', 'in schedule order');
-    assertEq(c.thinnest, 1, 'the emptiest night');
-    assertEq(c.fullest, 3, 'the fullest');
+    assertEq(c.fewestPlaying, 1, 'the emptiest night');
+    assertEq(c.mostPlaying, 3, 'the busiest night');
 });
 
 test('rosterNightCoverage: a player whose club the schedule does not carry is UNKNOWN, not idle', () => {
@@ -4023,14 +4099,14 @@ test('rosterNightCoverage: a player whose club the schedule does not carry is UN
     const c = rosterNightCoverage(NIGHT_ROSTER, NIGHT_TEAMS, [10, 11, 12, 13]);
     assertEq(c.players, 3, 'three players the schedule can speak to');
     assertEq(c.unknownClub, 1, 'and one it cannot');
-    // night 11: only c plays, so two of the three KNOWN players are idle - not three of four.
+    // night 11: only c plays, so two of the three known players are idle, not three of four.
     assertEq(c.byPeriod[1].idle, 2, 'idle counts against the known players only');
 });
 
 test('rosterNightCoverage: a night nobody plays is 0, and the free-agent club never counts', () => {
     const c = rosterNightCoverage([{ id: 'a', proTeamId: 5 }], NIGHT_TEAMS, [11]);
     assertEq(c.byPeriod[0].playing, 0, 'club 5 is idle on 11');
-    assertEq(c.thinnest, 0, 'an empty night is a real answer');
+    assertEq(c.fewestPlaying, 0, 'an empty night is a real answer');
     // club 0 plays on night 10 and must never be counted as a club at all
     const c2 = rosterNightCoverage([{ id: 'z', proTeamId: 0 }], NIGHT_TEAMS, [10]);
     assertEq(c2.players, 0, 'the pseudo-club is not a club');
@@ -4049,13 +4125,13 @@ test("nightsAcrossMatchups: one row per round, in the league's own order", () =>
     assertEq(rows.map(r => r.matchup).join(','), '22,23', 'sorted by matchup');
     assertEq(rows[0].byPeriod.map(d => d.playing).join(','), '3,1', 'round 22 nights');
     assertEq(rows[1].byPeriod.map(d => d.playing).join(','), '2,1', 'round 23 nights');
-    assertEq(rows[0].thinnest, 1, 'the emptiest night of round 22');
+    assertEq(rows[0].fewestPlaying, 1, 'the emptiest night of round 22');
 });
 
 
 // ==== off nights against the real bracket ====
 
-// Rebuilt from tests/fixtures/schedule-insight.json's own offNights block - a REAL captured hockey week, matchup 22, seven nights (161-167) with 10, 18, 12, 22, 10, 22 and 18 clubs on. The fixture stores the ANSWER (which clubs played each night), so the clubs are turned back into schedules here and the coverage is recomputed from them: the test is driven by captured facts rather than numbers chosen to make it pass. Fetched ONCE at module scope with top-level await, so the tests below stay synchronous. This harness's test() catches only synchronous throws - an async test body would resolve its rejection somewhere nobody is looking and report a PASS, which is the one failure mode a test file must not have. A fetch that fails registers a failing test rather than taking the module down silently.
+// Rebuilt from tests/fixtures/schedule-insight.json's own offNights block, a real captured hockey week: matchup 22, seven nights (161-167) with 10, 18, 12, 22, 10, 22 and 18 clubs on. The fixture stores the answer, so the clubs are turned back into schedules here and the coverage is recomputed. Fetched once at module scope with top-level await, because this harness's test() catches only synchronous throws.
 let OFF_NIGHTS = null;
 try {
     OFF_NIGHTS = await fetch('fixtures/schedule-insight.json').then(r => r.json()).then(d => d.offNights);
@@ -4082,7 +4158,7 @@ test('rosterNightCoverage: a real hockey week, counted off the captured club lis
     assertEq(c.byPeriod.map(d => d.playing).join(','), '2,1,1,2,1,2,1', 'three real clubs across the week');
     assertEq(c.players, 3, 'all three clubs are in the capture');
     assertEq(c.unknownClub, 0, 'none of them unknown');
-    assertEq(c.thinnest, 1, 'the emptiest night');
+    assertEq(c.fewestPlaying, 1, 'the emptiest night');
 });
 
 test('rosterNightCoverage: empty SLOTS is what a manager acts on, and is null when nobody said', () => {
@@ -4113,7 +4189,7 @@ test('nightsFilledBy: a free agent is worth the nights filled, not the nights pl
     assertEq(fa.fillCount, 2, 'and the count a shopping list would sort by');
 });
 
-// ===== item 3, the leaderboard row's openSeats field (contract amendment 1) =============== The refusal layer over nightsFilledBy. Its whole job is deciding WHEN the question is answerable, so every case here is about the boundary rather than the arithmetic - the counts are the atom's and are already pinned above.
+// The leaderboard row's openSeats field. This is the refusal layer over nightsFilledBy. Its whole job is deciding when the question is answerable, so every case here is about the boundary and not the arithmetic; the counts are the atom's and are already pinned above.
 test('openSeats: a free agent gets the nights that club plays into an open seat', () => {
     const off = OFF_NIGHTS;
     const proTeams = hockeyProTeamsFromFixture(off);
@@ -4180,7 +4256,61 @@ test('nightsFilledBy: no slot count means fills is NULL, never an empty list', (
     assertEq(nightsFilledBy({ proTeamId: 999 }, proTeams, cover), null, 'a club the schedule lacks');
 });
 
-// ==== lower is better Moved here with state.js when lowerIsBetterIds did. The assertions are unchanged from where they were written against preseason-face.js - only the rule's home moved, and a test that follows its subject is the point of moving it. ====
+// Lower is better. These assertions moved here with the rule when lowerIsBetterIds moved to state.js, unchanged, so the test follows its subject.
+
+
+// The league's own inverse set, read in one place. Every weight below is a real football league's, read off its scoringItems: base weights -2 for interceptions thrown (20), -2 for fumbles lost (72) and -1 for a missed field goal (85), and slot-16 (D/ST) overrides carrying the points-allowed and yards-allowed ladders at -1 to -7. Baseball's errors (72) and caught stealing (24) are already in INVERSE_STATS.flb.
+
+const O62_FFL_BASE = { '3': 0.04, '4': 4, '20': -2, '24': 0.1, '42': 0.04, '53': 1, '72': -2, '85': -1, '86': 1 };
+const O62_FFL_SLOT = {
+    '16': { '89': 5, '90': 4, '91': 3, '92': 1, '95': 2, '123': -1, '124': -3, '125': -5,
+            '129': 3, '130': 2, '132': -1, '133': -3, '134': -5, '135': -6, '136': -7 }
+};
+
+test('leagueInverseIds: football has no sport table, so the league decides alone', () => {
+    // The defect, stated as itself: read bare, INVERSE_STATS answers "no" for every football category, so Category Rankings put the team that threw the MOST interceptions first.
+    const s = leagueInverseIds('ffl', O62_FFL_BASE, {});
+    assert(s.has('20') && s.has('72') && s.has('85'), 'INT, FUML and a missed field goal');
+    assert(!s.has('3') && !s.has('4') && !s.has('53'), 'the positively weighted ids stay as they are');
+});
+
+test('leagueInverseIds: the D/ST ladders arrive through the SLOT overrides', () => {
+    // Base weights alone leave these eight at zero and therefore not inverse, eight displayed columns of that league's own heatmap still coloured backwards, which is why the slot tables are merged in and the base map is not read alone.
+    const bare = leagueInverseIds('ffl', O62_FFL_BASE, {});
+    assert(!bare.has('123') && !bare.has('134'), 'invisible to the base table');
+    const s = leagueInverseIds('ffl', O62_FFL_BASE, O62_FFL_SLOT);
+    ['123', '124', '125', '132', '133', '134', '135', '136'].forEach(id => {
+        assert(s.has(id), `points/yards allowed ${id} is lower-is-better`);
+    });
+});
+
+test('leagueInverseIds: a POSITIVE override is never mistaken for a negative one', () => {
+    // The same slot table carries the shutout and yards-allowed BONUSES. Merging tables must not turn "this slot scores this at all" into "this slot scores this against you".
+    const s = leagueInverseIds('ffl', O62_FFL_BASE, O62_FFL_SLOT);
+    ['89', '90', '91', '92', '95', '129', '130'].forEach(id => {
+        assert(!s.has(id), `the ${id} bonus is not inverse`);
+    });
+});
+
+test('leagueInverseIds: a stat weighted both ways is refused, not resolved', () => {
+    // No league in the corpus contradicts itself, so this guard fires on nothing today. It exists because the alternative, merging the tables and keeping whichever slot came last, would pick a direction by iteration order, which is not an answer.
+    const s = leagueInverseIds('ffl', { '99': -3 }, { '16': { '99': 4 } });
+    assert(!s.has('99'), 'no single direction is true for it');
+    assert(leagueInverseIds('ffl', { '99': -3 }, {}).has('99'), 'and without the contradiction it is inverse');
+});
+
+test('leagueInverseIds: a baseball league is byte-for-byte what INVERSE_STATS already said', () => {
+    // Both baseball captures weight E (72) and CS (24) at -1, and both are already in the sport's validated table, so the league's own weights add nothing and every baseball surface reads exactly what it read before. The claim is that the sets are equal, not that the league carries no negatives.
+    const table = INVERSE_STATS.flb;
+    const s = leagueInverseIds('flb', { '72': -1, '24': -1, '5': 1, '20': 1 }, {});
+    assertEq(s.size, table.size, 'the same number of ids');
+    [...table].forEach(id => assert(s.has(id), `${id} survives`));
+});
+
+test('leagueInverseIds: a hockey league with no weights at all is unchanged', () => {
+    const s = leagueInverseIds('fhl', {}, {});
+    assertEq(s.size, INVERSE_STATS.fhl.size, 'the sport table, untouched');
+});
 
 test('lowerIsBetterIds: a negative league weight means lower is better', () => {
     // The football case, and the bug that put this function here: with no ffl entry in INVERSE_STATS, leading the league in fumbles lost read as a manager's BEST category.
@@ -4203,7 +4333,7 @@ test('lowerIsBetterIds: no weights at all leaves the table exactly as it was', (
 });
 
 
-// ==== the two-way rank label ====
+// ==== The two-way rank label ====
 
 test('rankPoolLabel: Overall says which role it is overall IN, but only for a two-way player', () => {
     // The chip has always meant "overall within the role you are looking at". For everyone who plays one role those are the same sentence, so the qualifier would be noise.
@@ -4218,7 +4348,7 @@ test('rankPoolLabel: a POSITION chip is never re-labelled', () => {
     assertEq(rankPoolLabel('OF', 'Batter'), 'OF', 'even for a two-way player');
 });
 
-// ===== item 9: the pro-team schedule is read through a key-checked accessor ================ The abbreviations on every row come from this one response and nothing else, and the club ids are per-sport: MLB 17 is CIN, NFL 17 is NE. Read without checking whose schedule is in memory, a football payload left over from the previous league printed NE over a Cincinnati player - and then asked the crest host for mlb/500/NE.png, which 404s, so the row lost its badge too.
+// The pro-team schedule is read through a key-checked accessor. The abbreviations on every row come from this one response, and the club ids are per-sport: MLB 17 is CIN, NFL 17 is NE. Read without checking whose schedule is in memory, a football payload left over from the previous league prints NE over a Cincinnati player and then asks the crest host for mlb/500/NE.png, which 404s, so the row loses its badge too.
 const NFL_SCHEDULE = { key: 'proTeamSchedules:ffl:2025', data: { settings: { proTeams: [{ id: 17, abbrev: 'NE' }] } } };
 
 test('a schedule from another sport reads as absent, never as a plausible wrong club', () => {
@@ -4247,7 +4377,7 @@ test('a fetch nobody has made is not attempted', () => {
     assertEq(proScheduleAttemptedFor(NFL_SCHEDULE, 'flb', '2026'), false, 'another league asking does not count as this one asking');
 });
 
-// THE ACCESSOR'S OTHER HALF: what happens once a schedule IS in hand. Every test above this line exercises the ABSENT case, and absence is exactly what playoffDensityRows returns early on - so the whole block above could stay green while the with-schedule path threw on its first line. It did: 56537d4 left a `schedules.key` reference behind when it replaced the store read, a ReferenceError unreachable until a real schedule arrived, and it killed every leaderboard re-render the moment the lazy fetch landed. The proof capture at the time staged a league with no pro-schedule.json, which is the branch that returns early. So this test's whole job is to REACH the line. It needs the form fields getLeagueParams reads (features.test.html carries them) and a store key spelling the same sport and year, or currentProSchedule answers null and we are back to testing absence by accident.
+// The accessor's other half: what happens once a schedule is in hand. Every test above exercises the absent case, which is what playoffDensityRows returns early on, so that block can stay green while the with-schedule path throws on its first line. This test's job is to reach the line. It needs the form fields getLeagueParams reads and a store key spelling the same sport and year, or currentProSchedule answers null.
 test('playoffDensityRows runs to an answer with a schedule in hand, rather than throwing', () => {
     const savedSchedule = AppState.proTeamSchedules;
     const savedApi = AppState.apiData;
@@ -4256,7 +4386,7 @@ test('playoffDensityRows runs to an answer with a schedule in hand, rather than 
             key: 'proTeamSchedules:flb:2025',
             data: { settings: { proTeams: [{ id: 17, abbrev: 'CIN' }] } }
         };
-        // A roto league has no playoff matchups, so the answer is null - reached by RETURNING it, which is the point. The old code could not get as far as deciding that.
+        // A roto league has no playoff matchups, so the answer is null, reached by returning it, which is the point.
         AppState.apiData = { id: 12345, seasonId: 2025, schedule: [] };
         assertEq(playoffDensityRows(), null, 'a league with no playoff bracket answers null');
         assertEq(playoffDensityRows(), null, 'and answers the same on the cached second call');
@@ -4280,7 +4410,7 @@ test('playoffDensityRows still answers null when no schedule is in hand', () => 
     }
 });
 
-// ===== item 6: a week with no result is not a loss ======================================== The points branch stores POINTS in weeklyMatchWins and the 1/0.5/0 RESULT in weeklyMatchResult, and data.js withholds the result for a week nobody has played. Reading it with `|| 0` turned that absence into the loss branch, so an unplayed week counted as a defeat - while Team Rankings, which has skipped an undefined result since, read the same week as no game at all. Two surfaces, one league, two records. Two weeks in one row is the whole test: week 1 played and lost, week 2 posting points with no result yet. A correct reader records the first and skips the second.
+// A week with no result is not a loss. The points branch stores points in weeklyMatchWins and the 1/0.5/0 result in weeklyMatchResult, and data.js withholds the result for a week nobody has played. Reading it with `|| 0` turns that absence into a loss. Two weeks in one row is the whole test: week 1 played and lost, week 2 posting points with no result yet. A correct reader records the first and skips the second.
 
 function setupPointsWeeks(weeklyMatchWins, weeklyMatchResult) {
     AppState.isPointsLeague = true;
@@ -4325,7 +4455,7 @@ test('buildRecapModel: a points week with no result adds no loss to the record',
     assertEq(alphas.points, 210, 'and its points still count');
 });
 
-// ===== item 13: two roster sources, and a third case that is neither ===================== Measured across the capture set: the ONE live Download All carries rosterForCurrentScoringPeriod on its schedule sides and nothing in teams[].roster; all three FINISHED leagues - one per sport - carry their roster ONLY in teams[].roster. ESPN attaches the side roster to the period it is serving, and an ended season serves none. Reading the sides alone therefore lost the roster on every finished season in every sport, which is what "No roster available for this team" was.
+// Two roster sources, and a third case that is neither. Measured across the captures: a live league carries rosterForCurrentScoringPeriod on its schedule sides and nothing in teams[].roster; finished leagues, one per sport, carry the roster only in teams[].roster. ESPN attaches the side roster to the period it is serving, and an ended season serves none, so the sides alone lose the roster on every finished season.
 const SIDE_ROSTER = { entries: [{ playerId: 11, lineupSlotId: 0 }] };
 const TEAM_ROSTER = { entries: [{ playerId: 99, lineupSlotId: 20 }] };
 
@@ -4356,7 +4486,7 @@ test('rostersFromPayload: a finished payload falls back to teams[].roster', () =
     assertEq(out.get(1), [{ playerId: 99, lineupSlotId: 20 }], 'the whole-team snapshot');
 });
 
-// THE CASE AN ENTRY COUNT CANNOT DECIDE. ESPN carries LAST season's final roster forward until the draft, in both fields - so a fallback that trusted whichever source had rows would answer a pre-draft league with last year's team and label it this year's (R5). Only the season state tells them apart, and before a draft the honest answer is no roster at all.
+// The case an entry count cannot decide. ESPN carries last season's final roster forward until the draft, in both fields, so a fallback that trusted whichever source had rows would answer a pre-draft league with last year's team and label it this year's. Only the season state tells them apart, and before a draft the true answer is no roster at all.
 test('rostersFromPayload: a pre-draft league shows no roster from either source', () => {
     const out = rostersFromPayload({
         draftDetail: { drafted: false },
@@ -4364,6 +4494,311 @@ test('rostersFromPayload: a pre-draft league shows no roster from either source'
         schedule: [{ home: { teamId: 1, rosterForCurrentScoringPeriod: SIDE_ROSTER }, away: { teamId: 2 } }]
     });
     assertEq(out.size, 0, 'the carry-forward is last season and is not shown as this one');
+});
+
+// displayTeamName and teamNameTitle are the one place a team's on-screen name is decided. The Map is keyed by team id as a string, since storage round-trips through JSON, whose object keys are always strings, while team.id off a real payload is a number. These tests prove String(team.id) is really the lookup and not a silent always-miss.
+test('displayTeamName: the nickname when one is set, ESPN\'s own name otherwise', () => {
+    AppState.nicknames = new Map([['7', 'Dave']]);
+    assertEq(displayTeamName({ id: 7, name: 'Designated Sitters' }), 'Dave', 'nickname wins');
+    assertEq(displayTeamName({ id: 8, name: 'Rally Caps' }), 'Rally Caps', 'no nickname, ESPN name');
+    assertEq(displayTeamName(null), '', 'no team at all');
+    AppState.nicknames = new Map();
+});
+
+// The drill-down and the roster row's own title read this exact sentence, so a test here is a test of both. teamId 7 gets the nickname map's own treatment (Dave, per the fixture above), proof the two features compose and draftedFactText resolves no name of its own.
+test('draftedFactText: the round, the pick and the team, or Undrafted', () => {
+    const picks = [
+        { playerId: 11, roundId: 3, overallPickNumber: 28, teamId: 7 },
+        { playerId: 12, roundId: 1, overallPickNumber: 1, teamId: 8 }
+    ];
+    const teams = [{ id: 7, name: 'Designated Sitters' }, { id: 8, name: 'Rally Caps' }];
+    AppState.nicknames = new Map([['7', 'Dave']]);
+    assertEq(draftedFactText(picks, 11, teams), 'Drafted round 3, pick 28, by Dave', 'the nickname, same as everywhere else');
+    assertEq(draftedFactText(picks, 8, teams), 'Undrafted', 'a free agent, or a league whose draft was never fetched');
+    assertEq(draftedFactText(null, 11, teams), 'Undrafted', 'no picks fetched at all is the same answer');
+    AppState.nicknames = new Map();
+});
+
+// The drill-down's pick as three whole numbers. Hand-computed against a six-team league: round 13 begins at overall (13-1)*6+1 = 73, so overall 75 is the 3rd pick of round 13; round 1 overall 2 is the 2nd.
+test('draftedPickTeamId: the team that took a player, null for a free agent (B280 3.2)', () => {
+    const picks = [{ playerId: 11, roundId: 13, overallPickNumber: 75, teamId: 7 }, { playerId: 16, roundId: 4 }];
+    assertEq(draftedPickTeamId(picks, 11), 7, 'the drafting team id');
+    assertEq(draftedPickTeamId(picks, 16), null, 'a pick that names no team says null');
+    assertEq(draftedPickTeamId(picks, 99), null, 'a free agent is null');
+    assertEq(draftedPickTeamId(null, 11), null, 'a league whose draft was never fetched is null');
+});
+
+test('draftedPickParts: round, slot and overall, never a decimal, and null where it cannot say', () => {
+    const picks = [
+        { playerId: 11, roundId: 13, overallPickNumber: 75, teamId: 7 },
+        { playerId: 12, roundId: 1, overallPickNumber: 2, teamId: 8 },
+        { playerId: 14, roundId: 2, overallPickNumber: 7, teamId: 9 },
+        { playerId: 15, roundId: 3, overallPickNumber: 99, teamId: 9 },
+        { playerId: 16, roundId: 4 }
+    ];
+    assertEq(JSON.stringify(draftedPickParts(picks, 11, 6)), JSON.stringify({ round: 13, slot: 3, overall: 75 }), '75th overall in a six-team league is the 3rd of round 13');
+    assertEq(JSON.stringify(draftedPickParts(picks, 12, 6)), JSON.stringify({ round: 1, slot: 2, overall: 2 }), 'round one: slot and overall coincide');
+    assertEq(JSON.stringify(draftedPickParts(picks, 14, 6)), JSON.stringify({ round: 2, slot: 1, overall: 7 }), 'the first pick of round two is overall 7');
+    assertEq(draftedPickParts(picks, 15, 6).slot, null, 'an overall that does not sit inside its own round has no slot to claim');
+    assertEq(draftedPickParts(picks, 11, 0).slot, null, 'no team count, no slot');
+    assertEq(draftedPickParts(picks, 11, undefined).overall, 75, 'the overall still stands without a team count');
+    const bare = draftedPickParts(picks, 16, 6);
+    assertEq(JSON.stringify(bare), JSON.stringify({ round: 4, slot: null, overall: null }), 'a pick with no overall keeps only its round');
+    assertEq(draftedPickParts(picks, 99, 6), null, 'a free agent has no pick');
+    assertEq(draftedPickParts(null, 11, 6), null, 'no picks fetched at all');
+});
+
+// The identity block's photo ground is fitted to the page at 3:1. The two surfaces are the real boxscore light and dark --surface values; the samples are the lightest and darkest club colours measured on disk (the 97 logos: 90 sampled, 7 without a sample, which keep the --surface-3 token).
+test('groundColourFor: darkened on a light page, lightened on a dark one, left alone when it already contrasts', () => {
+    const light = [253, 252, 249];
+    const dark = [20, 22, 24];
+    const pit = [255, 185, 9];
+    const fitted = groundColourFor(pit, light);
+    assertEq(groundContrast(pit, light) < 3, true, 'the lightest club colour is 1.68:1 against the light page before the fit');
+    assertEq(groundContrast(fitted, light) >= 3, true, 'and clears 3:1 after being darkened');
+    const car = [2, 22, 34];
+    const lifted = groundColourFor(car, dark);
+    assertEq(groundContrast(car, dark) < 3, true, 'the darkest club colour is 1.02:1 against the dark page before the fit');
+    assertEq(groundContrast(lifted, dark) >= 3, true, 'and clears 3:1 after being lightened');
+    assertEq(JSON.stringify(groundColourFor([33, 70, 47], light)), JSON.stringify([33, 70, 47]), 'a colour that already clears the bar is unchanged');
+    assertEq(groundColourFor(null, light), null, 'no sample, no ground colour: the token fallback stands');
+    assertEq(groundColourFor(pit, null), null, 'no surface to fit against, none either');
+});
+
+test('teamNameTitle: the ESPN name only when a nickname is standing in for it', () => {
+    AppState.nicknames = new Map([['7', 'Dave']]);
+    assertEq(teamNameTitle({ id: 7, name: 'Designated Sitters' }), 'Designated Sitters', 'nicknamed team hovers to its ESPN name');
+    assertEq(teamNameTitle({ id: 8, name: 'Rally Caps' }), '', 'unnicknamed team has nothing to add on hover');
+    AppState.nicknames = new Map();
+});
+
+// The night, day and week calendar's own chip name skips a generational suffix and does not read it as the surname, so a name ending in Jr. never reads Jr. on the chip.
+test('surnameOf: the last real name token, a trailing suffix skipped rather than returned', () => {
+    assertEq(surnameOf('Bobby Witt Jr.'), 'Witt', 'Jr. is not the surname');
+    assertEq(surnameOf('Ken Griffey Jr'), 'Griffey', 'suffix without the period, still skipped');
+    assertEq(surnameOf('Robert Griffin III'), 'Griffin', 'a numeral suffix, same rule');
+    assertEq(surnameOf('Cal Ripken Sr.'), 'Ripken', 'Sr. is not the surname either');
+    assertEq(surnameOf('Connor McDavid'), 'McDavid', 'the ordinary case, unaffected');
+    assertEq(surnameOf('Prince'), 'Prince', 'a single-token name has nothing to skip past');
+    assertEq(surnameOf(''), '', 'empty name in, empty surname out, never a crash');
+    assertEq(surnameOf(null), '', 'null in, empty out - the same refusal every string helper here makes');
+});
+
+// One opening-direction rule for every sortable table in the app. Tested here and not in either table, because the point of the rule is that neither owns it.
+test('openingSortDir: the first click shows the best value', () => {
+    const hockey = new Set(['10', '2', '4']);   // GAA, L, GA - lower is better
+    assertEq(openingSortDir('10', hockey), 'asc', 'GAA opens on the lowest, which is the best');
+    assertEq(openingSortDir('13', hockey), 'desc', 'goals open on the highest, which is the best');
+    const baseball = new Set(['47', '41']);     // ERA, WHIP
+    assertEq(openingSortDir('47', baseball), 'asc', 'ERA opens ascending');
+    assertEq(openingSortDir('41', baseball), 'asc', 'WHIP too');
+    assertEq(openingSortDir('5', baseball), 'desc', 'a counting stat does not');
+    // The leaderboard and the career table pass different key spaces through the same rule.
+    assertEq(openingSortDir('seasons', baseball), 'desc', 'a non-stat column is not inverse');
+    assertEq(openingSortDir('47', null), 'desc', 'no set given means nothing is inverse');
+    assertEq(openingSortDir('47', new Set()), 'desc', 'an empty set is the same');
+});
+
+// Goalie night difficulty. Hand-computed from the two terms and nothing else: the base is the opponent's shots-for percentile the caller hands in, and home ice is a centred 15, so every number below can be checked by adding two of them together.
+test('goalieNightDifficulty: the hand-computed pair, home and away', () => {
+    // Quiet opponent, at home: 25 - 15 = 10.
+    const quiet = new Map([[20, 25], [21, 80]]);
+    const easy = goalieNightDifficulty({ teamId: 9, opponentId: 20, isHome: true }, quiet);
+    assertEq(easy.score, 10, 'a quiet opponent at home: 25 base less the 15 of home ice');
+    assertEq(easy.base, 25, 'the base is the percentile as handed in, unscaled');
+    assertEq(easy.parts.map(p => p.key).join(','), 'shots,ice', 'two parts, in that order');
+    assertEq(easy.parts[1].value, -HOME_ICE_ADJUSTMENT, 'home ice subtracts');
+    assertEq(difficultyLabel(easy.score), 'Very favourable', 'and reads as the easiest band');
+
+    // Busy opponent, on the road: 80 + 15 = 95.
+    const hard = goalieNightDifficulty({ teamId: 9, opponentId: 21, isHome: false }, quiet);
+    assertEq(hard.score, 95, 'a busy opponent away: 80 base plus the 15 of the road');
+    assertEq(hard.parts[1].label, 'On the road', 'and the part says which side it was');
+    assertEq(difficultyLabel(hard.score), 'Very hard', 'which is the hardest band');
+
+    // The two terms are the whole score, so the parts reconcile to it by construction.
+    assertEq(hard.parts.reduce((a, p) => a + p.value, 0), 95, 'the parts sum to the score');
+});
+
+test('goalieNightDifficulty: what it refuses, and what it will not claim', () => {
+    const vol = new Map([[20, 25]]);
+    assertEq(goalieNightDifficulty(null, vol), null, 'no start, no read');
+    assertEq(goalieNightDifficulty({ teamId: 9, opponentId: null, isHome: true }, vol), null,
+        'no opponent, no read');
+    assertEq(goalieNightDifficulty({ teamId: 9, opponentId: 99, isHome: true }, vol), null,
+        'an opponent with no measured shot volume reads null, never an average');
+
+    // An unresolved venue is not the road. It gets no ice term rather than a penalty it never earned, which is the same distinction absent rest draws for a pitcher.
+    const unknown = goalieNightDifficulty({ teamId: 9, opponentId: 20 }, vol);
+    assertEq(unknown.score, 25, 'an unknown side leaves the base alone');
+    assertEq(unknown.parts.length, 1, 'and adds no ice part at all');
+
+    // SV% and shutouts are absent from `predicts` because they were measured and did not move.
+    assertEq(GOALIE_NIGHT_PREDICTS.join(','), 'W,GAA,SA', 'the three it may speak about');
+    assertEq(GOALIE_NIGHT_PREDICTS.includes('SV%'), false, 'save percentage is not one of them');
+    assertEq(unknown.predicts.join(','), 'W,GAA,SA', 'and the list travels with the answer');
+});
+
+test('goalieNightDifficulty: starterStatus rides through and moves no number', () => {
+    const vol = new Map([[20, 40]]);
+    const start = { teamId: 9, opponentId: 20, isHome: true };
+    const bare = goalieNightDifficulty(start, vol);
+    const confirmed = goalieNightDifficulty(start, vol, { starterStatus: 'CONFIRMED' });
+    assertEq(confirmed.score, bare.score, 'a confirmed start is no easier than an unknown one');
+    assertEq(confirmed.starterStatus, 'CONFIRMED', 'but the caller gets its status back');
+    assertEq(bare.starterStatus, null, 'and null when the caller passed none');
+    // Whether the goalie plays is a different question from how hard it is, so even NOTSTARTING scores.
+    const benched = goalieNightDifficulty(start, vol, { starterStatus: 'NOTSTARTING' });
+    assertEq(benched.score, bare.score, 'not starting does not change the difficulty of the night');
+    assertEq(benched.starterStatus, 'NOTSTARTING', 'it is reported, not applied');
+});
+
+
+// The reader's snapshot in the diagnostic zip. roomSnapshotFile is the pure half of Download All's room file: the storage read and the page's own selects are the caller's. The snapshot is room-feed.json's own invented one, so the expectations are that contract's, already hand-computed there.
+const ROOM_SNAP = await fetch('fixtures/room-feed.json').then(r => r.json()).then(d => d.snapshotExport);
+
+test('the room snapshot is one file, filed under its OWN league', () => {
+    const file = roomSnapshotFile(ROOM_SNAP.snapshot, { loaded: ROOM_SNAP.loadedSame, now: 1790124710000 });
+    assertEq(file.name, 'room-snapshot.json', 'one named file');
+    const kind = JSON.parse(file.text);
+    assertEq(kind.league.leagueId, 4242424, 'the room\'s own league, stated in the file');
+    assertEq(kind.league.matchesLoaded, true, 'and that it is the loaded one');
+    assertEq(kind.picks.length, 2, 'so its picks are carried');
+    assertEq(kind.transports.length, 2, 'with the transport story');
+});
+
+test('a snapshot of ANOTHER league keeps its story and withholds its picks', () => {
+    // The case setDebugContext would have filed under the league on screen: a second league in the zip.
+    const kind = JSON.parse(roomSnapshotFile(ROOM_SNAP.snapshot, { loaded: ROOM_SNAP.loadedOther, now: 1 }).text);
+    assertEq(kind.league.leagueId, 4242424, 'filed under the ROOM\'s ids, never the loaded league\'s');
+    assertEq(kind.league.matchesLoaded, false, 'the mismatch stated');
+    assertEq(kind.picks, null, 'no second league\'s draft in the zip');
+    assertEq(kind.picksWithheld, 2, 'and the count of what was held back');
+    // With no league on screen at all, nothing matches and the picks are withheld the same way.
+    assertEq(JSON.parse(roomSnapshotFile(ROOM_SNAP.snapshot, { now: 1 }).text).picks, null, 'no loaded league, no picks');
+});
+
+test('the room file carries no frame text and no session id', () => {
+    const text = roomSnapshotFile(ROOM_SNAP.snapshot, { loaded: ROOM_SNAP.loadedSame, now: 1 }).text;
+    assert(text.indexOf('A1B2C3D4') === -1, 'the invented SWID in the TOKEN frame is not in the file');
+    assert(text.indexOf('"data"') === -1, 'no frame carries a data field');
+});
+
+test('no snapshot is no file, not an empty one', () => {
+    assertEq(roomSnapshotFile(null), null, 'nothing stored');
+    assertEq(roomSnapshotFile('nope'), null, 'something that is not a snapshot');
+});
+// The pool's supersede rule. The league payload's revalidate assigns a new object for the same league, and the pool fetch must still land. A different league or season must still drop it.
+test('a revalidated copy of the same league is the same league', () => {
+    const a = { gameId: 4, id: 111, seasonId: 2027, teams: [] };
+    const b = JSON.parse(JSON.stringify(a));
+    assert(a !== b, 'two objects');
+    assertEq(leagueKeyOf(b), leagueKeyOf(a), 'one key');
+});
+test('another league, season or sport is not', () => {
+    const a = { gameId: 4, id: 111, seasonId: 2027 };
+    assert(leagueKeyOf({ ...a, id: 222 }) !== leagueKeyOf(a), 'another league');
+    assert(leagueKeyOf({ ...a, seasonId: 2026 }) !== leagueKeyOf(a), 'another season of the same league');
+    assert(leagueKeyOf({ ...a, gameId: 1 }) !== leagueKeyOf(a), 'the same id in another sport');
+});
+test('no payload is no league, never equal to one', () => {
+    assertEq(leagueKeyOf(null), null, 'null');
+    assertEq(leagueKeyOf(undefined), null, 'undefined');
+    assert(leagueKeyOf(null) !== leagueKeyOf({ gameId: 4, id: 1, seasonId: 2027 }), 'absent against present');
+});
+
+// The archive's roster slot. The slot is written in api.js and read in players.js by key, and both must spell it the same way. Written in the form's spelling and read in the payload's, an archive's roster days would be injected and never matched.
+test('the archive writes its roster days under the key the readers compare', () => {
+    const payload = { gameId: 4, id: 111, seasonId: 2025 };
+    const days = { 1: [{ id: 1, entries: [{ p: 90001, slot: 0 }] }] };
+    const slot = archiveRosterSlot(payload, days);
+    // The read, as players.js spells it: snapData.key === leagueKeyOf(AppState.apiData).
+    assertEq(slot.key === leagueKeyOf(payload), true, 'written and read back under one key');
+    assertEq(slot.key, '4:111:2025', 'the payload spelling, gameId first');
+    assert(slot.key !== 'fhl:111:2025', 'never the form spelling the readers do not use');
+    assert(slot.days === days, 'the days as given');
+});
+test('one function, whichever module it is read from', () => {
+    assert(apiLeagueKeyOf === leagueKeyOf, 'players.js re-exports api.js, it does not restate it');
+});
+test('nothing to inject, or no league to key it to, is no slot', () => {
+    assertEq(archiveRosterSlot({ gameId: 4, id: 111, seasonId: 2025 }, undefined), null, 'an archive with no roster days');
+    assertEq(archiveRosterSlot(null, { 1: [] }), null, 'no league loaded');
+});
+
+// Every league at once, the api half. The marks the picker never read, and the rules league-today.js is handed. Synthetic preferences; the catalog values are state.js's own, written out here by hand.
+test('the lookup marks are read by type, and a mark of the wrong type is left out', () => {
+    const pref = { metaData: { inSeason: true, entry: { entryId: 3, entryMetadata: { leagueSubTypeName: 'NONE', draftComplete: true } } } };
+    assertEq(JSON.stringify(lookupMarksOf(pref)), JSON.stringify({ teamId: 3, subType: 'NONE', drafted: true, inSeason: true }), 'all four');
+    const mock = { metaData: { inSeason: true, entry: { entryId: 1, entryMetadata: { leagueSubTypeName: 'MOCKDRAFT_LOBBY', draftComplete: false } } } };
+    assertEq(JSON.stringify(lookupMarksOf(mock)), JSON.stringify({ teamId: 1, subType: 'MOCKDRAFT_LOBBY', drafted: false, inSeason: true }), 'a false is a mark');
+    const wrong = { metaData: { inSeason: 'yes', entry: { entryId: '3', entryMetadata: { leagueSubTypeName: 7, draftComplete: 'true' } } } };
+    assertEq(JSON.stringify(lookupMarksOf(wrong)), '{}', 'nothing coerced');
+});
+test('no marks is an empty record, never a refusal', () => {
+    assertEq(JSON.stringify(lookupMarksOf({ metaData: { entry: {} } })), '{}', 'an entry with none');
+    assertEq(JSON.stringify(lookupMarksOf({})), '{}', 'no metaData');
+    assertEq(JSON.stringify(lookupMarksOf(null)), '{}', 'no preference');
+    assert(!('drafted' in lookupMarksOf({ metaData: { entry: { entryMetadata: {} } } })), 'a missing drafted is absent, not false');
+});
+test('the rules for hockey: the bench is the BE slot, the injury seat is not', () => {
+    const payload = { settings: { scoringSettings: { scoringItems: [{ statId: 13 }, { statId: 11 }] } } };
+    assertEq(JSON.stringify(leagueTodayRules('fhl', payload)), JSON.stringify({
+        benchSlots: [7], nonStartingSlots: [7, 8], gamesId: '30', gameLengthMs: 9900000,
+        categoryIds: ['13', '11'], rateIds: ['10', '11']
+    }), 'hockey');
+});
+test('the rules for baseball and football', () => {
+    const flb = leagueTodayRules('flb', null);
+    assertEq(JSON.stringify([flb.benchSlots, flb.nonStartingSlots, flb.gamesId, flb.gameLengthMs, flb.categoryIds]),
+        JSON.stringify([[16], [16, 17], '81', 11700000, []]), 'baseball, no payload');
+    const ffl = leagueTodayRules('ffl', { settings: {} });
+    assertEq(JSON.stringify([ffl.benchSlots, ffl.nonStartingSlots, ffl.gamesId, ffl.gameLengthMs, ffl.rateIds]),
+        JSON.stringify([[20], [20, 21], null, 12600000, []]), 'football has no games-played stat');
+});
+test('a sport the catalogs do not hold gets empty rules, not a throw', () => {
+    assertEq(JSON.stringify(leagueTodayRules('fba', null)), JSON.stringify({
+        benchSlots: [], nonStartingSlots: [], gamesId: null, gameLengthMs: null, categoryIds: [], rateIds: []
+    }), 'basketball');
+});
+test('a league that did not answer says why: a refused session, or anything else', () => {
+    assertEq(failureReasonOf({ authRequired: true }), 'auth', 'a 401, 403 or 405 as fetchEspnJson marks it');
+    assertEq(failureReasonOf({ authRequired: false, message: 'HTTP 500' }), 'error', 'a server error');
+    assertEq(failureReasonOf(new Error('Failed to fetch')), 'error', 'offline');
+    assertEq(failureReasonOf(null), 'error', 'no error object at all');
+    assertEq(failureReasonOf({ authRequired: 'yes' }), 'error', 'truthy is not true');
+});
+test('an ESPN host is espn.com or a subdomain of it, never a string that contains the name', () => {
+    assertEq(isEspnHost('espn.com'), true, 'the bare domain');
+    assertEq(isEspnHost('.espn.com'), true, 'a cookie domain with its leading dot');
+    assertEq(isEspnHost('fantasy.espn.com'), true, 'a subdomain');
+    assertEq(isEspnHost('LM-API-READS.FANTASY.ESPN.COM'), true, 'case does not matter');
+    assertEq(isEspnHost('espn.com.evil.example'), false, 'the name as a prefix of another host');
+    assertEq(isEspnHost('notespn.com'), false, 'the name as a suffix without its own label');
+    assertEq(isEspnHost(''), false, 'nothing');
+    assertEq(isEspnHost(null), false, 'no domain at all');
+    assertEq(hostOf('https://fan.api.espn.com/apis/v2/fans/x?a=1'), 'fan.api.espn.com', 'the host off a url');
+    assertEq(hostOf('https://evil.example/?u=fan.api.espn.com'), 'evil.example', 'the name in a query is not the host');
+    assertEq(hostOf('not a url'), '', 'no url, no host');
+});
+test('the picker offers a sport its leagues, less the mock lobbies', () => {
+    const leagues = [
+        { key: 'fhl:1', sport: 'fhl', label: 'One', subType: 'NONE', drafted: true, inSeason: true },
+        { key: 'fhl:2', sport: 'fhl', label: 'Lobby', subType: 'MOCKDRAFT_LOBBY', drafted: false, inSeason: true },
+        { key: 'fhl:3', sport: 'fhl', label: 'Not drafted', subType: 'NONE', drafted: false, inSeason: true },
+        { key: 'fhl:4', sport: 'fhl', label: 'Old cache' },
+        { key: 'flb:5', sport: 'flb', label: 'Finished', subType: 'NONE', drafted: true, inSeason: false },
+        { key: 'ffl:6', sport: 'ffl', label: 'Football', subType: 'NONE', drafted: true, inSeason: true }
+    ];
+    assertEq(JSON.stringify(pickerLeaguesFor(leagues, 'fhl').map(l => l.key)), JSON.stringify(['fhl:1', 'fhl:3', 'fhl:4']), 'the lobby is gone; the undrafted league and the unmarked record stay');
+    assertEq(JSON.stringify(pickerLeaguesFor(leagues, 'flb').map(l => l.key)), JSON.stringify(['flb:5']), 'a finished season still belongs in the picker');
+    assertEq(JSON.stringify(pickerLeaguesFor(leagues, 'ffl').map(l => l.key)), JSON.stringify(['ffl:6']), 'the sport filter is unchanged');
+    assertEq(pickerLeaguesFor(leagues, 'fba').length, 0, 'a sport with none');
+    assertEq(pickerLeaguesFor(null, 'fhl').length, 0, 'no list');
+    assertEq(pickerLeaguesFor([{ key: 'fhl:9', sport: 'fhl', subType: 'MOCKDRAFT_LOBBY' }], 'fhl').length, 0, 'a sport whose only league is a lobby has none');
+});
+test('the game lengths are the three named', () => {
+    assertEq(JSON.stringify(GAME_LENGTH_MS), JSON.stringify({ fhl: 9900000, flb: 11700000, ffl: 12600000 }), '2 h 45, 3 h 15, 3 h 30');
 });
 
 const passed = results.filter(r => r.ok).length;

@@ -18,7 +18,7 @@
 </head>
 
 <body>
-    <!-- EVERY SUITE IN ONE PASS, because the alternative is opening twenty-three tabs by hand and golden rule 6 asks for all of them after any change they cover. Opening some of them is how a regression in a suite nobody thought was related survives a commit. IT RUNS THEM, IT DOES NOT REIMPLEMENT THEM. Each suite is loaded in an iframe exactly as a person would open it, and this page only reads the #summary element the suite writes. There is no second copy of any assertion here, so this page cannot disagree with a suite about whether the suite passed. A SUITE THAT IS NOT IN THIS TREE IS REPORTED, NOT WAITED FOR. Not every copy of this repository carries every suite - one is withheld wherever its fixture would publish private league data - so a list written here would 404 in those copies. Each file is probed with fetch first and marked ABSENT at once, which turns a hang into a fact. An absent suite is NOT counted as a pass; the header says how many were found. AND A SUITE THAT NEVER REPORTS IS A FAILURE, not a blank. A page stuck on "Running..." with an empty console is a module-level SyntaxError, which prints nothing anywhere - the failure mode this repo has been bitten by more than once. After the timeout it reads NO REPORT and the header goes red. -->
+    <!-- Every suite in one pass. Each suite is loaded in an iframe exactly as a person would open it, and this page only reads the #summary element the suite writes, so it cannot disagree with a suite about whether it passed. A suite not in this tree is probed with fetch, marked ABSENT at once and not counted as a pass. A suite that never reports reads NO REPORT after the timeout and the header goes red. -->
     <h1>every suite, one pass</h1>
     <div id="summary">Running...</div>
     <table id="results"></table>
@@ -26,16 +26,28 @@
 
     <script type="module">
         // Hardcoded because a static server has no directory listing to ask. Keep it sorted, and
-        // add a suite here in the same commit that adds the suite.
+        // add a suite here in the same commit that adds the suite. THE SUMMARY STATES HOW MANY THIS
+        // LIST HOLDS (B268 item 3b): eleven suites had gone missing from it unnoticed because a list
+        // that cannot be counted against the glob of tests/*.test.html shows no gap; compare that
+        // number with the glob after adding one.
         const SUITES = [
-            'coverage-band.test.html', 'coverage-model.test.html', 'draft-engine.test.html',
-            'features.test.html', 'images.test.html', 'leaderboard-model.test.html',
-            'leaderboard-row.test.html', 'leverage-engine.test.html', 'lineup-ground.test.html',
-            'matchup-rank.test.html', 'mock-lineup.test.html', 'off-night-band.test.html',
-            'player-rail.test.html', 'preseason-face.test.html', 'preseason-snapshot.test.html',
-            'projected-basis.test.html', 'projection-pacing.test.html', 'rank-engine.test.html',
-            'season-state.test.html', 'seasons-band.test.html', 'team-compare-band.test.html',
-            'team-compare.test.html', 'zip.test.html'
+            'archive.test.html', 'capture-all.test.html', 'category-spread.test.html', 'club-edge.test.html', 'coverage-band.test.html', 'coverage-model.test.html',
+            'draft-engine.test.html', 'draft-hindsight.test.html', 'draft-plan.test.html',
+            'draft-results.test.html', 'draft-strip.test.html', 'features.test.html',
+            'graphs.test.html', 'h2h-series.test.html', 'history.test.html', 'league-today.test.html',
+            'images.test.html', 'leaderboard-model.test.html', 'leaderboard-row.test.html',
+            'leverage-engine.test.html', 'lineup-ground.test.html', 'markdown-lite.test.html',
+            'matchup-face.test.html', 'matchup-odds.test.html', 'matchup-rank.test.html', 'matchup-sides.test.html', 'mock-lineup.test.html',
+            'night-schedule.test.html', 'odds-record.test.html', 'odds-runner.test.html', 'parse-all.test.html',
+            'pitching-starts.test.html',
+            'player-rail.test.html', 'playoff-odds.test.html', 'preseason-face.test.html',
+            'preseason-snapshot.test.html', 'profile-ribbon.test.html', 'projected-basis.test.html',
+            'projection-pacing.test.html', 'rank-engine.test.html', 'rankings-donut.test.html',
+            'rankings-file.test.html', 'request-log.test.html', 'room-feed.test.html',
+            'room-hook.test.html', 'room-reader.test.html', 'scout.test.html',
+            'season-state.test.html', 'seasons-band.test.html', 'sparkline.test.html',
+            'standings-movement.test.html', 'team-compare-band.test.html', 'team-compare.test.html',
+            'trade.test.html', 'zip.test.html'
         ];
 
         // features.test.html imports sixteen modules and is the slow one; the rest finish in well
@@ -50,9 +62,17 @@
 
         const row = (name, cls, text) => {
             rows.push({ name, cls, text });
-            resultsEl.innerHTML = rows
-                .map(r => `<tr><td>${r.name}</td><td class="${r.cls}">${r.text}</td></tr>`)
-                .join('');
+            // Built as nodes, not markup: the text comes from each suite's own page.
+            resultsEl.replaceChildren(...rows.map(r => {
+                const tr = document.createElement('tr');
+                const nameTd = document.createElement('td');
+                nameTd.textContent = r.name;
+                const textTd = document.createElement('td');
+                textTd.className = r.cls;
+                textTd.textContent = r.text;
+                tr.append(nameTd, textTd);
+                return tr;
+            }));
         };
 
         const present = async (file) => {
@@ -79,7 +99,16 @@
                     }
                     await new Promise(r => setTimeout(r, 100));
                 }
-                return { cls: 'fail', text: 'NO REPORT - a module-level SyntaxError prints nothing', ok: false, counted: true };
+                // NAMES WHAT HAPPENED, NEVER WHY. This used to assert a module-level SyntaxError,
+                // which is one cause of an empty summary and not the only one: a suite that is
+                // merely SLOW under load misses the same window and was then reported as a broken
+                // file. A reader who trusts the stated cause looks for a syntax error that is not
+                // there. The elapsed seconds are the fact that tells the two apart.
+                return {
+                    cls: 'fail', ok: false, counted: true,
+                    text: `NO REPORT after ${Math.round(REPORT_TIMEOUT_MS / 1000)}s - the suite never wrote a summary`
+                        + ' (a module-level SyntaxError prints nothing anywhere; so does a suite still running)'
+                };
             } finally {
                 fr.remove();
             }
@@ -92,14 +121,28 @@
                 row(file, 'absent', 'ABSENT from this tree');
                 continue;
             }
-            const r = await runOne(file);
+            // ONE RETRY, AND A RETRY THAT WORKED IS SAID OUT LOUD (B226 O81). The suites are not
+            // slow - measured, the slowest reports in 75ms against a 15,000ms ceiling, and six
+            // concurrent runs of this page moved that by one millisecond - so a red row here is
+            // not a timing problem. What CAN vary between two runs is a fixture fetch: three
+            // suites read a JSON file, and a fetch is the only failure mode in this page that is
+            // transient rather than deterministic. A retry separates the two for free - a syntax
+            // error fails twice and reads exactly as it does today - and the row says when the
+            // second attempt is what saved it, so a flaky fixture is VISIBLE rather than smoothed
+            // over. A retry that hid the flake would be worse than no retry.
+            let r = await runOne(file);
+            if (!r.ok) {
+                const again = await runOne(file);
+                if (again.ok) r = { ...again, text: `${again.text} (passed on retry)`, retried: true };
+                else r = again;
+            }
             if (r.ok) { green += 1; assertions += r.n || 0; } else { red += 1; }
             row(file, r.cls, r.text);
         }
 
         const found = green + red;
         summaryEl.textContent =
-            `${green}/${found} suites green, ${assertions} assertions` +
+            `${green}/${found} suites green, ${assertions} assertions (listing ${SUITES.length} suites)` +
             (absent ? `, ${absent} absent` : '') +
             (red ? ` - ${red} NOT GREEN` : ' ✓');
         summaryEl.className = red ? 'fail' : 'pass';
