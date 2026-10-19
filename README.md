@@ -1,4 +1,4 @@
-<p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball, Football and Hockey. Nothing leaves your browser."></p>
+<p align="center"><img src="readme-banner.png" alt="Leaguewise: league analytics for ESPN Fantasy Baseball, Football and Hockey. Your league data never leaves your browser."></p>
 
 <p align="center">A browser extension for Firefox, Firefox for Android and Chrome.</p>
 
